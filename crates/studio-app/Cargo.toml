@@ -39,7 +39,7 @@ cron = "0.15"
 chrono = { version = "0.4", features = ["serde"] }
 regex = "1"
 ignore = "0.4"
-dirs = "6"
+dirs = "7"
 which = "7"
 
 [dev-dependencies]
