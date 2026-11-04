@@ -1,0 +1,46 @@
+{
+  "name": "cdr",
+  "version": "0.1.0",
+  "description": "CDR: a provider-agnostic AI coding harness with a terminal workspace, a web app, and a native desktop app.",
+  "private": true,
+  "license": "MIT",
+  "author": "Rafael Birkmann",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/birkmann/cdr.git"
+  },
+  "homepage": "https://github.com/birkmann/cdr#readme",
+  "bugs": {
+    "url": "https://github.com/birkmann/cdr/issues"
+  },
+  "type": "module",
+  "packageManager": "pnpm@11.28.5",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -b packages/cli packages/react && pnpm --filter web build",
+    "build:packages": "tsc -b packages/cli packages/react",
+    "test": "vitest run",
+    "lint": "prettier --check \"packages/*/src/**/*.{ts,tsx}\" \"apps/*/src/**/*.{ts,tsx}\" && tsc -b packages/cli packages/react",
+    "format": "prettier --write \"packages/*/src/**/*.{ts,tsx}\" \"apps/*/src/**/*.{ts,tsx}\"",
+    "harness": "node packages/cli/dist/bin.js",
+    "eval": "node packages/cli/dist/bin.js eval",
+    "morrow": "node packages/cli/dist/bin.js",
+    "bundle:harness": "node scripts/bundle-harness.mjs",
+    "desktop:dev": "pnpm build:packages && pnpm bundle:harness && pnpm --filter desktop app:dev",
+    "desktop:build": "pnpm build:packages && pnpm bundle:harness && pnpm --filter desktop app:build",
+    "screenshots": "node scripts/screenshots/capture.mjs",
+    "release:version": "node scripts/version.mjs",
+    "release:cli": "pnpm build && pnpm bundle:harness && node scripts/package-cli.mjs",
+    "cdr": "node packages/cli/dist/bin.js"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "ajv": "^8.20.0",
+    "prettier": "^3.9.10",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.7",
+    "esbuild": "^0.25.12"
+  }
+}

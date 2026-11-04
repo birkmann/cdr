@@ -1,0 +1,32 @@
+{
+  "name": "@harness/server",
+  "version": "0.1.0",
+  "description": "HTTP + SSE server for the CDR harness.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/birkmann/cdr.git",
+    "directory": "packages/server"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@harness/core": "workspace:*",
+    "@harness/protocol": "workspace:*",
+    "@hono/node-server": "^1.19.18",
+    "hono": "^4.13.16"
+  }
+}

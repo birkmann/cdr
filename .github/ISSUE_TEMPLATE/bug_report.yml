@@ -1,0 +1,35 @@
+name: Bug report
+description: Something does not work as expected
+labels: [bug]
+body:
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where did it happen?
+      options: [Terminal (morrow), Web app (morrow serve), Desktop app (CDR Studio), SDK / API, Other]
+    validations: { required: true }
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations: { required: true }
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: "1. …\n2. …"
+  - type: input
+    id: model
+    attributes:
+      label: Provider and model
+      placeholder: deepseek/deepseek-flash, local/qwen3:8b, …
+  - type: input
+    id: env
+    attributes:
+      label: OS, Node.js version, CDR version or commit
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or events
+      description: Remove API keys and private code first. `morrow --json` prints the event stream.
+      render: text

@@ -1,0 +1,157 @@
+name: Release
+
+# Push a tag like v0.2.0 (see `pnpm release:version`) to build every app and publish a GitHub release.
+# Run it manually ("Run workflow") for a dry run: the same builds, uploaded as workflow artifacts only.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  DRY_RUN: ${{ github.event_name == 'workflow_dispatch' }}
+  TAG: ${{ github.ref_name }}
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  prepare:
+    name: Check version and create draft release
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - id: v
+        name: Version matches the tag
+        run: |
+          version=$(node scripts/version.mjs --check)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [[ "$version" == *-* ]]; then echo "prerelease=true" >> "$GITHUB_OUTPUT"; else echo "prerelease=false" >> "$GITHUB_OUTPUT"; fi
+      - name: Draft release with changelog notes
+        if: env.DRY_RUN != 'true'
+        run: |
+          node scripts/release-notes.mjs "${{ steps.v.outputs.version }}" > notes.md
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --notes-file notes.md
+          else
+            flags=(--draft --title "CDR $TAG" --notes-file notes.md --verify-tag)
+            if [[ "${{ steps.v.outputs.prerelease }}" == "true" ]]; then flags+=(--prerelease); fi
+            gh release create "$TAG" "${flags[@]}"
+          fi
+
+  cli:
+    name: Terminal and web app archive
+    needs: prepare
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build && pnpm test
+      - run: pnpm bundle:harness && node scripts/package-cli.mjs
+      - name: Upload to release
+        if: env.DRY_RUN != 'true'
+        run: gh release upload "$TAG" dist-release/*.tar.gz dist-release/*.zip --clobber
+      - uses: actions/upload-artifact@v4
+        if: env.DRY_RUN == 'true'
+        with:
+          name: cdr-cli
+          path: dist-release/*.*z*
+
+  desktop:
+    name: CDR Studio (${{ matrix.name }})
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            os: ubuntu-22.04 # older glibc keeps the AppImage compatible with more distributions
+            args: ""
+          - name: macOS
+            os: macos-14
+            args: --target universal-apple-darwin
+          - name: Windows
+            os: windows-2022
+            args: ""
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: Linux libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
+            libxdo-dev libssl-dev patchelf file build-essential
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ runner.os == 'macOS' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.os }}
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Build the harness bundled into the app
+        run: pnpm build:packages && pnpm bundle:harness
+      - name: Build CDR Studio
+        working-directory: crates/studio-app
+        run: |
+          bundles=""
+          # MSI versions must be numeric, so prereleases ship only the NSIS installer on Windows.
+          if [[ "$RUNNER_OS" == "Windows" && "${{ needs.prepare.outputs.prerelease }}" == "true" ]]; then bundles="--bundles nsis"; fi
+          node ../../apps/desktop/node_modules/@tauri-apps/cli/tauri.js build ${{ matrix.args }} $bundles
+      - name: Collect installers
+        run: |
+          mkdir -p upload
+          find target -path '*/release/bundle/*' -type f \
+            \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' -o -name '*.dmg' -o -name '*.msi' -o -name '*-setup.exe' \) \
+            -print0 | while IFS= read -r -d '' f; do
+              name=$(basename "$f" | tr ' ' '-')
+              cp "$f" "upload/$name"
+            done
+          ls -la upload
+          test -n "$(ls upload)"
+      - name: Upload to release
+        if: env.DRY_RUN != 'true'
+        run: gh release upload "$TAG" upload/* --clobber
+      - uses: actions/upload-artifact@v4
+        if: env.DRY_RUN == 'true'
+        with:
+          name: cdr-studio-${{ runner.os }}
+          path: upload/*
+
+  publish:
+    name: Publish release
+    needs: [prepare, cli, desktop]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checksums
+        run: |
+          mkdir assets && cd assets
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY"
+          sha256sum -- * > SHA256SUMS.txt
+          gh release upload "$TAG" SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" --clobber
+      - name: Publish
+        run: gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false

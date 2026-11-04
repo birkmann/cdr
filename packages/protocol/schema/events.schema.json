@@ -1,0 +1,2004 @@
+{
+  "$ref": "#/definitions/HarnessEvent",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "AttachmentInfo": {
+      "additionalProperties": false,
+      "description": "Metadata of a stored attachment (saved under <project>/.harness/attachments/).",
+      "properties": {
+        "kind": {
+          "enum": [
+            "image",
+            "text",
+            "binary"
+          ],
+          "type": "string"
+        },
+        "mimeType": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "description": "Path relative to the project root.",
+          "type": "string"
+        },
+        "size": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "mimeType",
+        "size",
+        "path",
+        "kind"
+      ],
+      "type": "object"
+    },
+    "ChatMessage": {
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "content": {
+              "type": "string"
+            },
+            "role": {
+              "const": "system",
+              "type": "string"
+            }
+          },
+          "required": [
+            "role",
+            "content"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "content": {
+              "type": "string"
+            },
+            "images": {
+              "items": {
+                "$ref": "#/definitions/ImagePart"
+              },
+              "type": "array"
+            },
+            "role": {
+              "const": "user",
+              "type": "string"
+            }
+          },
+          "required": [
+            "role",
+            "content"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "content": {
+              "type": "string"
+            },
+            "reasoning": {
+              "type": "string"
+            },
+            "role": {
+              "const": "assistant",
+              "type": "string"
+            },
+            "toolCalls": {
+              "items": {
+                "$ref": "#/definitions/ToolCall"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "role",
+            "content"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "content": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "role": {
+              "const": "tool",
+              "type": "string"
+            },
+            "toolCallId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "role",
+            "toolCallId",
+            "name",
+            "content"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "CriterionResult": {
+      "additionalProperties": false,
+      "description": "Result of checking one acceptance criterion (autonomous workflow review).",
+      "properties": {
+        "criterion": {
+          "type": "string"
+        },
+        "evidence": {
+          "type": "string"
+        },
+        "met": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "criterion",
+        "met"
+      ],
+      "type": "object"
+    },
+    "Finding": {
+      "additionalProperties": false,
+      "properties": {
+        "file": {
+          "type": "string"
+        },
+        "issue": {
+          "type": "string"
+        },
+        "line": {
+          "type": "number"
+        },
+        "severity": {
+          "enum": [
+            "blocking",
+            "major",
+            "minor",
+            "nit"
+          ],
+          "type": "string"
+        },
+        "suggestion": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "severity",
+        "issue"
+      ],
+      "type": "object"
+    },
+    "HarnessEvent": {
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "goalId": {
+              "description": "Set when this session runs an autonomous goal.",
+              "type": "string"
+            },
+            "models": {
+              "additionalProperties": false,
+              "properties": {
+                "executor": {
+                  "type": "string"
+                },
+                "planner": {
+                  "type": "string"
+                },
+                "reviewer": {
+                  "type": "string"
+                },
+                "summarizer": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "parentSessionId": {
+              "description": "Set when this session is a subagent spawned by another session.",
+              "type": "string"
+            },
+            "permissionMode": {
+              "enum": [
+                "ask",
+                "auto",
+                "yolo"
+              ],
+              "type": "string"
+            },
+            "projectPath": {
+              "type": "string"
+            },
+            "reasoningEffort": {
+              "$ref": "#/definitions/ReasoningEffort"
+            },
+            "sandbox": {
+              "description": "The project is a harness-managed sandbox workspace.",
+              "type": "boolean"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "session.created",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            },
+            "workflow": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "projectPath",
+            "seq",
+            "sessionId",
+            "ts",
+            "type",
+            "v",
+            "workflow"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "models": {
+              "additionalProperties": false,
+              "properties": {
+                "executor": {
+                  "type": "string"
+                },
+                "planner": {
+                  "type": "string"
+                },
+                "reviewer": {
+                  "type": "string"
+                },
+                "summarizer": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "permissionMode": {
+              "enum": [
+                "ask",
+                "auto",
+                "yolo"
+              ],
+              "type": "string"
+            },
+            "reasoningEffort": {
+              "$ref": "#/definitions/ReasoningEffort"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "session.settings",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "seq",
+            "sessionId",
+            "ts",
+            "type",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "commit": {
+              "type": "boolean"
+            },
+            "continuedFrom": {
+              "type": "number"
+            },
+            "noPlan": {
+              "type": "boolean"
+            },
+            "runId": {
+              "type": "string"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "task": {
+              "type": "string"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "run.start",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            },
+            "workflow": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "runId",
+            "seq",
+            "sessionId",
+            "task",
+            "ts",
+            "type",
+            "v",
+            "workflow"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "agent": {
+              "type": "string"
+            },
+            "phase": {
+              "$ref": "#/definitions/Phase"
+            },
+            "round": {
+              "type": "number"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "phase.start",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "phase",
+            "seq",
+            "sessionId",
+            "ts",
+            "type",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "ok": {
+              "type": "boolean"
+            },
+            "phase": {
+              "$ref": "#/definitions/Phase"
+            },
+            "round": {
+              "type": "number"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "phase.end",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "phase",
+            "seq",
+            "sessionId",
+            "ts",
+            "type",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "agent": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "role": {
+              "enum": [
+                "assistant",
+                "user"
+              ],
+              "type": "string"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "message.start",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "id",
+            "role",
+            "seq",
+            "sessionId",
+            "ts",
+            "type",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "message.delta",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "id",
+            "seq",
+            "sessionId",
+            "text",
+            "ts",
+            "type",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "reasoning.delta",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "id",
+            "seq",
+            "sessionId",
+            "text",
+            "ts",
+            "type",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "attachments": {
+              "items": {
+                "$ref": "#/definitions/AttachmentInfo"
+              },
+              "type": "array"
+            },
+            "id": {
+              "type": "string"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "message.end",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "id",
+            "seq",
+            "sessionId",
+            "text",
+            "ts",
+            "type",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "args": {},
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "tool.call",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "args",
+            "id",
+            "name",
+            "seq",
+            "sessionId",
+            "ts",
+            "type",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "diff": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "ok": {
+              "type": "boolean"
+            },
+            "output": {
+              "type": "string"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "truncated": {
+              "type": "boolean"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "tool.result",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "ok",
+            "output",
+            "seq",
+            "sessionId",
+            "ts",
+            "type",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "args": {},
+            "id": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string"
+            },
+            "risk": {
+              "$ref": "#/definitions/Risk"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "tool": {
+              "type": "string"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "permission.request",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "args",
+            "id",
+            "risk",
+            "seq",
+            "sessionId",
+            "tool",
+            "ts",
+            "type",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "auto": {
+              "type": "boolean"
+            },
+            "decision": {
+              "$ref": "#/definitions/PermissionDecision"
+            },
+            "id": {
+              "type": "string"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "permission.resolved",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "decision",
+            "id",
+            "seq",
+            "sessionId",
+            "ts",
+            "type",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "options": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "question",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "id",
+            "seq",
+            "sessionId",
+            "text",
+            "ts",
+            "type",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "answer": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "question.answered",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "answer",
+            "id",
+            "seq",
+            "sessionId",
+            "ts",
+            "type",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "markdown": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "plan.proposed",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "id",
+            "markdown",
+            "path",
+            "seq",
+            "sessionId",
+            "ts",
+            "type",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "decision": {
+              "$ref": "#/definitions/PlanDecision"
+            },
+            "feedback": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "markdown": {
+              "type": "string"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "plan.decision",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "decision",
+            "id",
+            "seq",
+            "sessionId",
+            "ts",
+            "type",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "items": {
+              "items": {
+                "$ref": "#/definitions/TodoItem"
+              },
+              "type": "array"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "todo.update",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "items",
+            "seq",
+            "sessionId",
+            "ts",
+            "type",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "attempt": {
+              "type": "number"
+            },
+            "command": {
+              "type": "string"
+            },
+            "exitCode": {
+              "type": "number"
+            },
+            "kind": {
+              "type": "string"
+            },
+            "output": {
+              "type": "string"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "verify.result",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "attempt",
+            "command",
+            "exitCode",
+            "kind",
+            "output",
+            "seq",
+            "sessionId",
+            "ts",
+            "type",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "findings": {
+              "items": {
+                "$ref": "#/definitions/Finding"
+              },
+              "type": "array"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "review.findings",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "findings",
+            "seq",
+            "sessionId",
+            "ts",
+            "type",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "cost": {
+              "type": "number"
+            },
+            "inputTokens": {
+              "type": "number"
+            },
+            "model": {
+              "type": "string"
+            },
+            "outputTokens": {
+              "type": "number"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "usage",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "inputTokens",
+            "outputTokens",
+            "seq",
+            "sessionId",
+            "ts",
+            "type",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "agent": {
+              "type": "string"
+            },
+            "message": {
+              "$ref": "#/definitions/ChatMessage"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "context.append",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "agent",
+            "message",
+            "seq",
+            "sessionId",
+            "ts",
+            "type",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "agent": {
+              "type": "string"
+            },
+            "messages": {
+              "items": {
+                "$ref": "#/definitions/ChatMessage"
+              },
+              "type": "array"
+            },
+            "reason": {
+              "type": "string"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "context.replace",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "agent",
+            "messages",
+            "reason",
+            "seq",
+            "sessionId",
+            "ts",
+            "type",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "fact": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            },
+            "scope": {
+              "enum": [
+                "project",
+                "user"
+              ],
+              "type": "string"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "memory.saved",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "fact",
+            "path",
+            "scope",
+            "seq",
+            "sessionId",
+            "ts",
+            "type",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "preview.ready",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "path",
+            "seq",
+            "sessionId",
+            "ts",
+            "type",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "status": {
+              "$ref": "#/definitions/SessionStatus"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "status",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "seq",
+            "sessionId",
+            "status",
+            "ts",
+            "type",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "level": {
+              "enum": [
+                "debug",
+                "info",
+                "warn"
+              ],
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "log",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "level",
+            "message",
+            "seq",
+            "sessionId",
+            "ts",
+            "type",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "message": {
+              "type": "string"
+            },
+            "recoverable": {
+              "type": "boolean"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "error",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "message",
+            "recoverable",
+            "seq",
+            "sessionId",
+            "ts",
+            "type",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "reportPath": {
+              "type": "string"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "status": {
+              "$ref": "#/definitions/RunStatus"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "done",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "seq",
+            "sessionId",
+            "status",
+            "ts",
+            "type",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "agentId": {
+              "type": "string"
+            },
+            "branch": {
+              "type": "string"
+            },
+            "isolation": {
+              "enum": [
+                "shared",
+                "worktree"
+              ],
+              "type": "string"
+            },
+            "parentToolCallId": {
+              "description": "The parent's spawn_agent tool call.",
+              "type": "string"
+            },
+            "role": {
+              "type": "string"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "task": {
+              "type": "string"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "agent.spawned",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            },
+            "worktree": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "agentId",
+            "isolation",
+            "parentToolCallId",
+            "role",
+            "seq",
+            "sessionId",
+            "task",
+            "ts",
+            "type",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "agentId": {
+              "type": "string"
+            },
+            "phase": {
+              "$ref": "#/definitions/Phase"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "status": {
+              "$ref": "#/definitions/SessionStatus"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "agent.status",
+              "type": "string"
+            },
+            "usage": {
+              "additionalProperties": false,
+              "properties": {
+                "cost": {
+                  "type": "number"
+                },
+                "inputTokens": {
+                  "type": "number"
+                },
+                "outputTokens": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "inputTokens",
+                "outputTokens"
+              ],
+              "type": "object"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "agentId",
+            "seq",
+            "sessionId",
+            "status",
+            "ts",
+            "type",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "agentId": {
+              "type": "string"
+            },
+            "diffStat": {
+              "type": "string"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "status": {
+              "$ref": "#/definitions/RunStatus"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "agent.finished",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "agentId",
+            "seq",
+            "sessionId",
+            "status",
+            "summary",
+            "ts",
+            "type",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "branch": {
+              "type": "string"
+            },
+            "goalId": {
+              "type": "string"
+            },
+            "round": {
+              "type": "number"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "goal.started",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            },
+            "worktree": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "branch",
+            "goalId",
+            "round",
+            "seq",
+            "sessionId",
+            "title",
+            "ts",
+            "type",
+            "v",
+            "worktree"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "commit": {
+              "type": "string"
+            },
+            "criteria": {
+              "items": {
+                "$ref": "#/definitions/CriterionResult"
+              },
+              "type": "array"
+            },
+            "goalId": {
+              "type": "string"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "step": {
+              "type": "string"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "goal.checkpoint",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "commit",
+            "criteria",
+            "goalId",
+            "seq",
+            "sessionId",
+            "step",
+            "summary",
+            "ts",
+            "type",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "detail": {
+              "type": "string"
+            },
+            "goalId": {
+              "type": "string"
+            },
+            "reason": {
+              "enum": [
+                "budget",
+                "permission",
+                "user",
+                "error"
+              ],
+              "type": "string"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "goal.paused",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "goalId",
+            "reason",
+            "seq",
+            "sessionId",
+            "ts",
+            "type",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "branch": {
+              "type": "string"
+            },
+            "goalId": {
+              "type": "string"
+            },
+            "prUrl": {
+              "type": "string"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "status": {
+              "$ref": "#/definitions/RunStatus"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "goal.finished",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "branch",
+            "goalId",
+            "seq",
+            "sessionId",
+            "status",
+            "summary",
+            "ts",
+            "type",
+            "v"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ImagePart": {
+      "additionalProperties": false,
+      "description": "An image sent to the model (base64, no data: prefix).",
+      "properties": {
+        "data": {
+          "type": "string"
+        },
+        "mimeType": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "mimeType",
+        "data"
+      ],
+      "type": "object"
+    },
+    "PermissionDecision": {
+      "enum": [
+        "allow",
+        "deny",
+        "always"
+      ],
+      "type": "string"
+    },
+    "Phase": {
+      "enum": [
+        "plan",
+        "execute",
+        "verify",
+        "review",
+        "finish"
+      ],
+      "type": "string"
+    },
+    "PlanDecision": {
+      "enum": [
+        "approve",
+        "reject",
+        "edit"
+      ],
+      "type": "string"
+    },
+    "ReasoningEffort": {
+      "description": "auto leaves provider defaults unchanged; none disables thinking where supported.",
+      "enum": [
+        "auto",
+        "none",
+        "low",
+        "medium",
+        "high",
+        "max"
+      ],
+      "type": "string"
+    },
+    "Risk": {
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "type": "string"
+    },
+    "RunStatus": {
+      "enum": [
+        "success",
+        "failed",
+        "cancelled"
+      ],
+      "type": "string"
+    },
+    "SessionStatus": {
+      "enum": [
+        "idle",
+        "running",
+        "waiting",
+        "done",
+        "failed",
+        "cancelled"
+      ],
+      "type": "string"
+    },
+    "TodoItem": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "in_progress",
+            "done"
+          ],
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "text",
+        "status"
+      ],
+      "type": "object"
+    },
+    "ToolCall": {
+      "additionalProperties": false,
+      "description": "Message format used internally (OpenAI chat-completions shaped).",
+      "properties": {
+        "arguments": {
+          "description": "Raw JSON string of arguments as produced by the model.",
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "arguments"
+      ],
+      "type": "object"
+    }
+  }
+}

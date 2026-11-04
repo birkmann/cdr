@@ -1,0 +1,228 @@
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createClient, type HarnessClient, type SessionInfo, type ReasoningEffort } from "@harness/client";
+import { isTheme, type Theme } from "./themes";
+
+export type PermissionMode = "ask" | "auto" | "yolo";
+
+export interface Settings {
+  reasoningEffort: ReasoningEffort;
+  server: string; // "" = same origin
+  token: string;
+  name: string;
+  permissionMode: PermissionMode;
+  model: string; // "" = config default
+  recentProjects: string[];
+  theme: Theme;
+}
+
+const KEY = "harness.settings.v1";
+const DEFAULTS: Settings = {
+  reasoningEffort: "auto",
+  server: "",
+  token: "",
+  name: "",
+  permissionMode: "ask",
+  model: "",
+  recentProjects: [],
+  theme: "dark",
+};
+
+function loadSettings(): Settings {
+  try {
+    const raw = localStorage.getItem(KEY);
+    const settings = raw ? { ...DEFAULTS, ...JSON.parse(raw) } : { ...DEFAULTS };
+    if (!["auto", "none", "low", "medium", "high", "max"].includes(settings.reasoningEffort))
+      settings.reasoningEffort = "auto";
+    if (!isTheme(settings.theme)) settings.theme = DEFAULTS.theme;
+    return settings;
+  } catch {
+    return { ...DEFAULTS };
+  }
+}
+
+function saveSettings(s: Settings) {
+  try {
+    localStorage.setItem(KEY, JSON.stringify(s));
+  } catch {
+    /* private mode */
+  }
+}
+
+/** Pick up `#token=...&server=...` from the login link printed by `harness serve`. */
+function consumeHashLogin(s: Settings): Settings {
+  const hash = window.location.hash.slice(1);
+  if (!hash.includes("token=")) return s;
+  const p = new URLSearchParams(hash);
+  const next = { ...s, token: p.get("token") ?? s.token, server: p.get("server") ?? s.server };
+  history.replaceState(null, "", window.location.pathname + window.location.search);
+  return next;
+}
+
+// ------------------------------------------------------------------ routing (history API)
+
+export type Route =
+  | { name: "home"; projectPath?: string }
+  | { name: "chat"; id: string; preview?: boolean }
+  | { name: "projects" | "chats" | "artifacts" };
+
+function parseRoute(): Route {
+  const m = /^\/c\/([\w.-]+)/.exec(window.location.pathname);
+  if (m)
+    return { name: "chat", id: m[1], preview: new URLSearchParams(window.location.search).has("preview") };
+  const name = window.location.pathname.slice(1);
+  if (name === "projects" || name === "chats" || name === "artifacts") return { name };
+  return {
+    name: "home",
+    projectPath: new URLSearchParams(window.location.search).get("project") || undefined,
+  };
+}
+
+// ------------------------------------------------------------------ context
+
+interface AppState {
+  settings: Settings;
+  updateSettings(patch: Partial<Settings>): void;
+  client: HarnessClient | null;
+  connection: "unknown" | "ok" | "unauthorized" | "offline";
+  sessions: SessionInfo[];
+  refreshSessions(): Promise<void>;
+  route: Route;
+  navigate(route: Route): void;
+  rememberProject(path: string): void;
+}
+
+const Ctx = createContext<AppState | null>(null);
+
+export function AppProvider({ children }: { children: ReactNode }) {
+  const [settings, setSettings] = useState<Settings>(() => {
+    const s = consumeHashLogin(loadSettings());
+    saveSettings(s);
+    return s;
+  });
+  const [connection, setConnection] = useState<AppState["connection"]>("unknown");
+  const [sessions, setSessions] = useState<SessionInfo[]>([]);
+  const [route, setRoute] = useState<Route>(parseRoute);
+
+  const updateSettings = useCallback((patch: Partial<Settings>) => {
+    setSettings((s) => {
+      const next = { ...s, ...patch };
+      saveSettings(next);
+      return next;
+    });
+  }, []);
+
+  const client = useMemo(
+    () =>
+      settings.token
+        ? createClient({ baseUrl: settings.server.replace(/\/$/, ""), token: settings.token })
+        : null,
+    [settings.server, settings.token],
+  );
+
+  const refreshSessions = useCallback(async () => {
+    if (!client) {
+      setConnection("unauthorized");
+      return;
+    }
+    try {
+      setSessions(await client.listSessions());
+      setConnection("ok");
+    } catch (e) {
+      const status = (e as { status?: number }).status;
+      setConnection(status === 401 ? "unauthorized" : "offline");
+    }
+  }, [client]);
+
+  useEffect(() => {
+    void refreshSessions();
+    const t = setInterval(() => void refreshSessions(), 5000);
+    return () => clearInterval(t);
+  }, [refreshSessions]);
+
+  useEffect(() => {
+    const onPop = () => setRoute(parseRoute());
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  useEffect(() => {
+    const system = window.matchMedia("(prefers-color-scheme: dark)");
+    const apply = () => {
+      document.documentElement.dataset.theme =
+        settings.theme === "system" ? (system.matches ? "dark" : "light") : settings.theme;
+      document
+        .querySelector('meta[name="theme-color"]')
+        ?.setAttribute("content", getComputedStyle(document.documentElement).getPropertyValue("--bg").trim());
+    };
+    apply();
+    system.addEventListener("change", apply);
+    return () => system.removeEventListener("change", apply);
+  }, [settings.theme]);
+
+  const navigate = useCallback((r: Route) => {
+    const path =
+      r.name === "chat"
+        ? `/c/${r.id}${r.preview ? "?preview=1" : ""}`
+        : r.name === "home"
+          ? r.projectPath
+            ? `/?project=${encodeURIComponent(r.projectPath)}`
+            : "/"
+          : `/${r.name}`;
+    if (window.location.pathname + window.location.search !== path) history.pushState(null, "", path);
+    setRoute(r);
+  }, []);
+
+  const rememberProject = useCallback(
+    (path: string) => {
+      updateSettings({
+        recentProjects: [path, ...settings.recentProjects.filter((p) => p !== path)].slice(0, 12),
+      });
+    },
+    [settings.recentProjects, updateSettings],
+  );
+
+  const value: AppState = {
+    settings,
+    updateSettings,
+    client,
+    connection,
+    sessions,
+    refreshSessions,
+    route,
+    navigate,
+    rememberProject,
+  };
+  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+}
+
+export function useApp(): AppState {
+  const v = useContext(Ctx);
+  if (!v) throw new Error("useApp outside AppProvider");
+  return v;
+}
+
+/** Projects known from settings and from existing sessions, most recent first. */
+export function useKnownProjects(): string[] {
+  const { settings, sessions } = useApp();
+  return useMemo(() => {
+    const out: string[] = [];
+    const live = sessions.filter((s) => !s.projectMissing && !s.sandbox).map((s) => s.projectPath);
+    const sandboxes = new Set(sessions.filter((s) => s.sandbox).map((s) => s.projectPath));
+    for (const p of [...settings.recentProjects, ...live])
+      if (p && !out.includes(p) && !sandboxes.has(p)) out.push(p);
+    return out;
+  }, [settings.recentProjects, sessions]);
+}
+
+export function basename(p: string): string {
+  return p.split("/").filter(Boolean).pop() ?? p;
+}
+
+export function relativeTime(iso?: string): string {
+  if (!iso) return "";
+  const d = Date.now() - new Date(iso).getTime();
+  if (d < 60_000) return "just now";
+  if (d < 3_600_000) return `${Math.floor(d / 60_000)} min ago`;
+  if (d < 86_400_000) return `${Math.floor(d / 3_600_000)} h ago`;
+  return new Date(iso).toLocaleDateString();
+}

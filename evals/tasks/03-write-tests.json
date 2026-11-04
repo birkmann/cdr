@@ -1,0 +1,11 @@
+{
+  "id": "03-write-tests",
+  "fixture": "node-calc",
+  "task": "Add unit tests for subtract and clamp in test/calc.test.js (including clamp's lower and upper bounds). Also fix any existing failing test by correcting the implementation.",
+  "checks": [
+    { "type": "command", "command": "npm test" },
+    { "type": "fileContains", "path": "test/calc.test.js", "pattern": "subtract\\(" },
+    { "type": "fileContains", "path": "test/calc.test.js", "pattern": "clamp\\(" },
+    { "type": "command", "command": "test $(grep -c 'clamp(' test/calc.test.js) -ge 2" }
+  ]
+}

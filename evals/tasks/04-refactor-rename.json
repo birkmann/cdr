@@ -1,0 +1,11 @@
+{
+  "id": "04-refactor-rename",
+  "fixture": "node-api",
+  "task": "Rename the exported function `handle` in src/app.js to `handleRequest` and update every usage (including tests). Behaviour must not change.",
+  "checks": [
+    { "type": "command", "command": "npm test" },
+    { "type": "fileContains", "path": "src/app.js", "pattern": "export function handleRequest\\(" },
+    { "type": "command", "command": "! grep -rnE '\\bhandle\\(' src test" },
+    { "type": "onlyChanged", "paths": ["src/**", "test/**"] }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "name": "@harness/client",
+  "version": "0.1.0",
+  "description": "Browser and Node client for the CDR harness API, with a headless session reducer.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/birkmann/cdr.git",
+    "directory": "packages/client"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@harness/protocol": "workspace:*"
+  }
+}

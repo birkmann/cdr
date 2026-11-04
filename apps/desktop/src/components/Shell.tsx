@@ -1,0 +1,190 @@
+import { useEffect, useState, type ReactNode } from "react";
+import { useStudio, type SideView } from "../store";
+import type { HarnessStatus } from "../ipc";
+import { Splitter, usePanelSize } from "./Splitter";
+import { IAgents, IBranch, IFiles, IGoal, ISearch, ISettings } from "./icons";
+import { TitleBar } from "./TitleBar";
+import { Explorer } from "./Explorer";
+import { SearchPanel } from "./SearchPanel";
+import { GitPanel } from "./GitPanel";
+import { AgentsView } from "./AgentsView";
+import { GoalsView } from "./GoalsView";
+import { EditorArea } from "./EditorArea";
+import { BottomPanel } from "./BottomPanel";
+import { AgentPanel } from "./AgentPanel";
+import { StatusBar } from "./StatusBar";
+import { Palette, type PaletteMode } from "./Palette";
+import { SettingsDialog } from "./SettingsDialog";
+import { CloneDialog } from "./CloneDialog";
+import { Toasts } from "./Toasts";
+import { useApprovals } from "./approvals";
+import { DialogHost } from "./dialogs";
+
+const VIEWS: { id: SideView; label: string; icon: ReactNode; key: string }[] = [
+  { id: "files", label: "Explorer", icon: <IFiles size={22} />, key: "Ctrl+Shift+E" },
+  { id: "search", label: "Search", icon: <ISearch size={22} />, key: "Ctrl+Shift+F" },
+  { id: "git", label: "Source control", icon: <IBranch size={22} />, key: "Ctrl+Shift+G" },
+  { id: "agents", label: "Agents", icon: <IAgents size={22} />, key: "Ctrl+Shift+A" },
+  { id: "goals", label: "Goals", icon: <IGoal size={22} />, key: "Ctrl+Shift+J" },
+];
+
+export type Dialog = null | "settings" | "clone";
+
+export function Shell({ harnessStatus }: { harnessStatus: HarnessStatus }) {
+  const st = useStudio();
+  const [palette, setPalette] = useState<PaletteMode | null>(null);
+  const [dialog, setDialog] = useState<Dialog>(null);
+  const sideSize = usePanelSize("morrow.studio.side", 280, 180, 560);
+  const agentSize = usePanelSize("morrow.studio.agent", 460, 320, 900);
+  const bottomSize = usePanelSize("morrow.studio.bottom", 260, 120, 700);
+  const approvals = useApprovals();
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const mod = e.ctrlKey || e.metaKey;
+      if (!mod) return;
+      const k = e.key.toLowerCase();
+      const toggleSide = (v: SideView) => st.setSide(st.side === v ? null : v);
+      if (e.shiftKey && k === "p") return void (e.preventDefault(), setPalette("commands"));
+      if (!e.shiftKey && k === "p") return void (e.preventDefault(), setPalette("files"));
+      if (!e.shiftKey && k === "k") return void (e.preventDefault(), setPalette("commands"));
+      if (e.shiftKey && k === "e") return void (e.preventDefault(), toggleSide("files"));
+      if (e.shiftKey && k === "f") return void (e.preventDefault(), st.setSide("search"));
+      if (e.shiftKey && k === "g") return void (e.preventDefault(), toggleSide("git"));
+      if (e.shiftKey && k === "a") return void (e.preventDefault(), toggleSide("agents"));
+      if (e.shiftKey && k === "j") return void (e.preventDefault(), toggleSide("goals"));
+      if (!e.shiftKey && k === "b") return void (e.preventDefault(), st.setSide(st.side ? null : "files"));
+      if (!e.shiftKey && (k === "`" || k === "j")) {
+        e.preventDefault();
+        return st.setBottom(st.bottom === "terminal" ? null : "terminal");
+      }
+      if (!e.shiftKey && k === "l") return void (e.preventDefault(), st.setAgentPanel(!st.agentPanel));
+      if (!e.shiftKey && k === "i") {
+        e.preventDefault();
+        st.setAgentPanel(true);
+        return;
+      }
+      if (!e.shiftKey && k === ",") return void (e.preventDefault(), setDialog("settings"));
+      if (!e.shiftKey && k === "w" && st.active) return void (e.preventDefault(), st.closeTab(st.active));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [st]);
+
+  useEffect(() => {
+    document.title = st.workspace ? `${st.workspace.name} — CDR Studio` : "CDR Studio";
+  }, [st.workspace]);
+
+  return (
+    <div className="st-app">
+      <TitleBar
+        onPalette={() => setPalette("commands")}
+        onClone={() => setDialog("clone")}
+        approvals={approvals.length}
+      />
+      <div className="st-body">
+        <nav className="st-activity" aria-label="Views">
+          {VIEWS.map((v) => (
+            <button
+              key={v.id}
+              className={`st-activity-btn ${st.side === v.id ? "on" : ""}`}
+              title={`${v.label} (${v.key})`}
+              aria-label={v.label}
+              aria-pressed={st.side === v.id}
+              onClick={() => st.setSide(st.side === v.id ? null : v.id)}
+            >
+              {v.icon}
+              {v.id === "git" && !!st.status?.files.length && (
+                <span className="st-badge">
+                  {st.status.files.length > 99 ? "99+" : st.status.files.length}
+                </span>
+              )}
+              {v.id === "agents" && approvals.length > 0 && (
+                <span className="st-badge warn">{approvals.length}</span>
+              )}
+            </button>
+          ))}
+          <div className="st-grow" />
+          <button
+            className="st-activity-btn"
+            title="Settings (Ctrl+,)"
+            aria-label="Settings"
+            onClick={() => setDialog("settings")}
+          >
+            <ISettings size={22} />
+          </button>
+        </nav>
+        {st.side && (
+          <>
+            <aside className="st-side" style={{ width: sideSize.size }}>
+              {st.side === "files" && <Explorer onClone={() => setDialog("clone")} />}
+              {st.side === "search" && <SearchPanel />}
+              {st.side === "git" && <GitPanel />}
+              {st.side === "agents" && <AgentsView approvals={approvals} />}
+              {st.side === "goals" && <GoalsView />}
+            </aside>
+            <Splitter
+              direction="vertical"
+              size={sideSize.size}
+              onChange={sideSize.set}
+              onReset={sideSize.reset}
+              label="Resize side bar"
+            />
+          </>
+        )}
+        <main className="st-center">
+          <div className="st-editor-wrap">
+            <EditorArea onClone={() => setDialog("clone")} onPalette={() => setPalette("files")} />
+          </div>
+          {st.bottom && (
+            <>
+              <Splitter
+                direction="horizontal"
+                size={bottomSize.size}
+                onChange={bottomSize.set}
+                onReset={bottomSize.reset}
+                invert
+                label="Resize panel"
+              />
+              <div className="st-bottom" style={{ height: bottomSize.size }}>
+                <BottomPanel />
+              </div>
+            </>
+          )}
+        </main>
+        {st.agentPanel && (
+          <>
+            <Splitter
+              direction="vertical"
+              size={agentSize.size}
+              onChange={agentSize.set}
+              onReset={agentSize.reset}
+              invert
+              label="Resize agent panel"
+            />
+            <aside className="st-agent" style={{ width: agentSize.size }}>
+              <AgentPanel />
+            </aside>
+          </>
+        )}
+      </div>
+      <StatusBar harnessStatus={harnessStatus} onSettings={() => setDialog("settings")} />
+      {palette && (
+        <Palette
+          mode={palette}
+          onClose={() => setPalette(null)}
+          onDialog={(d) => {
+            setPalette(null);
+            setDialog(d);
+          }}
+        />
+      )}
+      {dialog === "settings" && (
+        <SettingsDialog onClose={() => setDialog(null)} harnessStatus={harnessStatus} />
+      )}
+      {dialog === "clone" && <CloneDialog onClose={() => setDialog(null)} />}
+      <Toasts />
+      <DialogHost />
+    </div>
+  );
+}

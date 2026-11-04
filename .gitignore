@@ -1,0 +1,23 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+.harness/sessions/
+.harness/locks/
+evals/results/*.json
+!evals/results/.gitkeep
+coverage/
+opencode-dev/
+
+# Rust
+/target
+crates/studio-app/gen/
+dist-harness/
+apps/desktop/e2e/*.png
+
+# Local notes and editor settings
+_input/
+.vscode/
+dist-release/

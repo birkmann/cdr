@@ -1,0 +1,34 @@
+{
+  "name": "@harness/protocol",
+  "version": "0.1.0",
+  "description": "Shared event, config and API types (and JSON schemas) for the CDR harness.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/birkmann/cdr.git",
+    "directory": "packages/protocol"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./schema/events.json": "./schema/events.schema.json",
+    "./schema/config.json": "./schema/config.schema.json"
+  },
+  "files": [
+    "dist",
+    "schema"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "schema": "ts-json-schema-generator -p src/index.ts -t HarnessEvent --no-type-check -o schema/events.schema.json && ts-json-schema-generator -p src/index.ts -t HarnessConfig --no-type-check -o schema/config.schema.json"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "ts-json-schema-generator": "^2.9.0"
+  }
+}

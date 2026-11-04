@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="680" viewBox="0 0 1200 680">
+<title>CDR visual identity: code, build, ship</title>
+<rect width="1200" height="680" rx="20" fill="#1c1c1c"/>
+<g font-family="monospace" fill="#b8bbc2"><text x="56" y="60" font-size="14" letter-spacing="3">CDR / IDENTITY SYSTEM</text><text x="1030" y="60" font-size="14">01 — 2026</text></g>
+<path d="M56 88H1144" stroke="#4c4d50"/>
+<path d="M32 0H8L0 8V32L8 40H32V32H12L8 28V12L12 8H32Z M44 0H68L80 12V28L68 40H44ZM52 8V32H64L72 24V16L64 8Z M92 0H116L124 8V18L116 26L128 40H117L105 26H100V40H92ZM100 8V18H112L116 14V12L112 8Z" transform="translate(56 170) scale(3.7)" fill="#f4f4f5" fill-rule="evenodd"/>
+<text x="56" y="380" fill="#c8f56b" font-family="monospace" font-size="25">Code. Build. Ship.</text>
+<text x="56" y="422" fill="#b8bbc2" font-family="sans-serif" font-size="18">Your code. Your models. Your workspace.</text>
+<rect x="800" y="132" width="344" height="344" rx="24" fill="#c8f56b"/>
+<path d="M24 4H10L2 12V20L10 28H24V22H12L8 18V14L12 10H24ZM18 13H30V19H18Z" transform="translate(860 192) scale(7)" fill="#1c1c1c"/>
+<g font-family="monospace" font-size="13"><rect x="56" y="522" width="256" height="100" rx="10" fill="#c8f56b"/><text x="76" y="553" fill="#18220c">SIGNAL / LIME</text><text x="76" y="596" fill="#18220c">#C8F56B</text>
+<rect x="332" y="522" width="256" height="100" rx="10" fill="#37383a"/><text x="352" y="553" fill="#f4f4f5">SURFACE / STEEL</text><text x="352" y="596" fill="#f4f4f5">#37383A</text>
+<rect x="608" y="522" width="256" height="100" rx="10" fill="#f4f4f5"/><text x="628" y="553" fill="#1c1c1c">TYPE / CHALK</text><text x="628" y="596" fill="#1c1c1c">#F4F4F5</text>
+<rect x="884" y="522" width="260" height="100" rx="10" fill="#416514"/><text x="904" y="553" fill="#ffffff">LIGHT MODE / MOSS</text><text x="904" y="596" fill="#ffffff">#416514</text></g>
+</svg>

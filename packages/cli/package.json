@@ -1,0 +1,41 @@
+{
+  "name": "@harness/cli",
+  "version": "0.1.0",
+  "description": "The cdr command: terminal workspace, one-shot tasks, and the server.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/birkmann/cdr.git",
+    "directory": "packages/cli"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./tui": {
+      "types": "./dist/tui/index.d.ts",
+      "default": "./dist/tui/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@harness/protocol": "workspace:*",
+    "@harness/core": "workspace:*",
+    "@harness/server": "workspace:*",
+    "@harness/client": "workspace:*"
+  },
+  "bin": {
+    "cdr": "dist/bin.js",
+    "morrow": "dist/bin.js",
+    "harness": "dist/bin.js"
+  }
+}

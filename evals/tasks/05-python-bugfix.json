@@ -1,0 +1,9 @@
+{
+  "id": "05-python-bugfix",
+  "fixture": "py-text",
+  "task": "slugify() in textutils does not match its docstring and the tests fail. Fix the implementation; do not modify the tests.",
+  "checks": [
+    { "type": "command", "command": "python3 -m unittest discover -s tests -t ." },
+    { "type": "onlyChanged", "paths": ["textutils/**"] }
+  ]
+}

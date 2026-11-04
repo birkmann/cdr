@@ -1,0 +1,72 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "CDR Studio",
+  "mainBinaryName": "cdr-studio",
+  "version": "../../package.json",
+  "identifier": "dev.morrow.studio",
+  "build": {
+    "frontendDist": "../../apps/desktop/dist",
+    "devUrl": "http://127.0.0.1:5174",
+    "beforeDevCommand": "pnpm --filter desktop dev",
+    "beforeBuildCommand": "pnpm --filter desktop build"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "label": "main",
+        "title": "CDR Studio",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 900,
+        "minHeight": 560,
+        "dragDropEnabled": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self' ipc: http://ipc.localhost; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: http://127.0.0.1:*; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost http://127.0.0.1:*; frame-src http://127.0.0.1:*; worker-src 'self' blob:"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "DeveloperTool",
+    "shortDescription": "AI coding workspace",
+    "longDescription": "CDR Studio is a desktop coding workspace with an editor, Git client, terminals, subagents and autonomous goals, driven by the CDR harness.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "resources": {
+      "../../dist-harness/": "harness/"
+    },
+    "linux": {
+      "deb": {
+        "depends": [
+          "git",
+          "nodejs"
+        ]
+      },
+      "rpm": {
+        "depends": [
+          "git",
+          "nodejs"
+        ]
+      }
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    },
+    "macOS": {
+      "minimumSystemVersion": "11.0"
+    },
+    "publisher": "Rafael Birkmann",
+    "copyright": "\u00a9 2026 Rafael Birkmann. MIT License.",
+    "homepage": "https://github.com/birkmann/cdr"
+  }
+}

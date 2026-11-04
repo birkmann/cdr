@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta name="theme-color" content="#1c1c1c" />
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      // Apply the saved palette before the first paint.
+      try {
+        const theme = JSON.parse(localStorage.getItem("harness.settings.v1") || "{}").theme;
+        document.documentElement.dataset.theme = theme === "system"
+          ? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
+          : ["dark", "light", "midnight", "forest", "contrast"].includes(theme) ? theme : "dark";
+      } catch { document.documentElement.dataset.theme = "dark"; }
+    </script>
+    <title>CDR — Code. Build. Ship.</title>
+    <meta name="description" content="CDR is your personal coding workspace. Think, build, and explore with your own models — in the terminal and on the web." />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

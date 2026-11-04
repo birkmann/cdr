@@ -1,0 +1,17 @@
+[package]
+name = "studio-watch"
+description = "Gitignore-aware debounced file watching for CDR Studio"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+ignore = "0.4"
+notify = "8"
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+tempfile.workspace = true

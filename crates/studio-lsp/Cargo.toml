@@ -1,0 +1,20 @@
+[package]
+name = "studio-lsp"
+description = "Language server supervisor and JSON-RPC bridge for CDR Studio"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[[test]]
+name = "lsp"
+path = "tests/lsp.rs"
+harness = false

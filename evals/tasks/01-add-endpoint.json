@@ -1,0 +1,11 @@
+{
+  "id": "01-add-endpoint",
+  "fixture": "node-api",
+  "task": "Add a GET /hello endpoint that returns {\"message\":\"hello\"} with status 200, and add a test for it.",
+  "checks": [
+    { "type": "command", "command": "npm test" },
+    { "type": "command", "command": "node -e \"import('./src/app.js').then(m => { const r = m.handle('GET', '/hello'); if (r.status !== 200 || r.body.message !== 'hello') process.exit(1); })\"" },
+    { "type": "fileContains", "path": "test/app.test.js", "pattern": "/hello" },
+    { "type": "onlyChanged", "paths": ["src/**", "test/**"] }
+  ]
+}

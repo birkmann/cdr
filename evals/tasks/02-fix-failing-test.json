@@ -1,0 +1,10 @@
+{
+  "id": "02-fix-failing-test",
+  "fixture": "node-calc",
+  "task": "The test suite is failing. Find the bug and fix the implementation (do not change the tests).",
+  "checks": [
+    { "type": "command", "command": "npm test" },
+    { "type": "command", "command": "git diff --quiet HEAD -- test/" },
+    { "type": "onlyChanged", "paths": ["src/**"] }
+  ]
+}

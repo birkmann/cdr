@@ -1,0 +1,415 @@
+{
+  "$ref": "#/definitions/HarnessConfig",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "HarnessConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "agents": {
+          "additionalProperties": false,
+          "description": "Subagent limits (spawn_agent).",
+          "properties": {
+            "maxConcurrent": {
+              "description": "Concurrently running subagents per parent session (default 3).",
+              "type": "number"
+            },
+            "maxDepth": {
+              "description": "Maximum nesting depth; a session at this depth cannot spawn (default 2).",
+              "type": "number"
+            }
+          },
+          "type": "object"
+        },
+        "context": {
+          "additionalProperties": false,
+          "properties": {
+            "compactAt": {
+              "type": "number"
+            },
+            "keepRecent": {
+              "type": "number"
+            },
+            "maxToolOutput": {
+              "type": "number"
+            },
+            "repoMapDepth": {
+              "type": "number"
+            }
+          },
+          "type": "object"
+        },
+        "hooks": {
+          "$ref": "#/definitions/HooksConfig"
+        },
+        "limits": {
+          "additionalProperties": false,
+          "properties": {
+            "maxCost": {
+              "description": "Optional local per-run cost estimate using configured model prices. Omitted or 0 disables it; not the provider account balance.",
+              "type": "number"
+            },
+            "maxTokens": {
+              "description": "Optional local per-run total of input + output tokens across all calls. Omitted or 0 disables it; not a provider balance or context-window limit.",
+              "type": "number"
+            },
+            "maxTurns": {
+              "type": "number"
+            },
+            "timeoutMs": {
+              "description": "Active run time in milliseconds; excludes time waiting for human input.",
+              "type": "number"
+            }
+          },
+          "type": "object"
+        },
+        "mcpServers": {
+          "additionalProperties": {
+            "$ref": "#/definitions/McpServerConfig"
+          },
+          "type": "object"
+        },
+        "models": {
+          "additionalProperties": false,
+          "properties": {
+            "executor": {
+              "type": "string"
+            },
+            "planner": {
+              "type": "string"
+            },
+            "reviewer": {
+              "type": "string"
+            },
+            "summarizer": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "permissions": {
+          "$ref": "#/definitions/PermissionsConfig"
+        },
+        "providers": {
+          "additionalProperties": {
+            "$ref": "#/definitions/ProviderConfig"
+          },
+          "type": "object"
+        },
+        "reasoningEffort": {
+          "$ref": "#/definitions/ReasoningEffort"
+        },
+        "sandbox": {
+          "enum": [
+            "none",
+            "bwrap"
+          ],
+          "type": "string"
+        },
+        "sandboxNetwork": {
+          "description": "Allow network access inside the bwrap sandbox (package installs).",
+          "type": "boolean"
+        },
+        "temperature": {
+          "type": "number"
+        },
+        "verify": {
+          "$ref": "#/definitions/VerifyConfig"
+        },
+        "workflow": {
+          "type": "string"
+        },
+        "workflows": {
+          "additionalProperties": {
+            "$ref": "#/definitions/WorkflowDef"
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "providers",
+        "models"
+      ],
+      "type": "object"
+    },
+    "HooksConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "afterEdit": {
+          "description": "Shell command run after a successful write/patch; output is appended to the tool result.",
+          "type": "string"
+        },
+        "onStop": {
+          "description": "Shell command run when an agent run finishes.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "McpServerConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "args": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "command": {
+          "type": "string"
+        },
+        "env": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "ModelInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "contextWindow": {
+          "type": "number"
+        },
+        "inputPrice": {
+          "type": "number"
+        },
+        "maxTokens": {
+          "type": "number"
+        },
+        "outputPrice": {
+          "type": "number"
+        },
+        "reasoning": {
+          "type": "boolean"
+        },
+        "reasoningEfforts": {
+          "description": "Supported reasoning_effort values for an OpenAI-compatible model.",
+          "items": {
+            "description": "auto leaves provider defaults unchanged; none disables thinking where supported.",
+            "enum": [
+              "none",
+              "low",
+              "medium",
+              "high",
+              "max"
+            ],
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "tools": {
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "ModelRole": {
+      "enum": [
+        "executor",
+        "planner",
+        "reviewer",
+        "summarizer"
+      ],
+      "type": "string"
+    },
+    "PermissionsConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "bash": {
+          "additionalProperties": false,
+          "properties": {
+            "allow": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "deny": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        },
+        "mode": {
+          "enum": [
+            "ask",
+            "auto",
+            "yolo"
+          ],
+          "type": "string"
+        },
+        "tools": {
+          "additionalProperties": {
+            "enum": [
+              "allow",
+              "ask",
+              "deny"
+            ],
+            "type": "string"
+          },
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "Phase": {
+      "enum": [
+        "plan",
+        "execute",
+        "verify",
+        "review",
+        "finish"
+      ],
+      "type": "string"
+    },
+    "PhaseDef": {
+      "additionalProperties": false,
+      "properties": {
+        "gate": {
+          "type": "boolean"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ModelRole"
+            },
+            {
+              "type": "string"
+            }
+          ]
+        },
+        "phase": {
+          "$ref": "#/definitions/Phase"
+        },
+        "prompt": {
+          "type": "string"
+        },
+        "tools": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "phase"
+      ],
+      "type": "object"
+    },
+    "ProviderConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "apiKey": {
+          "type": "string"
+        },
+        "apiKeyEnv": {
+          "type": "string"
+        },
+        "baseURL": {
+          "type": "string"
+        },
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "models": {
+          "additionalProperties": {
+            "$ref": "#/definitions/ModelInfo"
+          },
+          "description": "Per-model overrides (context window, tool support, pricing per 1M tokens).",
+          "type": "object"
+        },
+        "type": {
+          "enum": [
+            "openai-compatible",
+            "anthropic",
+            "mock"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "type": "object"
+    },
+    "ReasoningEffort": {
+      "description": "auto leaves provider defaults unchanged; none disables thinking where supported.",
+      "enum": [
+        "auto",
+        "none",
+        "low",
+        "medium",
+        "high",
+        "max"
+      ],
+      "type": "string"
+    },
+    "VerifyConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "build": {
+          "type": "string"
+        },
+        "lint": {
+          "type": "string"
+        },
+        "maxAttempts": {
+          "type": "number"
+        },
+        "test": {
+          "type": "string"
+        },
+        "timeoutMs": {
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "WorkflowDef": {
+      "additionalProperties": false,
+      "properties": {
+        "commit": {
+          "type": "boolean"
+        },
+        "description": {
+          "type": "string"
+        },
+        "freshContextPerStep": {
+          "description": "Run each plan step in a fresh execute context.",
+          "type": "boolean"
+        },
+        "name": {
+          "type": "string"
+        },
+        "phases": {
+          "items": {
+            "$ref": "#/definitions/PhaseDef"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "phases"
+      ],
+      "type": "object"
+    }
+  }
+}

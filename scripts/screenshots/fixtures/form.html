@@ -1,0 +1,1230 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#ffffff" />
+    <title>Form — Everyday objects</title>
+    <style>
+      :root {
+        font-family: Arial, Helvetica, sans-serif;
+        color: #171717;
+        background: #fff;
+        font-synthesis: none;
+        --line: #d6d6d6;
+        --muted: #626262;
+        --orange: #d65300;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+      }
+      button,
+      input,
+      select {
+        font: inherit;
+        color: inherit;
+      }
+      button,
+      a,
+      select {
+        -webkit-tap-highlight-color: transparent;
+      }
+      button {
+        cursor: pointer;
+      }
+      button {
+        border: 0;
+        background: none;
+      }
+      a {
+        color: inherit;
+      }
+      button:focus-visible,
+      a:focus-visible,
+      select:focus-visible {
+        outline: 2px solid var(--orange);
+        outline-offset: 4px;
+      }
+      [hidden] {
+        display: none !important;
+      }
+      svg {
+        width: 24px;
+        height: 24px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.35;
+        stroke-linecap: square;
+        stroke-linejoin: miter;
+        flex: none;
+      }
+      button svg {
+        pointer-events: none;
+      }
+      .shell {
+        max-width: 1440px;
+        margin: auto;
+      }
+      .masthead {
+        height: 88px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 30px;
+      }
+      .menu-button {
+        display: flex;
+        gap: 14px;
+        align-items: center;
+        min-height: 44px;
+        padding: 0;
+      }
+      .wordmark {
+        font-size: 34px;
+        letter-spacing: -2px;
+        text-decoration: none;
+        font-weight: 500;
+      }
+      .desktop-links {
+        display: none;
+        gap: 32px;
+        font-size: 14px;
+      }
+      .collection-head {
+        padding: 32px 30px 22px;
+      }
+      h1 {
+        font-size: clamp(44px, 7.5vw, 88px);
+        font-weight: 400;
+        letter-spacing: -0.055em;
+        line-height: 1.02;
+        margin: 0 0 24px;
+        max-width: 850px;
+      }
+      .collection-intro {
+        display: flex;
+        align-items: end;
+        justify-content: space-between;
+        gap: 20px;
+      }
+      .collection-intro p {
+        font-size: 14px;
+        color: var(--muted);
+        line-height: 1.5;
+        margin: 0;
+        max-width: 270px;
+      }
+      .edition {
+        font-size: 12px;
+        color: var(--muted);
+        white-space: nowrap;
+      }
+      .toolbar {
+        margin: 0 30px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        min-height: 68px;
+        border-bottom: 1px solid var(--line);
+      }
+      .filter {
+        position: relative;
+        display: flex;
+        align-items: center;
+      }
+      .filter select {
+        appearance: none;
+        background: transparent;
+        border: 0;
+        padding: 12px 28px 12px 0;
+        cursor: pointer;
+        font-size: 15px;
+        min-height: 44px;
+      }
+      .filter svg {
+        position: absolute;
+        right: 2px;
+        width: 14px;
+        color: var(--orange);
+        pointer-events: none;
+      }
+      .bag-trigger {
+        position: relative;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-height: 44px;
+        padding: 8px 0 8px 12px;
+        font-size: 14px;
+      }
+      .bag-dot {
+        width: 7px;
+        height: 7px;
+        background: var(--orange);
+        border-radius: 50%;
+        position: absolute;
+        right: -2px;
+        top: 8px;
+      }
+      .bag-count {
+        font-variant-numeric: tabular-nums;
+      }
+      .catalogue {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+        padding: 12px 12px 40px;
+      }
+      .product {
+        min-width: 0;
+        position: relative;
+        background: #ededed;
+      }
+      .product:first-child {
+        grid-column: 1/-1;
+      }
+      .product-open {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        text-align: left;
+        padding: 0;
+      }
+      .product-media {
+        position: relative;
+        width: 100%;
+        aspect-ratio: 1;
+        overflow: hidden;
+        background: #ededed;
+      }
+      .product:first-child .product-media {
+        aspect-ratio: 1.65;
+      }
+      .product img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        mix-blend-mode: multiply;
+        display: block;
+        transition: transform 0.4s ease;
+      }
+      .product[data-id="sound"] img,
+      .product[data-id="camera"] img {
+        object-fit: contain;
+      }
+      .product[data-id="runner"] img {
+        object-position: center 53%;
+      }
+      .product-info {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 16px 14px 18px;
+        align-items: end;
+        width: 100%;
+        margin-top: auto;
+        line-height: 1.25;
+        font-size: 16px;
+        letter-spacing: -0.035em;
+      }
+      .product-info span {
+        display: block;
+      }
+      .product-kind {
+        color: var(--muted);
+        font-size: 13px;
+        letter-spacing: 0;
+        margin-top: 4px;
+      }
+      .price {
+        color: var(--muted);
+        white-space: nowrap;
+        font-size: 15px;
+        font-weight: 400;
+        letter-spacing: -0.02em;
+      }
+      .product:not(:first-child) .product-info {
+        flex-direction: column;
+        align-items: start;
+        gap: 8px;
+      }
+      .product-badge {
+        position: absolute;
+        left: 14px;
+        top: 14px;
+        font-size: 12px;
+        background: #fff;
+        padding: 4px 6px;
+        z-index: 1;
+      }
+      .view-arrow {
+        position: absolute;
+        right: 16px;
+        bottom: 16px;
+        background: #fff;
+        display: grid;
+        place-items: center;
+        width: 36px;
+        height: 36px;
+        color: var(--orange);
+        opacity: 0;
+        transition: opacity 0.2s;
+      }
+      .product-open:hover .view-arrow,
+      .product-open:focus-visible .view-arrow {
+        opacity: 1;
+      }
+      .product-open:hover img {
+        transform: scale(1.025);
+      }
+      .collection-foot {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        border-top: 1px solid var(--line);
+        padding: 22px 30px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .footer {
+        margin: 35px 30px 0;
+        border-top: 1px solid #171717;
+        padding: 25px 0 30px;
+      }
+      .footer-top {
+        display: flex;
+        align-items: start;
+        justify-content: space-between;
+        gap: 20px;
+      }
+      .footer h2 {
+        font-size: 28px;
+        letter-spacing: -1px;
+        line-height: 1.15;
+        font-weight: 400;
+        margin: 0;
+      }
+      .footer p {
+        font-size: 12px;
+        line-height: 1.6;
+        color: var(--muted);
+        max-width: 260px;
+        margin: 20px 0;
+      }
+      .footer details {
+        border-top: 1px solid var(--line);
+        font-size: 12px;
+        padding: 16px 0;
+      }
+      .footer summary {
+        cursor: pointer;
+      }
+      .credits {
+        line-height: 1.8;
+        margin-top: 12px;
+      }
+      .footer a {
+        text-underline-offset: 3px;
+      }
+      .empty {
+        padding: 40px;
+        grid-column: 1/-1;
+        color: var(--muted);
+      }
+      dialog {
+        border: 0;
+        padding: 0;
+        width: min(960px, calc(100% - 40px));
+        max-height: calc(100dvh - 40px);
+        color: inherit;
+        background: #fff;
+      }
+      dialog::backdrop {
+        background: #0008;
+      }
+      .dialog-head {
+        position: sticky;
+        top: 0;
+        z-index: 3;
+        background: #fff;
+        border-bottom: 1px solid var(--line);
+        height: 68px;
+        padding: 0 24px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .dialog-head button {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 0;
+      }
+      .dialog-head button svg {
+        width: 20px;
+        color: var(--orange);
+      }
+      .detail-layout {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+      }
+      .detail-photo {
+        background: #ededed;
+        display: flex;
+        align-items: center;
+        min-height: 350px;
+      }
+      .detail-photo img {
+        width: 100%;
+        aspect-ratio: 1;
+        object-fit: contain;
+        mix-blend-mode: multiply;
+      }
+      .detail-copy {
+        padding: 30px;
+      }
+      .detail-copy h2 {
+        font-size: 34px;
+        font-weight: 400;
+        line-height: 1.05;
+        letter-spacing: -1.4px;
+        margin: 0 0 12px;
+      }
+      .detail-price {
+        color: var(--muted);
+        font-size: 25px;
+        margin: 0 0 32px;
+      }
+      .option-label {
+        font-size: 14px;
+        margin: 0 0 12px;
+      }
+      .sizes {
+        display: flex;
+        gap: 8px;
+        margin: 0 0 28px;
+        flex-wrap: wrap;
+      }
+      .sizes button {
+        min-width: 44px;
+        height: 44px;
+        border: 1px solid var(--line);
+      }
+      .sizes button[aria-pressed="true"] {
+        border-color: var(--orange);
+        color: var(--orange);
+      }
+      .detail-copy details {
+        border-top: 1px solid var(--line);
+        padding: 17px 0;
+      }
+      .detail-copy summary {
+        display: flex;
+        justify-content: space-between;
+        cursor: pointer;
+        list-style: none;
+        font-size: 14px;
+      }
+      .detail-copy summary::after {
+        content: "+";
+      }
+      .detail-copy details[open] summary::after {
+        content: "−";
+      }
+      .detail-copy details p {
+        font-size: 14px;
+        line-height: 1.6;
+        color: var(--muted);
+      }
+      .primary {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        background: #171717;
+        color: #fff;
+        width: 100%;
+        min-height: 54px;
+        text-align: left;
+        padding: 14px 18px;
+        font-size: 15px;
+      }
+      .primary svg {
+        color: #ff8b39;
+        width: 20px;
+      }
+      .primary:disabled {
+        opacity: 0.4;
+        cursor: default;
+      }
+      .detail-note {
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.5;
+        margin: 20px 0 14px;
+      }
+      .bag-dialog {
+        max-width: 520px;
+      }
+      .bag-body {
+        padding: 24px;
+      }
+      .bag-line {
+        display: grid;
+        grid-template-columns: 84px 1fr;
+        gap: 18px;
+        border-bottom: 1px solid var(--line);
+        padding: 0 0 20px;
+        margin-bottom: 20px;
+      }
+      .bag-line img {
+        width: 84px;
+        height: 104px;
+        object-fit: cover;
+        background: #ededed;
+      }
+      .bag-line h3 {
+        font-size: 16px;
+        font-weight: 400;
+        margin: 0 0 5px;
+      }
+      .bag-line p {
+        color: var(--muted);
+        font-size: 13px;
+        margin: 0 0 10px;
+      }
+      .quantity {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+      .quantity button {
+        width: 32px;
+        height: 32px;
+        border: 1px solid var(--line);
+        font-size: 18px;
+      }
+      .line-top {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+      }
+      .remove {
+        font-size: 12px;
+        color: var(--muted);
+        text-decoration: underline;
+        margin-left: auto;
+        padding: 4px;
+      }
+      .total {
+        display: flex;
+        justify-content: space-between;
+        font-size: 20px;
+        padding: 8px 0 18px;
+        letter-spacing: -0.5px;
+      }
+      .bag-note {
+        font-size: 12px;
+        color: var(--muted);
+        line-height: 1.5;
+        margin: 0 0 24px;
+      }
+      .confirmation h2 {
+        font-weight: 400;
+        font-size: 32px;
+        letter-spacing: -1px;
+      }
+      .confirmation p {
+        line-height: 1.6;
+        color: var(--muted);
+      }
+      .nav-dialog {
+        max-width: 420px;
+      }
+      .nav-body {
+        padding: 20px 24px 40px;
+        display: grid;
+      }
+      .nav-body button {
+        text-align: left;
+        font-size: 28px;
+        font-weight: 400;
+        letter-spacing: -1px;
+        padding: 15px 0;
+        border-bottom: 1px solid var(--line);
+      }
+      .nav-body button span {
+        float: right;
+        color: var(--orange);
+      }
+      .nav-body p {
+        margin-top: 30px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .toast {
+        position: fixed;
+        left: 50%;
+        bottom: 24px;
+        transform: translateX(-50%);
+        background: #171717;
+        color: #fff;
+        padding: 14px 20px;
+        z-index: 20;
+        font-size: 14px;
+        max-width: calc(100% - 32px);
+        box-shadow: 0 3px 12px #0002;
+        white-space: nowrap;
+      }
+      @media (min-width: 760px) {
+        .masthead {
+          padding: 0 42px;
+          height: 100px;
+        }
+        .desktop-links {
+          display: flex;
+        }
+        .menu-button span {
+          display: none;
+        }
+        .collection-head {
+          padding: 50px 42px 24px;
+        }
+        .collection-intro p {
+          max-width: none;
+        }
+        .toolbar {
+          margin: 0 42px;
+        }
+        .catalogue {
+          padding: 16px 24px 48px;
+          gap: 16px;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+        }
+        .product:first-child {
+          grid-column: span 2;
+          grid-row: span 2;
+        }
+        .product:first-child .product-media {
+          aspect-ratio: auto;
+          flex: 1;
+        }
+        .product:nth-child(4) {
+          grid-column: span 2;
+        }
+        .product:nth-child(4) .product-media {
+          aspect-ratio: 2.6;
+        }
+        .product-info {
+          padding: 20px;
+        }
+        .product:not(:first-child) .product-info {
+          flex-direction: row;
+          align-items: end;
+        }
+        .collection-foot {
+          padding: 26px 42px;
+        }
+        .footer {
+          margin: 45px 42px 0;
+        }
+        .footer h2 {
+          font-size: 44px;
+        }
+        .footer p {
+          max-width: 400px;
+        }
+      }
+      @media (max-width: 420px) {
+        .masthead {
+          padding: 0 22px;
+          height: 76px;
+        }
+        .menu-button span {
+          display: none;
+        }
+        .wordmark {
+          font-size: 30px;
+        }
+        .collection-head {
+          padding: 26px 22px 18px;
+        }
+        h1 {
+          font-size: 48px;
+          max-width: 270px;
+          margin-bottom: 18px;
+        }
+        .collection-intro p {
+          font-size: 13px;
+          max-width: 220px;
+        }
+        .edition {
+          display: none;
+        }
+        .toolbar {
+          margin: 0 22px;
+          min-height: 62px;
+        }
+        .catalogue {
+          padding: 10px 10px 30px;
+          gap: 8px;
+        }
+        .product:first-child .product-media {
+          aspect-ratio: 1.4;
+        }
+        .product-info {
+          font-size: 15px;
+          padding: 14px 12px;
+        }
+        .product-kind {
+          font-size: 12px;
+        }
+        .price {
+          font-size: 14px;
+        }
+        .collection-foot {
+          padding: 20px 22px;
+          font-size: 12px;
+        }
+        .footer {
+          margin: 25px 22px 0;
+        }
+        .footer h2 {
+          font-size: 25px;
+        }
+      }
+      @media (max-width: 700px) {
+        dialog {
+          width: 100%;
+          max-width: none;
+          height: 100dvh;
+          max-height: 100dvh;
+          margin: 0;
+        }
+        .detail-layout {
+          display: block;
+        }
+        .detail-photo {
+          min-height: 0;
+        }
+        .detail-photo img {
+          max-height: 42dvh;
+          aspect-ratio: 1.25;
+        }
+        .detail-copy {
+          padding: 24px;
+        }
+        .detail-copy h2 {
+          font-size: 32px;
+        }
+        .detail-price {
+          margin-bottom: 25px;
+        }
+        .bag-dialog,
+        .nav-dialog {
+          max-width: none;
+        }
+        .dialog-head {
+          padding: 0 22px;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        * {
+          transition: none !important;
+          scroll-behavior: auto !important;
+        }
+      }
+      .sizes {
+        display: grid;
+        grid-template-columns: repeat(7, minmax(0, 1fr));
+        gap: 4px;
+      }
+      .sizes button {
+        min-width: 0;
+        border: 0;
+        border-bottom: 1px solid var(--line);
+        font-size: 15px;
+      }
+      @media (max-width: 700px) {
+        .detail-copy {
+          padding-bottom: 155px;
+        }
+        .detail-actions {
+          position: fixed;
+          bottom: 0;
+          left: 0;
+          right: 0;
+          background: #fff;
+          padding: 12px 24px max(20px, env(safe-area-inset-bottom));
+          border-top: 1px solid var(--line);
+          z-index: 4;
+        }
+        .detail-actions .detail-note {
+          margin: 0 0 10px;
+        }
+      }
+      @media (min-width: 760px) {
+        .masthead {
+          height: 80px;
+        }
+        .collection-head {
+          padding-top: 24px;
+        }
+      }
+      @media (min-width: 760px) and (max-width: 1000px) {
+        .product:not(:first-child) .product-info {
+          flex-direction: column;
+          align-items: start;
+          gap: 8px;
+          padding: 14px;
+        }
+        .product-info {
+          font-size: 15px;
+        }
+        .product-kind {
+          font-size: 12px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <svg aria-hidden="true" style="position: absolute; width: 0; height: 0; overflow: hidden">
+      <defs>
+        <symbol id="i-menu" viewBox="0 0 24 24"><path d="M2 5h20M2 12h20M2 19h20" /></symbol>
+        <symbol id="i-bag" viewBox="0 0 24 24"><path d="M3 7h18v15H3zM8 7V5a4 4 0 0 1 8 0v2" /></symbol>
+        <symbol id="i-down" viewBox="0 0 24 24"><path d="m5 9 7 7 7-7" /></symbol>
+        <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M3 12h18m-6-6 6 6-6 6" /></symbol>
+        <symbol id="i-back" viewBox="0 0 24 24"><path d="M21 12H3m6-6-6 6 6 6" /></symbol>
+        <symbol id="i-plus" viewBox="0 0 24 24"><path d="M3 12h18M12 3v18" /></symbol>
+        <symbol id="i-close" viewBox="0 0 24 24"><path d="m5 5 14 14M5 19 19 5" /></symbol>
+      </defs>
+    </svg>
+    <div class="shell">
+      <header class="masthead">
+        <button class="menu-button" aria-label="Open menu">
+          <svg><use href="#i-menu" /></svg><span>Explore</span>
+        </button>
+        <nav class="desktop-links" aria-label="Collections">
+          <button data-category="All objects">Collection</button
+          ><button data-category="Carry">Bags & accessories</button
+          ><button data-category="Technology">Technology</button>
+        </nav>
+        <a class="wordmark" href="#" aria-label="Form home">Form</a>
+      </header>
+      <main>
+        <section class="collection-head">
+          <h1>Everyday objects</h1>
+          <div class="collection-intro">
+            <p>Footwear, carry &amp; technology.</p>
+            <span class="edition">Collection 01 / 2026</span>
+          </div>
+        </section>
+        <div class="toolbar">
+          <label class="filter"
+            ><select aria-label="Filter collection">
+              <option>All objects</option>
+              <option>Footwear</option>
+              <option>Technology</option>
+              <option>Carry</option></select
+            ><svg><use href="#i-down" /></svg></label
+          ><button class="bag-trigger" aria-label="Open bag">
+            <span class="bag-count">Bag (0)</span><svg><use href="#i-bag" /></svg
+            ><span class="bag-dot" hidden></span>
+          </button>
+        </div>
+        <div class="catalogue" aria-label="Products"></div>
+        <div class="collection-foot">
+          <span>01—04 / The complete collection</span><span>Form / 2026</span>
+        </div>
+      </main>
+      <footer class="footer">
+        <div class="footer-top">
+          <h2>About<br />the collection.</h2>
+          <span class="wordmark">Form</span>
+        </div>
+        <p>
+          An interactive concept store. Products and prices are for demonstration; no orders or payments are
+          taken.
+        </p>
+        <details>
+          <summary>Photography & credits</summary>
+          <div class="credits" id="credits"></div>
+        </details>
+        <details>
+          <summary>Delivery & returns</summary>
+          <p>
+            This is a browser-local demo. Your bag is saved on this device. Checkout shows a sample
+            confirmation and does not submit an order.
+          </p>
+        </details>
+      </footer>
+    </div>
+    <dialog id="product-dialog" aria-labelledby="product-title">
+      <div class="dialog-head">
+        <button data-close="product-dialog" aria-label="Back to collection">
+          <svg><use href="#i-back" /></svg>Collection</button
+        ><button class="detail-bag" aria-label="View bag">
+          <svg><use href="#i-bag" /></svg>
+        </button>
+      </div>
+      <div id="product-content"></div>
+    </dialog>
+    <dialog id="bag-dialog" class="bag-dialog" aria-labelledby="bag-title">
+      <div class="dialog-head">
+        <span id="bag-title">Your bag</span
+        ><button data-close="bag-dialog" aria-label="Close bag">
+          <svg><use href="#i-close" /></svg>
+        </button>
+      </div>
+      <div class="bag-body"></div>
+    </dialog>
+    <dialog id="nav-dialog" class="nav-dialog" aria-labelledby="nav-title">
+      <div class="dialog-head">
+        <span id="nav-title">Explore Form</span
+        ><button data-close="nav-dialog" aria-label="Close menu">
+          <svg><use href="#i-close" /></svg>
+        </button>
+      </div>
+      <div class="nav-body">
+        <button data-category="All objects">All objects <span>↗</span></button
+        ><button data-category="Footwear">Footwear <span>↗</span></button
+        ><button data-category="Technology">Technology <span>↗</span></button
+        ><button data-category="Carry">Bags & accessories <span>↗</span></button>
+        <p>Collection 01 / 2026<br /><br />Four objects. One everyday collection.</p>
+      </div>
+    </dialog>
+    <div class="toast" role="status" hidden></div>
+    <script>
+      const photos = [
+        {
+          query: "sneakers white background",
+          id: "LG88A2XgIXY",
+          description: "A white and orange athletic sneaker floating against a plain light background",
+          urls: {
+            raw: "https://images.unsplash.com/photo-1600185365926-3a2ce3cdb9eb?ixid=M3w5Mzk1NzF8MHwxfHNlYXJjaHw0fHxzbmVha2VycyUyMHdoaXRlJTIwYmFja2dyb3VuZHxlbnwwfHx8fDE3OTM4Mjk0Nzl8MA&ixlib=rb-4.1.0",
+            full: "https://images.unsplash.com/photo-1600185365926-3a2ce3cdb9eb?crop=entropy&cs=srgb&fm=jpg&ixid=M3w5Mzk1NzF8MHwxfHNlYXJjaHw0fHxzbmVha2VycyUyMHdoaXRlJTIwYmFja2dyb3VuZHxlbnwwfHx8fDE3OTM4Mjk0Nzl8MA&ixlib=rb-4.1.0&q=85",
+            regular:
+              "https://images.unsplash.com/photo-1600185365926-3a2ce3cdb9eb?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5Mzk1NzF8MHwxfHNlYXJjaHw0fHxzbmVha2VycyUyMHdoaXRlJTIwYmFja2dyb3VuZHxlbnwwfHx8fDE3OTM4Mjk0Nzl8MA&ixlib=rb-4.1.0&q=80&w=1080",
+            small:
+              "https://images.unsplash.com/photo-1600185365926-3a2ce3cdb9eb?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5Mzk1NzF8MHwxfHNlYXJjaHw0fHxzbmVha2VycyUyMHdoaXRlJTIwYmFja2dyb3VuZHxlbnwwfHx8fDE3OTM4Mjk0Nzl8MA&ixlib=rb-4.1.0&q=80&w=400",
+            thumb:
+              "https://images.unsplash.com/photo-1600185365926-3a2ce3cdb9eb?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5Mzk1NzF8MHwxfHNlYXJjaHw0fHxzbmVha2VycyUyMHdoaXRlJTIwYmFja2dyb3VuZHxlbnwwfHx8fDE3OTM4Mjk0Nzl8MA&ixlib=rb-4.1.0&q=80&w=200",
+            small_s3:
+              "https://s3.us-west-2.amazonaws.com/images.unsplash.com/small/photo-1600185365926-3a2ce3cdb9eb",
+          },
+          links: {
+            self: "https://api.unsplash.com/photos/white-and-orange-athletic-sneaker-LG88A2XgIXY",
+            html: "https://unsplash.com/photos/white-and-orange-athletic-sneaker-LG88A2XgIXY",
+            download:
+              "https://unsplash.com/photos/LG88A2XgIXY/download?ixid=M3w5Mzk1NzF8MHwxfHNlYXJjaHw0fHxzbmVha2VycyUyMHdoaXRlJTIwYmFja2dyb3VuZHxlbnwwfHx8fDE3OTM4Mjk0Nzl8MA",
+            download_location:
+              "https://api.unsplash.com/photos/LG88A2XgIXY/download?ixid=M3w5Mzk1NzF8MHwxfHNlYXJjaHw0fHxzbmVha2VycyUyMHdoaXRlJTIwYmFja2dyb3VuZHxlbnwwfHx8fDE3OTM4Mjk0Nzl8MA",
+          },
+          user: { name: "Luis Felipe Lins", url: "https://unsplash.com/@felipefxo" },
+        },
+        {
+          query: "headphones product white background",
+          id: "wjEcEOI8rWg",
+          description: "a pair of headphones sitting on top of a table",
+          urls: {
+            raw: "https://images.unsplash.com/photo-1711397996179-bd4bd28c78e6?ixid=M3w5Mzk1NzF8MHwxfHNlYXJjaHwyfHxoZWFkcGhvbmVzJTIwcHJvZHVjdCUyMHdoaXRlJTIwYmFja2dyb3VuZHxlbnwwfHx8fDE3OTM4Mjk0Nzh8MA&ixlib=rb-4.1.0",
+            full: "https://images.unsplash.com/photo-1711397996179-bd4bd28c78e6?crop=entropy&cs=srgb&fm=jpg&ixid=M3w5Mzk1NzF8MHwxfHNlYXJjaHwyfHxoZWFkcGhvbmVzJTIwcHJvZHVjdCUyMHdoaXRlJTIwYmFja2dyb3VuZHxlbnwwfHx8fDE3OTM4Mjk0Nzh8MA&ixlib=rb-4.1.0&q=85",
+            regular:
+              "https://images.unsplash.com/photo-1711397996179-bd4bd28c78e6?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5Mzk1NzF8MHwxfHNlYXJjaHwyfHxoZWFkcGhvbmVzJTIwcHJvZHVjdCUyMHdoaXRlJTIwYmFja2dyb3VuZHxlbnwwfHx8fDE3OTM4Mjk0Nzh8MA&ixlib=rb-4.1.0&q=80&w=1080",
+            small:
+              "https://images.unsplash.com/photo-1711397996179-bd4bd28c78e6?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5Mzk1NzF8MHwxfHNlYXJjaHwyfHxoZWFkcGhvbmVzJTIwcHJvZHVjdCUyMHdoaXRlJTIwYmFja2dyb3VuZHxlbnwwfHx8fDE3OTM4Mjk0Nzh8MA&ixlib=rb-4.1.0&q=80&w=400",
+            thumb:
+              "https://images.unsplash.com/photo-1711397996179-bd4bd28c78e6?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5Mzk1NzF8MHwxfHNlYXJjaHwyfHxoZWFkcGhvbmVzJTIwcHJvZHVjdCUyMHdoaXRlJTIwYmFja2dyb3VuZHxlbnwwfHx8fDE3OTM4Mjk0Nzh8MA&ixlib=rb-4.1.0&q=80&w=200",
+            small_s3:
+              "https://s3.us-west-2.amazonaws.com/images.unsplash.com/small/photo-1711397996179-bd4bd28c78e6",
+          },
+          links: {
+            self: "https://api.unsplash.com/photos/a-pair-of-headphones-sitting-on-top-of-a-table-wjEcEOI8rWg",
+            html: "https://unsplash.com/photos/a-pair-of-headphones-sitting-on-top-of-a-table-wjEcEOI8rWg",
+            download:
+              "https://unsplash.com/photos/wjEcEOI8rWg/download?ixid=M3w5Mzk1NzF8MHwxfHNlYXJjaHwyfHxoZWFkcGhvbmVzJTIwcHJvZHVjdCUyMHdoaXRlJTIwYmFja2dyb3VuZHxlbnwwfHx8fDE3OTM4Mjk0Nzh8MA",
+            download_location:
+              "https://api.unsplash.com/photos/wjEcEOI8rWg/download?ixid=M3w5Mzk1NzF8MHwxfHNlYXJjaHwyfHxoZWFkcGhvbmVzJTIwcHJvZHVjdCUyMHdoaXRlJTIwYmFja2dyb3VuZHxlbnwwfHx8fDE3OTM4Mjk0Nzh8MA",
+          },
+          user: { name: "Jason Mitrione", url: "https://unsplash.com/@jasonmphoto" },
+        },
+        {
+          query: "camera product white background",
+          id: "pWhFcl-LvXI",
+          description: "A black camera on a white background",
+          urls: {
+            raw: "https://images.unsplash.com/photo-1722842179218-d7cec2a72e5d?ixid=M3w5Mzk1NzF8MHwxfHNlYXJjaHwzfHxjYW1lcmElMjBwcm9kdWN0JTIwd2hpdGUlMjBiYWNrZ3JvdW5kfGVufDB8fHx8MTc5MzgyOTQ3OXww&ixlib=rb-4.1.0",
+            full: "https://images.unsplash.com/photo-1722842179218-d7cec2a72e5d?crop=entropy&cs=srgb&fm=jpg&ixid=M3w5Mzk1NzF8MHwxfHNlYXJjaHwzfHxjYW1lcmElMjBwcm9kdWN0JTIwd2hpdGUlMjBiYWNrZ3JvdW5kfGVufDB8fHx8MTc5MzgyOTQ3OXww&ixlib=rb-4.1.0&q=85",
+            regular:
+              "https://images.unsplash.com/photo-1722842179218-d7cec2a72e5d?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5Mzk1NzF8MHwxfHNlYXJjaHwzfHxjYW1lcmElMjBwcm9kdWN0JTIwd2hpdGUlMjBiYWNrZ3JvdW5kfGVufDB8fHx8MTc5MzgyOTQ3OXww&ixlib=rb-4.1.0&q=80&w=1080",
+            small:
+              "https://images.unsplash.com/photo-1722842179218-d7cec2a72e5d?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5Mzk1NzF8MHwxfHNlYXJjaHwzfHxjYW1lcmElMjBwcm9kdWN0JTIwd2hpdGUlMjBiYWNrZ3JvdW5kfGVufDB8fHx8MTc5MzgyOTQ3OXww&ixlib=rb-4.1.0&q=80&w=400",
+            thumb:
+              "https://images.unsplash.com/photo-1722842179218-d7cec2a72e5d?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5Mzk1NzF8MHwxfHNlYXJjaHwzfHxjYW1lcmElMjBwcm9kdWN0JTIwd2hpdGUlMjBiYWNrZ3JvdW5kfGVufDB8fHx8MTc5MzgyOTQ3OXww&ixlib=rb-4.1.0&q=80&w=200",
+            small_s3:
+              "https://s3.us-west-2.amazonaws.com/images.unsplash.com/small/photo-1722842179218-d7cec2a72e5d",
+          },
+          links: {
+            self: "https://api.unsplash.com/photos/a-black-camera-on-a-white-background-pWhFcl-LvXI",
+            html: "https://unsplash.com/photos/a-black-camera-on-a-white-background-pWhFcl-LvXI",
+            download:
+              "https://unsplash.com/photos/pWhFcl-LvXI/download?ixid=M3w5Mzk1NzF8MHwxfHNlYXJjaHwzfHxjYW1lcmElMjBwcm9kdWN0JTIwd2hpdGUlMjBiYWNrZ3JvdW5kfGVufDB8fHx8MTc5MzgyOTQ3OXww",
+            download_location:
+              "https://api.unsplash.com/photos/pWhFcl-LvXI/download?ixid=M3w5Mzk1NzF8MHwxfHNlYXJjaHwzfHxjYW1lcmElMjBwcm9kdWN0JTIwd2hpdGUlMjBiYWNrZ3JvdW5kfGVufDB8fHx8MTc5MzgyOTQ3OXww",
+          },
+          user: { name: "James Jeremy Beckers", url: "https://unsplash.com/@jerrografie" },
+        },
+        {
+          query: "backpack product white background",
+          id: "VDow9qDDMKc",
+          description: "white and black leather handbag",
+          urls: {
+            raw: "https://images.unsplash.com/photo-1596273501899-336404ed1701?ixid=M3w5Mzk1NzF8MHwxfHNlYXJjaHwxfHxiYWNrcGFjayUyMHByb2R1Y3QlMjB3aGl0ZSUyMGJhY2tncm91bmR8ZW58MHx8fHwxNzkzODI5NDc4fDA&ixlib=rb-4.1.0",
+            full: "https://images.unsplash.com/photo-1596273501899-336404ed1701?crop=entropy&cs=srgb&fm=jpg&ixid=M3w5Mzk1NzF8MHwxfHNlYXJjaHwxfHxiYWNrcGFjayUyMHByb2R1Y3QlMjB3aGl0ZSUyMGJhY2tncm91bmR8ZW58MHx8fHwxNzkzODI5NDc4fDA&ixlib=rb-4.1.0&q=85",
+            regular:
+              "https://images.unsplash.com/photo-1596273501899-336404ed1701?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5Mzk1NzF8MHwxfHNlYXJjaHwxfHxiYWNrcGFjayUyMHByb2R1Y3QlMjB3aGl0ZSUyMGJhY2tncm91bmR8ZW58MHx8fHwxNzkzODI5NDc4fDA&ixlib=rb-4.1.0&q=80&w=1080",
+            small:
+              "https://images.unsplash.com/photo-1596273501899-336404ed1701?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5Mzk1NzF8MHwxfHNlYXJjaHwxfHxiYWNrcGFjayUyMHByb2R1Y3QlMjB3aGl0ZSUyMGJhY2tncm91bmR8ZW58MHx8fHwxNzkzODI5NDc4fDA&ixlib=rb-4.1.0&q=80&w=400",
+            thumb:
+              "https://images.unsplash.com/photo-1596273501899-336404ed1701?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5Mzk1NzF8MHwxfHNlYXJjaHwxfHxiYWNrcGFjayUyMHByb2R1Y3QlMjB3aGl0ZSUyMGJhY2tncm91bmR8ZW58MHx8fHwxNzkzODI5NDc4fDA&ixlib=rb-4.1.0&q=80&w=200",
+            small_s3:
+              "https://s3.us-west-2.amazonaws.com/images.unsplash.com/small/photo-1596273501899-336404ed1701",
+          },
+          links: {
+            self: "https://api.unsplash.com/photos/white-and-black-leather-handbag-VDow9qDDMKc",
+            html: "https://unsplash.com/photos/white-and-black-leather-handbag-VDow9qDDMKc",
+            download:
+              "https://unsplash.com/photos/VDow9qDDMKc/download?ixid=M3w5Mzk1NzF8MHwxfHNlYXJjaHwxfHxiYWNrcGFjayUyMHByb2R1Y3QlMjB3aGl0ZSUyMGJhY2tncm91bmR8ZW58MHx8fHwxNzkzODI5NDc4fDA",
+            download_location:
+              "https://api.unsplash.com/photos/VDow9qDDMKc/download?ixid=M3w5Mzk1NzF8MHwxfHNlYXJjaHwxfHxiYWNrcGFjayUyMHByb2R1Y3QlMjB3aGl0ZSUyMGJhY2tncm91bmR8ZW58MHx8fHwxNzkzODI5NDc4fDA",
+          },
+          user: { name: "K8", url: "https://unsplash.com/@_k8_" },
+        },
+      ];
+      const products = [
+        {
+          id: "runner",
+          name: "Everyday runner",
+          kind: "Footwear / Chalk & orange",
+          category: "Footwear",
+          price: 140,
+          photo: 0,
+          sizes: ["38", "39", "40", "41", "42", "43", "44"],
+          description:
+            "A lightweight everyday trainer in chalk white, finished with orange panels and a sculpted sole. A familiar shape, with just enough colour.",
+          details:
+            "Mesh upper. Cushioned sole. EU sizing. This sample product is part of the Form demo catalogue.",
+        },
+        {
+          id: "sound",
+          name: "Studio headphones",
+          kind: "Audio / Black",
+          category: "Technology",
+          price: 165,
+          photo: 1,
+          sizes: [],
+          description:
+            "Over-ear headphones for a quieter desk and a more focused listening session. A folding design with a padded headband and wired connection.",
+          details:
+            "Over-ear fit. Wired connection. Black finish. Product specifications and price are illustrative.",
+        },
+        {
+          id: "camera",
+          name: "Compact camera",
+          kind: "Photography / Graphite",
+          category: "Technology",
+          price: 690,
+          photo: 2,
+          sizes: [],
+          description:
+            "A compact companion for everyday photography. A tactile body, interchangeable lens mount and a tilting screen for a different perspective.",
+          details:
+            "Graphite finish. Camera body shown. This is a demonstration listing, not an offer for sale.",
+        },
+        {
+          id: "pack",
+          name: "Daypack",
+          kind: "Carry / Chalk",
+          category: "Carry",
+          price: 125,
+          photo: 3,
+          sizes: [],
+          description:
+            "A clean silhouette for the daily commute. The fold-over top, twin buckle straps and roomy main compartment keep the essentials together.",
+          details: "Chalk colour. Adjustable shoulder straps. Front pocket. Demonstration product.",
+        },
+      ];
+      const money = (n) =>
+        new Intl.NumberFormat("en-IE", {
+          style: "currency",
+          currency: "EUR",
+          maximumFractionDigits: 0,
+        }).format(n);
+      const icon = (name) => `<svg aria-hidden="true"><use href="#i-${name}"/></svg>`;
+      const storage = "form-demo.bag.v1";
+      let bag = [];
+      try {
+        const saved = JSON.parse(localStorage.getItem(storage) || "[]");
+        if (Array.isArray(saved))
+          bag = saved
+            .filter(
+              (x) =>
+                products.some(
+                  (p) => p.id === x.id && (p.sizes.length ? p.sizes.includes(x.size) : x.size === "One size"),
+                ) &&
+                Number.isInteger(x.qty) &&
+                x.qty > 0 &&
+                x.qty <= 99,
+            )
+            .map((x) => ({ id: x.id, size: x.size, qty: x.qty }));
+      } catch {}
+      let activeProduct = null,
+        selectedSize = "",
+        toastTimer;
+      const productDialog = document.querySelector("#product-dialog"),
+        bagDialog = document.querySelector("#bag-dialog"),
+        navDialog = document.querySelector("#nav-dialog");
+      function persist() {
+        try {
+          localStorage.setItem(storage, JSON.stringify(bag));
+        } catch {}
+        updateCount();
+      }
+      function updateCount() {
+        const count = bag.reduce((n, x) => n + x.qty, 0);
+        document.querySelector(".bag-count").textContent = `Bag (${count})`;
+        document.querySelector(".bag-dot").hidden = !count;
+      }
+      function toast(message) {
+        const el = document.querySelector(".toast");
+        el.textContent = message;
+        el.hidden = false;
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => (el.hidden = true), 2200);
+      }
+      function renderProducts() {
+        const category = document.querySelector("select").value;
+        document.querySelector(".catalogue").innerHTML = products
+          .filter((p) => category === "All objects" || p.category === category)
+          .map(
+            (p) =>
+              `<article class="product" data-id="${p.id}"><button class="product-open" data-product="${p.id}" aria-label="View ${p.name}"><div class="product-media"><img src="${photos[p.photo].urls.regular}" alt="${p.name}" loading="eager">${p.id === "runner" ? '<span class="product-badge">New release</span>' : ""}<span class="view-arrow">${icon("arrow")}</span></div><div class="product-info"><div><span>${p.name}</span><span class="product-kind">${p.kind}</span></div><span class="price">${money(p.price)}</span></div></button></article>`,
+          )
+          .join("");
+      }
+      function openProduct(id) {
+        activeProduct = products.find((p) => p.id === id);
+        if (!activeProduct) return;
+        selectedSize = activeProduct.sizes.length ? "" : "One size";
+        const p = activeProduct;
+        document.querySelector("#product-content").innerHTML =
+          `<div class="detail-layout"><div class="detail-photo"><img src="${photos[p.photo].urls.regular}" alt="${p.name}"></div><section class="detail-copy"><h2 id="product-title">${p.name}</h2><p class="detail-price">${money(p.price)}</p>${p.sizes.length ? `<p class="option-label">Size: <span id="selected-size">Select a size</span></p><div class="sizes" aria-label="Size">${p.sizes.map((s) => `<button data-size="${s}" aria-pressed="false" aria-label="Size ${s}">${s}</button>`).join("")}</div>` : '<p class="option-label">Colour: ' + p.kind.split(" / ")[1] + "</p>"}<details open><summary>Description</summary><p>${p.description}</p></details><details><summary>Details</summary><p>${p.details}</p></details><div class="detail-actions"><p class="detail-note">Demo product · No payment or delivery</p><button class="primary" id="add-to-bag" ${p.sizes.length ? "disabled" : ""}><span>${p.sizes.length ? "Select a size" : "Add to bag"}</span>${icon("plus")}</button></div></section></div>`;
+        productDialog.showModal();
+        productDialog.scrollTop = 0;
+      }
+      function renderBag() {
+        const body = document.querySelector(".bag-body");
+        body.innerHTML = bag.length
+          ? bag
+              .map((x, i) => {
+                const p = products.find((p) => p.id === x.id);
+                return `<div class="bag-line"><img src="${photos[p.photo].urls.small}" alt="${p.name}"><div><div class="line-top"><h3>${p.name}</h3><span class="price">${money(p.price * x.qty)}</span></div><p>${x.size === "One size" ? p.kind : "Size " + x.size}</p><div class="quantity"><button data-quantity="${i}" data-delta="-1" aria-label="Remove one ${p.name}">−</button><span>${x.qty}</span><button data-quantity="${i}" data-delta="1" aria-label="Add one ${p.name}">+</button><button class="remove" data-remove="${i}" aria-label="Remove ${p.name} from bag">Remove</button></div></div></div>`;
+              })
+              .join("") +
+            `<div class="total"><span>Total</span><span>${money(bag.reduce((n, x) => n + products.find((p) => p.id === x.id).price * x.qty, 0))}</span></div><p class="bag-note">Saved on this device. This demo checkout does not place an order or take payment.</p><button class="primary" id="checkout">Try demo checkout ${icon("arrow")}</button>`
+          : '<p>Your bag is empty.</p><p class="bag-note">Explore the collection to find your first object.</p><button class="primary" data-close="bag-dialog">Continue browsing ' +
+            icon("arrow") +
+            "</button>";
+      }
+      function openBag() {
+        productDialog.close();
+        renderBag();
+        bagDialog.showModal();
+      }
+      document.addEventListener("click", (e) => {
+        const button = e.target.closest("button");
+        if (!button) return;
+        if (button.dataset.close) {
+          document.getElementById(button.dataset.close).close();
+          return;
+        }
+        if (button.dataset.product) {
+          openProduct(button.dataset.product);
+          return;
+        }
+        if (button.dataset.category) {
+          document.querySelector("select").value = button.dataset.category;
+          renderProducts();
+          navDialog.close();
+          return;
+        }
+        if (button.dataset.size) {
+          selectedSize = button.dataset.size;
+          document.querySelector("#selected-size").textContent = selectedSize;
+          document
+            .querySelectorAll("[data-size]")
+            .forEach((b) => b.setAttribute("aria-pressed", String(b === button)));
+          const add = document.querySelector("#add-to-bag");
+          add.disabled = false;
+          add.querySelector("span").textContent = "Add to bag";
+          return;
+        }
+        if (button.id === "add-to-bag" && activeProduct && selectedSize) {
+          const found = bag.find((x) => x.id === activeProduct.id && x.size === selectedSize);
+          if (found) {
+            found.qty = Math.min(99, found.qty + 1);
+          } else {
+            bag.push({ id: activeProduct.id, size: selectedSize, qty: 1 });
+          }
+          persist();
+          productDialog.close();
+          toast("Added to your bag");
+          return;
+        }
+        if (button.dataset.quantity !== undefined) {
+          const i = Number(button.dataset.quantity);
+          bag[i].qty = Math.min(99, bag[i].qty + Number(button.dataset.delta));
+          bag = bag.filter((x) => x.qty > 0);
+          persist();
+          renderBag();
+          return;
+        }
+        if (button.dataset.remove !== undefined) {
+          bag.splice(Number(button.dataset.remove), 1);
+          persist();
+          renderBag();
+          return;
+        }
+        if (button.id === "checkout") {
+          bag = [];
+          persist();
+          document.querySelector(".bag-body").innerHTML =
+            '<div class="confirmation"><h2>All set.</h2><p>Your demo order is complete. No payment was taken and no order was submitted.</p><button class="primary" data-close="bag-dialog">Back to collection ' +
+            icon("arrow") +
+            "</button></div>";
+          return;
+        }
+        if (button.matches(".bag-trigger,.detail-bag")) openBag();
+        if (button.matches(".menu-button")) navDialog.showModal();
+      });
+      document.querySelector("select").addEventListener("change", renderProducts);
+      document.querySelector(".wordmark").addEventListener("click", (e) => {
+        e.preventDefault();
+        document.querySelector("select").value = "All objects";
+        renderProducts();
+        window.scrollTo({ top: 0 });
+      });
+      document.querySelector("#credits").innerHTML = photos
+        .map(
+          (p) =>
+            `<div>Photo by <a href="${p.user.url}?utm_source=cdr_demo&utm_medium=referral" target="_blank" rel="noopener">${p.user.name}</a> on <a href="${p.links.html}?utm_source=cdr_demo&utm_medium=referral" target="_blank" rel="noopener">Unsplash</a></div>`,
+        )
+        .join("");
+      renderProducts();
+      updateCount();
+    </script>
+  </body>
+</html>
