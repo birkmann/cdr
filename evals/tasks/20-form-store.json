@@ -1,0 +1,22 @@
+{
+  "id": "20-form-store",
+  "suite": "apps",
+  "sandbox": true,
+  "task": "Build Form, a responsive accessories store with a clean product grid, product details, and a working bag.",
+  "timeoutMs": 900000,
+  "checks": [
+    { "type": "maxFiles", "count": 3 },
+    { "type": "fileContains", "path": "**/*.{html,css,js}", "pattern": "localStorage" },
+    { "type": "fileContains", "path": "**/*.{html,css,js}", "pattern": "<dialog|role=\"dialog\"|aria-modal" },
+    { "type": "fileContains", "path": "**/*.{html,css,js}", "pattern": "@media" },
+    { "type": "fileNotContains", "path": "**/*.{html,css,js}", "pattern": "lorem ipsum|placeholder\\.com|via\\.placeholder|picsum\\.photos", "flags": "i" },
+    {
+      "type": "preview",
+      "viewports": ["small", "phone", "tablet", "desktop"],
+      "minButtons": 4,
+      "minImagesLoaded": 3,
+      "imagesRequireEnv": "UNSPLASH_ACCESS_KEY"
+    },
+    { "type": "judge", "minScore": 4 }
+  ]
+}

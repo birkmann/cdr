@@ -1,0 +1,14 @@
+{
+  "id": "22-dashboard",
+  "suite": "apps",
+  "sandbox": true,
+  "task": "Create a sales dashboard for a small coffee roaster: revenue, orders and average order value for the last 30 days, a revenue chart, top products, and a filter for the period.",
+  "timeoutMs": 900000,
+  "checks": [
+    { "type": "maxFiles", "count": 3 },
+    { "type": "fileContains", "path": "**/*.{html,css,js}", "pattern": "<svg|<canvas" },
+    { "type": "fileNotContains", "path": "**/*.{html,css,js}", "pattern": "cdn\\.jsdelivr|unpkg\\.com|cdnjs", "flags": "i" },
+    { "type": "preview", "viewports": ["small", "phone", "desktop"], "minButtons": 1 },
+    { "type": "judge", "minScore": 4 }
+  ]
+}

@@ -108,3 +108,23 @@ describe("reduceSession: subagents and goals", () => {
     expect(s2.goal?.checkpoints.map((c) => c.commit)).toEqual(["abc", "def"]);
   });
 });
+
+describe("reduceSession: turn timing", () => {
+  it("records when each turn started and finished", () => {
+    const ev = (ts: string, b: EventBody, seq: number) =>
+      ({ v: 1, seq, ts, sessionId: "s1", ...b }) as HarnessEvent;
+    const events = [
+      ev("2026-11-05T10:00:00.000Z", { type: "message.start", id: "u1", role: "user" }, 1),
+      ev("2026-11-05T10:00:01.000Z", { type: "status", status: "running" }, 2),
+      ev("2026-11-05T10:03:12.000Z", { type: "done", status: "success" }, 3),
+      ev("2026-11-05T10:05:00.000Z", { type: "message.start", id: "u2", role: "user" }, 4),
+    ];
+    let s = initialSessionState();
+    for (const e of events.slice(0, 3)) s = reduceSession(s, e);
+    expect(s.turnTimes.u1).toEqual({ start: "2026-11-05T10:00:00.000Z", end: "2026-11-05T10:03:12.000Z" });
+    s = reduceSession(s, events[3]);
+    expect(s.currentTurn).toBe("u2");
+    expect(s.turnTimes.u2).toEqual({ start: "2026-11-05T10:05:00.000Z" });
+    expect(s.turnTimes.u1.end).toBe("2026-11-05T10:03:12.000Z");
+  });
+});

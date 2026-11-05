@@ -5,7 +5,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/birkmann/cdr.git",
+    "url": "git+https://github.com/birkmann/harness-engineering.git",
     "directory": "packages/react"
   },
   "type": "module",

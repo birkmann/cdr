@@ -1300,6 +1300,67 @@
         {
           "additionalProperties": false,
           "properties": {
+            "content": {
+              "description": "The skill's Markdown instructions as the model received them.",
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            },
+            "files": {
+              "description": "Reference files inside the skill folder, readable with load_skill.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "name": {
+              "type": "string"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "source": {
+              "enum": [
+                "project",
+                "config",
+                "user",
+                "builtin"
+              ],
+              "type": "string"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "skill.activated",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "content",
+            "description",
+            "name",
+            "seq",
+            "sessionId",
+            "source",
+            "ts",
+            "type",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
             "path": {
               "type": "string"
             },

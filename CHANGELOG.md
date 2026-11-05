@@ -6,6 +6,11 @@ All notable changes are listed here. The project follows [Semantic Versioning](h
 
 - Rename Morrow to CDR across the terminal, web, and desktop apps, with a new geometric logo, graphite/lime identity, and technical typography.
 - Add `cdr`, `cdr.config.json`, and `CDR_*` environment settings while retaining legacy command, configuration, credential, and workspace compatibility.
+- Add **skills** in the Agent Skills format, from `.harness/skills`, `~/.harness/skills`, `skills.paths`, and a built-in set. Agents see a skills index and a `load_skill` tool, and matching skills load automatically in sandboxes.
+- Add the built-in **web-app** skill with the Form store as its reference app and patterns for landing pages, dashboards, games, and todo apps.
+- `check_preview` now checks phone and desktop widths. It reports overflow, broken images, unlabelled controls, failed requests, and errors raised while clicking through the page.
+- Add the `apps` eval suite with sandbox tasks, `preview`, `judge`, and `maxFiles` checks, plus `cdr eval --suite`, `--judge`, `--repeat`, and `--label`. `scripts/evals/compare.mjs` compares runs.
+- Add `capture.mjs web --real` to screenshot an app built by a real model.
 
 ## Unreleased
 

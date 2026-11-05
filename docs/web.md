@@ -16,6 +16,7 @@ You also get:
 
 - **sandboxes**: if you don't pick a project, the chat gets a fresh workspace in `~/.harness/sandboxes/<name>` (git-initialised, Auto permissions, shell confined with bubblewrap when available) – e.g. "create a snake game for me";
 - **compact activity**: one animated status row per request; click **View steps** to inspect intermediate messages, thinking, tools, and checks. Final answers, errors, approvals, and preview cards stay visible;
+- **skills**: a sandbox brief for a store, page, site, dashboard, game or similar app loads the built-in `web-app` skill, and the agent checks its page at phone and desktop widths before it finishes. See [skills.md](skills.md);
 - a **live preview**: the first preview waits for publication or the turn to finish. Published versions refresh automatically; other file changes refresh at the end of the turn. Turn off **Auto-refresh** to preserve a game or form's current state, or use **Reload** / **Open in a new tab**;
 - a home screen with a big composer: choose **New sandbox** or a **project folder** (recent projects or a folder browser), **mode** (Chat, Plan & build, Quick fix, Plan only, Review), **model** (anything your providers offer) and **permissions** (Ask / Auto / Full access);
 - **attachments**: paste screenshots, drag & drop or pick files – images go to the model (vision models; others get a note), text files are inlined, everything is saved under `.harness/attachments/`;

@@ -2,20 +2,34 @@
 // Regenerates the README screenshots in docs/images with the scripted demo model (no API keys).
 //   pnpm build && cargo build -p studio-app --features tauri/custom-protocol
 //   node scripts/screenshots/capture.mjs [web] [desktop] [desktop-git] [terminal]
+//   node scripts/screenshots/capture.mjs web --real [--model <provider/model>] [--prompt "<brief>"] [--out <dir>]
+//     --real builds the app with a real model (API key from .env) and the web-app skill instead of the
+//     scripted demo, and saves web-*-real.png (default folder: a temp dir, printed at the end).
 // Needs Google Chrome or Chromium (web, terminal), tauri-driver + WebKitWebDriver (desktop), python3 (terminal).
 import { createRequire } from "node:module";
 import { execFileSync, spawn } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir, homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { prepareGitDemo } from "./git-demo.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "../..");
-const out = join(root, "docs/images");
+const argv = process.argv.slice(2);
+const takeFlag = (name, hasValue = true) => {
+  const i = argv.indexOf(name);
+  if (i < 0) return undefined;
+  return hasValue ? argv.splice(i, 2)[1] : (argv.splice(i, 1), true);
+};
+const REAL = takeFlag("--real", false);
+const REAL_MODEL = takeFlag("--model") ?? "deepseek/deepseek-flash";
+const STORE_PROMPT = "Build Form, a responsive accessories store with a clean product grid, product details, and a working bag.";
+const REAL_PROMPT = takeFlag("--prompt") ?? STORE_PROMPT;
+const outFlag = takeFlag("--out");
+const out = outFlag ? resolve(outFlag) : REAL ? mkdtempSync(join(tmpdir(), "cdr-real-shots-")) : join(root, "docs/images");
 mkdirSync(out, { recursive: true });
-const only = new Set(process.argv.slice(2));
+const only = new Set(argv);
 const want = (name) => only.size === 0 || only.has(name);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const tmp = mkdtempSync(join(tmpdir(), "morrow-shots-"));
@@ -28,8 +42,66 @@ const chromium = pw.chromium ?? pw.default.chromium;
 const chrome = ["/usr/bin/google-chrome-stable", "/usr/bin/google-chrome", "/usr/bin/chromium", "/usr/bin/chromium-browser"].find(existsSync);
 const SCALE = 1.5;
 
+// ------------------------------------------------------------------ web app, real model
+async function webReal() {
+  const core = await import(join(root, "packages/core/dist/index.js"));
+  const { startServer } = await import(join(root, "packages/server/dist/index.js"));
+  // Keys come from the repository .env and the user's real ~/.harness/.env (CDR_HOME points at a temp dir).
+  core.loadDotEnv(root);
+  core.loadDotEnv(join(homedir(), ".harness"));
+  const harness = new core.Harness({
+    skipGlobalConfig: true,
+    configOverrides: { models: { executor: REAL_MODEL, planner: REAL_MODEL, reviewer: REAL_MODEL, summarizer: REAL_MODEL } },
+  });
+  const server = await startServer({ harness, token: "demo", port: 0, staticDir: join(root, "apps/web/dist") });
+  const browser = await chromium.launch({ executablePath: chrome, headless: true });
+  const started = Date.now();
+  try {
+    const page = await browser.newPage({ viewport: { width: 1560, height: 1000 }, deviceScaleFactor: SCALE });
+    await page.goto(`${server.url}/#token=demo`);
+    await page.evaluate(() => {
+      const s = JSON.parse(localStorage.getItem("harness.settings.v1") || "{}");
+      localStorage.setItem("harness.settings.v1", JSON.stringify({ ...s, theme: "dark", name: "", permissionMode: "auto" }));
+      localStorage.setItem("morrow.chat-width", "460");
+    });
+    await page.reload();
+    await page.locator(".composer.large textarea").fill(REAL_PROMPT);
+    await page.locator(".composer.large textarea").press("Enter");
+    console.log(`… building with ${REAL_MODEL} (this takes a few minutes)`);
+    await page.getByRole("button", { name: "Copy response" }).last().waitFor({ timeout: 20 * 60_000 });
+    await page.locator("iframe.preview-frame").waitFor({ timeout: 60_000 });
+    const preview = page.frames().find((f) => f.url().includes("/preview/"));
+    if (!preview) throw new Error("The agent did not publish a preview");
+    await preview.waitForFunction(() => [...document.images].every((img) => img.complete), { timeout: 30000 }).catch(() => {});
+    await sleep(800);
+    await page.screenshot({ path: join(out, "web-preview-real.png") });
+    const phone = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: SCALE });
+    const errors = [];
+    phone.on("pageerror", (e) => errors.push(e.message));
+    await phone.goto(preview.url());
+    await phone.waitForFunction(() => [...document.images].every((img) => img.complete), { timeout: 30000 }).catch(() => {});
+    await phone.screenshot({ path: join(out, "web-mobile-real.png") });
+    const overflow = [];
+    for (const width of [320, 390, 768, 1280]) {
+      await phone.setViewportSize({ width, height: 900 });
+      if (await phone.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)) overflow.push(width);
+    }
+    await phone.screenshot({ path: join(out, "web-desktop-real.png"), fullPage: true });
+    const broken = await phone.evaluate(() => [...document.images].filter((i) => i.complete && i.naturalWidth === 0).length);
+    await phone.close();
+    console.log(`✓ web (real, ${REAL_MODEL}, ${Math.round((Date.now() - started) / 1000)} s) → ${out}`);
+    console.log(`  JavaScript errors: ${errors.length ? errors.join(" | ") : "none"}`);
+    console.log(`  overflow at: ${overflow.length ? overflow.join(", ") + " px" : "none"}; broken images: ${broken}`);
+    if (errors.length || overflow.length || broken) throw new Error("The generated app has problems (see above)");
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+}
+
 // ------------------------------------------------------------------ web app
 async function web() {
+  if (REAL) return webReal();
   const { createDemoHarness } = await import("./demo-model.mjs");
   const { startServer } = await import(join(root, "packages/server/dist/index.js"));
   const server = await startServer({
@@ -51,7 +123,7 @@ async function web() {
     await page.screenshot({ path: join(out, "web-home.png") });
     await page.setViewportSize({ width: 1560, height: 1000 });
     await page.evaluate(() => localStorage.setItem("morrow.chat-width", "460"));
-    await page.locator(".composer.large textarea").fill("Build Form, a responsive accessories store with a clean product grid, product details, and a working bag.");
+    await page.locator(".composer.large textarea").fill(STORE_PROMPT);
     await page.locator(".composer.large textarea").press("Enter");
     const frame = page.frameLocator("iframe.preview-frame");
     await frame.locator("h1", { hasText: "Everyday objects" }).waitFor({ timeout: 20000 });

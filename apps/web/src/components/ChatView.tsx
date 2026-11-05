@@ -7,7 +7,7 @@ import { useSession, type UseSessionResult } from "@harness/react";
 import { basename, useApp } from "../app-state";
 import { CDRMark } from "./Brand";
 import { Composer, type PendingFile } from "./Composer";
-import { Markdown } from "./Markdown";
+import { CodeBlock, Markdown, langForPath } from "./Markdown";
 import { Thinking } from "./Thinking";
 import { EffortPicker, ModelPicker, ModePicker, PermissionPicker, type Mode } from "./Pickers";
 import { CodePanel, type Tab } from "./CodePanel";
@@ -308,6 +308,7 @@ function TurnActivity({
   s,
   sessionId,
   active,
+  times,
   open,
   onToggle,
   onOpenPreview,
@@ -316,11 +317,16 @@ function TurnActivity({
   s: UseSessionResult;
   sessionId: string;
   active: boolean;
+  times?: { start: string; end?: string };
   open: boolean;
   onToggle(): void;
   onOpenPreview(): void;
 }) {
   const detailsId = useId();
+  const now = useNow(active && !!times);
+  const startMs = times ? Date.parse(times.start) : NaN;
+  const endMs = times?.end ? Date.parse(times.end) : active ? now : NaN;
+  const elapsed = Number.isFinite(startMs) && Number.isFinite(endMs) ? formatDuration(endMs - startMs) : "";
   const lastMessage = [...steps].reverse().find((b) => b.kind === "message" && s.messages[b.id]?.text);
   const lastTool = steps.reduce((last, b, i) => (b.kind === "tools" ? i : last), -1);
   const final =
@@ -343,6 +349,7 @@ function TurnActivity({
                 "log",
                 "memory.saved",
                 "plan.decision",
+                "skill.activated",
               ].includes(b.event.type) ||
               (b.event.type === "done" && !!b.event.reportPath)
             ? 1
@@ -366,6 +373,7 @@ function TurnActivity({
           bash: "Running a command",
           search_unsplash: "Finding photos",
           check_preview: "Checking the preview",
+          load_skill: "Reading the skill",
           run_verification: "Checking the changes",
         } as Record<string, string>
       )[running.name] ?? "Working")
@@ -405,11 +413,27 @@ function TurnActivity({
               <IconCheck size={14} />
             )}
             <span className="activity-label">{label}</span>
+            {elapsed && <span className="activity-elapsed">{elapsed}</span>}
             <span className="activity-action">{open ? "Hide steps" : "View steps"}</span>
             <IconChevronRight size={13} className={`chev ${open ? "open" : ""}`} />
           </button>
           {open && (
             <div id={detailsId} className="activity-details" role="region" aria-label="All steps">
+              {times && Number.isFinite(startMs) && (
+                <div className="activity-times">
+                  <span>
+                    Started <time dateTime={times.start}>{formatClock(startMs)}</time>
+                  </span>
+                  {times.end ? (
+                    <span>
+                      Finished <time dateTime={times.end}>{formatClock(Date.parse(times.end))}</time>
+                    </span>
+                  ) : active ? (
+                    <span>Still running</span>
+                  ) : null}
+                  {elapsed && <span>{elapsed} elapsed</span>}
+                </div>
+              )}
               {details.map((b, i) =>
                 b.kind === "message" ? (
                   <MessageRow
@@ -567,6 +591,7 @@ function Messages({
                 s={s}
                 sessionId={sessionId}
                 active={i === turns.length - 1 && ["running", "waiting"].includes(s.status)}
+                times={turn.user ? s.turnTimes?.[turn.user.id] : undefined}
                 open={opened.includes(turn.id)}
                 onToggle={() => {
                   const next = opened.includes(turn.id)
@@ -697,6 +722,36 @@ function MessageRow({
   );
 }
 
+/** Current time, ticking every second while `live` (for running timers). */
+function useNow(live: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!live) return;
+    setNow(Date.now());
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [live]);
+  return now;
+}
+
+export function formatDuration(ms: number): string {
+  const sec = Math.max(0, Math.round(ms / 1000));
+  if (sec < 60) return `${sec}s`;
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  if (h) return `${h}h ${m}m`;
+  return `${m}m ${String(sec % 60).padStart(2, "0")}s`;
+}
+
+/** Clock time, with the date in front when it is not today. */
+function formatClock(ms: number): string {
+  const d = new Date(ms);
+  const time = d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  return d.toDateString() === new Date().toDateString()
+    ? time
+    : `${d.toLocaleDateString(undefined, { month: "short", day: "numeric" })}, ${time}`;
+}
+
 function toolSummary(t: ToolCallView): string {
   const a = (t.args ?? {}) as Record<string, unknown>;
   switch (t.name) {
@@ -721,6 +776,8 @@ function toolSummary(t: ToolCallView): string {
       return String(a.path ?? "index.html");
     case "remember":
       return String(a.fact ?? "");
+    case "load_skill":
+      return a.file ? `${a.name} · ${a.file}` : String(a.name ?? "");
     default:
       return typeof t.args === "object" ? JSON.stringify(t.args).slice(0, 120) : String(t.args ?? "");
   }
@@ -742,6 +799,7 @@ const TOOL_VERB: Record<string, string> = {
   check_preview: "Check",
   search_unsplash: "Find photos",
   use_unsplash_photo: "Use photo",
+  load_skill: "Skill",
 };
 
 function ToolGroup({ tools }: { tools: ToolCallView[] }) {
@@ -785,9 +843,97 @@ function ToolRow({ t }: { t: ToolCallView }) {
       </button>
       {open && (
         <div className="tool-body">
-          {t.diff ? <DiffBlock diff={t.diff} /> : <pre className="tool-output">{t.output ?? "…"}</pre>}
+          {t.diff ? (
+            <DiffBlock diff={t.diff} />
+          ) : t.name === "load_skill" && t.status === "ok" && t.output ? (
+            <LoadedSkill t={t} />
+          ) : (
+            <pre className="tool-output">{t.output ?? "…"}</pre>
+          )}
         </div>
       )}
+    </div>
+  );
+}
+
+/** Splits load_skill output (`<skill name="…">body\n\nReference files (…): a, b\n</skill>`) for display. */
+function parseSkillOutput(output: string): { content: string; files: string[] } {
+  const m = /^<skill name="[^"]*">\n([\s\S]*?)\n<\/skill>\s*$/.exec(output);
+  if (!m) return { content: output, files: [] };
+  const refs = /\n\nReference files \([^)]*\): (.*)$/.exec(m[1]);
+  return refs
+    ? { content: m[1].slice(0, refs.index), files: refs[1].split(", ").filter(Boolean) }
+    : { content: m[1], files: [] };
+}
+
+function LoadedSkill({ t }: { t: ToolCallView }) {
+  const a = (t.args ?? {}) as { name?: string; file?: string };
+  if (a.file) return <SkillBody name={String(a.name ?? "")} file={a.file} content={t.output ?? ""} />;
+  const { content, files } = parseSkillOutput(t.output ?? "");
+  return <SkillBody name={String(a.name ?? "")} content={content} files={files} />;
+}
+
+function SkillBody({
+  name,
+  file,
+  note,
+  description,
+  content,
+  files,
+}: {
+  name: string;
+  file?: string;
+  note?: string;
+  description?: string;
+  content: string;
+  files?: string[];
+}) {
+  const lang = file ? langForPath(file) : "markdown";
+  return (
+    <div className="skill-body">
+      <div className="skill-meta">
+        <span>
+          <b>{name}</b>
+          {file && <span className="mono"> / {file}</span>}
+          {note && <span className="muted"> · {note}</span>}
+        </span>
+        {description && <p className="muted small">{description}</p>}
+      </div>
+      {lang === "markdown" ? <Markdown text={content} /> : <CodeBlock code={content} lang={lang} />}
+      {!!files?.length && (
+        <div className="skill-files muted small">
+          Reference files: <span className="mono">{files.join(", ")}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ActivatedSkill({ e }: { e: Extract<HarnessEvent, { type: "skill.activated" }> }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="tool-group">
+      <div className="tool ok">
+        <button className="tool-head" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
+          <span className="tool-icon">
+            <IconCheck size={14} />
+          </span>
+          <span className="tool-verb">Skill</span>
+          <span className="tool-arg mono">{e.name} · loaded automatically</span>
+          <IconChevronRight size={14} className={`chev ${open ? "open" : ""}`} />
+        </button>
+        {open && (
+          <div className="tool-body">
+            <SkillBody
+              name={e.name}
+              note={`${e.source} skill, matched the task`}
+              description={e.description}
+              content={e.content}
+              files={e.files}
+            />
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -827,6 +973,8 @@ function EventRow({ e, s, onOpenPreview }: { e: HarnessEvent; s: UseSessionResul
           </span>
         </div>
       );
+    case "skill.activated":
+      return <ActivatedSkill e={e} />;
     case "verify.result":
       return (
         <details className={`verify ${e.exitCode === 0 ? "ok" : "fail"}`}>

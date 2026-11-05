@@ -1,0 +1,15 @@
+{
+  "id": "23-snake-game",
+  "suite": "apps",
+  "sandbox": true,
+  "task": "create a snake game for me",
+  "timeoutMs": 900000,
+  "checks": [
+    { "type": "maxFiles", "count": 3 },
+    { "type": "fileContains", "path": "**/*.{html,css,js}", "pattern": "<canvas|class=\"(cell|board|grid)" },
+    { "type": "fileContains", "path": "**/*.{html,css,js}", "pattern": "touch|pointer|aria-label=\"(Up|Move up)", "flags": "i" },
+    { "type": "fileContains", "path": "**/*.{html,css,js}", "pattern": "localStorage" },
+    { "type": "preview", "viewports": ["small", "phone", "desktop"], "minButtons": 1 },
+    { "type": "judge", "minScore": 4 }
+  ]
+}

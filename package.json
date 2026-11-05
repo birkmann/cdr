@@ -1,5 +1,5 @@
 {
-  "name": "cdr",
+  "name": "harness-engineering",
   "version": "0.1.0",
   "description": "CDR: a provider-agnostic AI coding harness with a terminal workspace, a web app, and a native desktop app.",
   "private": true,
@@ -7,11 +7,11 @@
   "author": "Rafael Birkmann",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/birkmann/cdr.git"
+    "url": "git+https://github.com/birkmann/harness-engineering.git"
   },
-  "homepage": "https://github.com/birkmann/cdr#readme",
+  "homepage": "https://github.com/birkmann/harness-engineering#readme",
   "bugs": {
-    "url": "https://github.com/birkmann/cdr/issues"
+    "url": "https://github.com/birkmann/harness-engineering/issues"
   },
   "type": "module",
   "packageManager": "pnpm@11.28.5",

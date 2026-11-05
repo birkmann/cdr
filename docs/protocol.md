@@ -30,6 +30,7 @@ Types: [`packages/protocol/src/index.ts`](../packages/protocol/src/index.ts). JS
 | `review.findings` | `{severity, file, line, issue, suggestion}[]` |
 | `usage` | input/output tokens, cost (if prices configured), model |
 | `memory.saved` | fact saved via `remember` |
+| `skill.activated` | skill injected because its triggers matched the task (`name`, `description`, `source`, `content`, `files`) |
 | `status` | idle, running, waiting, done, failed, cancelled |
 | `log` / `error` | diagnostics |
 | `done` | success, failed, cancelled + summary, reportPath |

@@ -65,7 +65,7 @@ export function langForPath(path: string): string | undefined {
   return EXT_LANG[name.split(".").pop() ?? ""];
 }
 
-function CodeBlock({ code, lang }: { code: string; lang?: string }) {
+export function CodeBlock({ code, lang }: { code: string; lang?: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <div className="codeblock">

@@ -403,6 +403,10 @@ export interface SessionState {
   goal?: GoalView;
   parentSessionId?: string;
   goalId?: string;
+  /** Wall-clock timing of each turn, keyed by the id of the user message that started it (ISO timestamps). */
+  turnTimes: Record<string, { start: string; end?: string }>;
+  /** User message id of the latest turn. */
+  currentTurn?: string;
 }
 
 export const initialSessionState = (): SessionState => ({
@@ -417,12 +421,23 @@ export const initialSessionState = (): SessionState => ({
   usage: { inputTokens: 0, outputTokens: 0, cost: 0 },
   errors: [],
   agents: {},
+  turnTimes: {},
 });
 
 /** Pure reducer that turns the event stream into UI state. Shared by all frontends. */
 export function reduceSession(state: SessionState, e: HarnessEvent): SessionState {
   if (e.seq <= state.lastSeq) return state;
   const s: SessionState = { ...state, lastSeq: e.seq };
+  const turn = s.currentTurn ? s.turnTimes?.[s.currentTurn] : undefined;
+  if (e.type === "message.start" && e.role === "user") {
+    s.currentTurn = e.id;
+    s.turnTimes = { ...s.turnTimes, [e.id]: { start: e.ts } };
+  } else if (turn && s.currentTurn) {
+    if (e.type === "done") s.turnTimes = { ...s.turnTimes, [s.currentTurn]: { ...turn, end: e.ts } };
+    // Work resumed in the same turn (e.g. "continue the job"): it is running again.
+    else if (e.type === "status" && e.status === "running" && turn.end)
+      s.turnTimes = { ...s.turnTimes, [s.currentTurn]: { start: turn.start } };
+  }
   switch (e.type) {
     case "session.created":
       s.projectPath = e.projectPath;
@@ -540,6 +555,7 @@ export function reduceSession(state: SessionState, e: HarnessEvent): SessionStat
     case "verify.result":
     case "review.findings":
     case "memory.saved":
+    case "skill.activated":
       s.timeline = [...s.timeline, { kind: "event", event: e }];
       break;
     case "log":

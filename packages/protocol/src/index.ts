@@ -136,6 +136,17 @@ export type EventBody =
   | { type: "context.append"; agent: string; message: ChatMessage }
   | { type: "context.replace"; agent: string; messages: ChatMessage[]; reason: string }
   | { type: "memory.saved"; scope: "project" | "user"; path: string; fact: string }
+  /** A skill was injected into the system prompt because its triggers matched the task. */
+  | {
+      type: "skill.activated";
+      name: string;
+      description: string;
+      source: "project" | "config" | "user" | "builtin";
+      /** The skill's Markdown instructions as the model received them. */
+      content: string;
+      /** Reference files inside the skill folder, readable with load_skill. */
+      files?: string[];
+    }
   /** The agent declared a file to preview (an HTML entry point), relative to the project root. */
   | { type: "preview.ready"; path: string; title?: string }
   | { type: "status"; status: SessionStatus }
@@ -309,6 +320,15 @@ export interface HarnessConfig {
   sandbox?: "none" | "bwrap";
   /** Allow network access inside the bwrap sandbox (package installs). */
   sandboxNetwork?: boolean;
+  /** Skills (SKILL.md folders) offered to agents. Built-in, ~/.harness/skills and <project>/.harness/skills are always searched. */
+  skills?: {
+    /** Set to false to disable skills entirely. */
+    enabled?: boolean;
+    /** Extra folders containing skill folders (relative to the project root, or absolute). */
+    paths?: string[];
+    /** Skill names to hide. */
+    disabled?: string[];
+  };
   mcpServers?: Record<string, McpServerConfig>;
   temperature?: number;
   /** Subagent limits (spawn_agent). */

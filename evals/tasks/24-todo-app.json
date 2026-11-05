@@ -1,0 +1,13 @@
+{
+  "id": "24-todo-app",
+  "suite": "apps",
+  "sandbox": true,
+  "task": "Build a todo app where I can add, edit, complete and delete tasks, filter them, and keep them after a reload.",
+  "timeoutMs": 900000,
+  "checks": [
+    { "type": "maxFiles", "count": 3 },
+    { "type": "fileContains", "path": "**/*.{html,css,js}", "pattern": "localStorage" },
+    { "type": "preview", "viewports": ["small", "phone", "desktop"], "minButtons": 2 },
+    { "type": "judge", "minScore": 4 }
+  ]
+}

@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/birkmann/cdr/actions/workflows/ci.yml"><img src="https://github.com/birkmann/cdr/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://github.com/birkmann/harness-engineering/actions/workflows/ci.yml"><img src="https://github.com/birkmann/harness-engineering/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT license" /></a>
   <img src="https://img.shields.io/badge/node-%E2%89%A5%2022-339933.svg" alt="Node.js 22 or newer" />
   <img src="https://img.shields.io/badge/desktop-Tauri%202%20%C2%B7%20Rust-c8551d.svg" alt="Tauri 2 and Rust" />
@@ -35,6 +35,7 @@ One harness drives three interfaces, and every step is an event, so they all sho
 - **Bring any model.** DeepSeek, Anthropic, OpenRouter, Ollama (local and cloud), LM Studio, vLLM, or any OpenAI-compatible server. You can give planning, building, reviewing, and summarizing each their own model.
 - **Work that is verified.** Workflows run plan → execute → verify → review → finish. Your build, test, and lint commands are detected and re-run until they pass, and a separate reviewer checks the diff.
 - **Safe by default.** Paths are confined to the project, and the modes Ask, Auto, and Full access decide when you are asked. A hard-deny list blocks destructive commands, and shell commands can run inside bubblewrap. Secrets are redacted from every event.
+- **Skills.** Agents load expert instructions in the Agent Skills format from your project, your home folder, or the built-in set. The built-in `web-app` skill, a browser check at phone and desktop widths, and an app eval suite with a judge model keep generated apps polished.
 - **Subagents.** An agent can split work into parallel helpers. Writing helpers get their own Git worktree and branch, so their edits never collide, and the parent merges the results.
 - **Goals.** Describe an outcome with acceptance criteria and a budget. CDR works on it unattended in a worktree and commits a checkpoint after each verified step. It then waits for you to merge it, open a pull request, or ask for changes.
 - **A real Git client.** CDR Studio can clone from GitHub and stage single hunks. It shows a commit graph and handles branches, stashes, conflicts, pull requests, and AI-written commit messages.
@@ -63,6 +64,8 @@ Ctrl+P opens files, Ctrl+Shift+P runs commands, and Ctrl+mouse wheel zooms. [Rea
 
 [Mobile catalogue](docs/images/web-mobile-demo.png) · [Product details](docs/images/web-product-demo.png) · [Desktop catalogue](docs/images/web-desktop-demo.png)
 
+These screenshots come from a scripted demo model that replays the built-in `web-app` skill's reference store, so they never depend on an API key. Real models build with the same skill and are measured by the `apps` eval suite; see [Skills](docs/skills.md).
+
 `cdr serve` opens a browser workspace. Ask for something, and CDR builds it in a fresh sandbox with a live, isolated preview. You can also point it at a project folder. It supports attachments, plan approval, a Changes and Files panel, and themes. [Read more →](docs/web.md)
 
 ## Terminal
@@ -75,14 +78,14 @@ Ctrl+P opens files, Ctrl+Shift+P runs commands, and Ctrl+mouse wheel zooms. [Rea
 
 ## Download
 
-Installers for Linux, macOS, and Windows, as well as a terminal and web app archive, are attached to each [GitHub release](https://github.com/birkmann/cdr/releases). CDR needs [Node.js 22 or newer](https://nodejs.org). To build from source, follow the quick start below.
+Installers for Linux, macOS, and Windows, as well as a terminal and web app archive, are attached to each [GitHub release](https://github.com/birkmann/harness-engineering/releases). CDR needs [Node.js 22 or newer](https://nodejs.org). To build from source, follow the quick start below.
 
 ## Quick start
 
 You need Node.js 22 or newer, pnpm, and Git.
 
 ```bash
-git clone https://github.com/birkmann/cdr.git cdr
+git clone https://github.com/birkmann/harness-engineering.git cdr
 cd cdr
 pnpm install
 pnpm build
@@ -137,6 +140,7 @@ Every step is recorded as an event in a session log: messages, tool calls, appro
 | [Terminal](docs/cli.md) | Commands, flags, shortcuts, and slash commands |
 | [Configuration](docs/configuration.md) | Models, providers, verification, permissions, hooks, and MCP |
 | [Workflows](docs/workflows.md) | Phases, custom workflows, and the autonomous workflow |
+| [Skills](docs/skills.md) | Skill folders, the built-in web-app skill, preview checks, and app evals |
 | [Architecture](docs/architecture.md) | Core objects, subagents, goals, and safety |
 | [Protocol](docs/protocol.md) | Events and HTTP API |
 | [SDK](docs/sdk.md) | Building your own frontend |

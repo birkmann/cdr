@@ -1,6 +1,8 @@
 # Form screenshot demo
 
-A responsive concept store used by the scripted demo provider. The harness writes `form.html` into a real sandbox and publishes it through the normal preview tools. No model API calls or payment services are involved.
+A responsive concept store used by the scripted demo provider. The page lives in the built-in `web-app` skill as [`packages/core/skills/web-app/reference/form.html`](../../../packages/core/skills/web-app/reference/form.html), so real models can study the same app the demo shows. The harness writes it into a real sandbox and publishes it through the normal preview tools. No model API calls or payment services are involved.
+
+The README screenshot therefore comes from this scripted run. `node scripts/screenshots/capture.mjs web --real --model <provider/model>` repeats the same capture with a real model and the `web-app` skill, and saves the result separately (see [docs/skills.md](../../../docs/skills.md)).
 
 The design uses a white canvas, large sans-serif type, grey product tiles and a restrained orange accent. Phones show a full-width lead product followed by a two-column catalogue; larger viewports use an asymmetric four-column grid. Product details include size selection, expandable descriptions and a fixed mobile add-to-bag action.
 

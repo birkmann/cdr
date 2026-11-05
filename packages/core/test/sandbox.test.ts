@@ -139,6 +139,54 @@ describe("check_preview and auto preview", () => {
     60_000,
   );
 
+  it.skipIf(!hasChrome)(
+    "reports overflow, broken images and unnamed controls per viewport",
+    async () => {
+      const root = tempProject({
+        "bad.html":
+          '<!doctype html><title>Bad</title><h1>Shop</h1><div class="hero" style="width:600px">wide</div>' +
+          '<button class="icon"><svg width="10" height="10"></svg></button><img src="missing.png" alt="x">' +
+          '<div style="overflow:auto"><table style="width:900px"><tr><td>scrolls inside</td></tr></table></div>',
+        "good.html":
+          '<!doctype html><meta name="viewport" content="width=device-width"><title>Good</title><h1>Shop</h1>' +
+          '<button aria-label="Open bag"><svg width="10" height="10"></svg></button><label>Email <input></label>',
+      });
+      const bad = await checkPreviewTool.execute({ path: "bad.html", viewports: ["small", "desktop"] }, toolCtx(root));
+      expect(bad.ok).toBe(false);
+      expect(bad.output).toContain("small 320×740, desktop 1280×900");
+      expect(bad.output).toMatch(/Horizontal overflow at small 320px: page is 2\d\dpx wider.*div\.hero/);
+      expect(bad.output).not.toMatch(/overflow at desktop/);
+      expect(bad.output).not.toContain("table");
+      expect(bad.output).toContain("1 image(s) failed to load: missing.png");
+      expect(bad.output).toContain('<button class="icon">');
+      const good = await checkPreviewTool.execute({ path: "good.html" }, toolCtx(root));
+      expect(good.ok).toBe(true);
+      expect(good.output).toContain("No problems found.");
+      expect(good.output).toContain("Title: Good; h1: Shop.");
+      expect(good.output).toContain("Clicked 1 controls and reloaded: no errors.");
+    },
+    60_000,
+  );
+
+  it.skipIf(!hasChrome)(
+    "passes the web-app skill's reference store at every viewport",
+    async () => {
+      const root = tempProject({
+        "index.html": readFileSync(
+          join(__dirname, "../skills/web-app/reference/form.html"),
+          "utf8",
+        ).replace(/https:\/\/images\.unsplash\.com\/[^"'`\s)]+/g, "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"),
+      });
+      const r = await checkPreviewTool.execute(
+        { viewports: ["small", "phone", "tablet", "desktop"] },
+        toolCtx(root),
+      );
+      expect(r.output).toContain("No problems found.");
+      expect(r.ok).toBe(true);
+    },
+    60_000,
+  );
+
   it("publishes index.html automatically when a sandbox run ends without set_preview", async () => {
     const mock = new MockProvider({
       replies: [

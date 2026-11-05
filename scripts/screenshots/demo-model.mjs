@@ -10,7 +10,8 @@ const { Harness, MockProvider } = await import(join(root, "packages/core/dist/in
 
 export const DEMO_MODEL = "cdr/demo";
 
-const STORE_APP = readFileSync(new URL("./fixtures/form.html", import.meta.url), "utf8");
+// The store is the web-app skill's reference app, so the demo and the skill never drift apart.
+const STORE_APP = readFileSync(join(root, "packages/core/skills/web-app/reference/form.html"), "utf8");
 
 const APP_JS_ROUTE_SEARCH = `  "GET /users": () => ({ status: 200, body: [{ id: 1, name: "Ada" }, { id: 2, name: "Linus" }] }),
 };`;

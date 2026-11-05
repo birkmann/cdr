@@ -190,6 +190,9 @@ export class Renderer {
       case "preview.ready":
         this.line(c.green(`  ▶ preview: ${e.path}`) + c.dim("  (open the chat in the web app to see it)"));
         break;
+      case "skill.activated":
+        this.line(c.dim(`  skill ${e.name} loaded (matched the task)`));
+        break;
       case "memory.saved":
         this.line(c.dim(`  remembered (${e.scope}): ${e.fact}`));
         break;

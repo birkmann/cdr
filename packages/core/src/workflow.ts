@@ -196,6 +196,7 @@ const READ_ONLY_TOOLS = [
   "ask_user",
   "todo",
   "search_unsplash",
+  "load_skill",
 ];
 
 /** Orchestrates the phases of a workflow on a session. */

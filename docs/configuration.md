@@ -36,6 +36,8 @@ There is no default token or cost cap. Optional `limits.maxTokens` and `limits.m
 
 Project rules come from `AGENTS.md` / `CLAUDE.md` (project and parent dirs); memory from `.harness/memory/*.md` and `~/.harness/memory/*.md` (the agent can add facts with the `remember` tool).
 
+Skills come from `.harness/skills/`, `~/.harness/skills/`, any folders in `skills.paths`, and the built-in set. `skills.disabled` hides skills by name, and `"skills": { "enabled": false }` turns them off. See [skills.md](skills.md).
+
 ## Unsplash photos for generated pages
 
 Set `UNSPLASH_ACCESS_KEY` to your Unsplash application's Access Key. `UNSPLASH_SECRET_KEY` is optional and is not used for public photo search. Both credentials stay out of shell-tool environments and are redacted from session events.

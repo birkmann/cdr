@@ -1,7 +1,7 @@
 // Bundle the CDR CLI (core + server) into one ESM file for CDR Studio's sidecar.
 // Output: dist-harness/cdr.mjs (+ package.json marker). Requires `pnpm build:packages` first.
 import { build } from "esbuild";
-import { mkdirSync, writeFileSync, existsSync } from "node:fs";
+import { cpSync, mkdirSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -27,5 +27,8 @@ await build({
   banner: { js: "import { createRequire as __cdrRequire } from 'node:module'; const require = __cdrRequire(import.meta.url);" },
   logLevel: "warning",
 });
+// Built-in skills are found next to the bundle (dist-harness/skills).
+rmSync(join(out, "skills"), { recursive: true, force: true });
+cpSync(join(root, "packages/core/skills"), join(out, "skills"), { recursive: true });
 writeFileSync(join(out, "package.json"), JSON.stringify({ type: "module", private: true }, null, 2) + "\n");
 console.log("bundled", join(out, "cdr.mjs"));

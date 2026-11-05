@@ -30,6 +30,7 @@ import { Budget, runAgent, type AgentHooks, type AgentHost, type AgentResult } f
 import { PermissionPolicy } from "./permissions.js";
 import { VerifyRunner } from "./verify.js";
 import { buildSystemPrompt } from "./context.js";
+import { discoverSkills, listSkillFiles, matchSkills, renderSkill, skillsIndex } from "./skills.js";
 import { bashTool, builtinTools } from "./tools/builtin.js";
 import type { Tool } from "./tools/types.js";
 import { resolveInProject } from "./tools/paths.js";
@@ -545,8 +546,9 @@ export class Session {
               phase: o.phase,
               config: this.config,
               extra:
-                [o.extraSystem, this.isSandbox ? SANDBOX_PROMPT : ""].filter(Boolean).join("\n\n") ||
-                undefined,
+                [o.extraSystem, this.isSandbox ? SANDBOX_PROMPT : "", this.skillPrompt(o.user, tools)]
+                  .filter(Boolean)
+                  .join("\n\n") || undefined,
               includeRepoMap: o.includeRepoMap,
             }),
           },
@@ -585,6 +587,46 @@ export class Session {
       policy: this.policy,
       pricing: m.pricing,
     });
+  }
+
+  /**
+   * Skills section of a fresh system prompt: the index of available skills (when the agent can call
+   * load_skill) plus the full text of skills whose triggers match the task in this session.
+   */
+  private skillPrompt(task: string, tools: Tool[]): string {
+    let skills;
+    try {
+      skills = discoverSkills(this.projectRoot, this.config);
+    } catch (e) {
+      this.emit({ type: "log", level: "warn", message: `Skills unavailable: ${(e as Error).message}` });
+      return "";
+    }
+    if (!skills.length) return "";
+    const active = matchSkills(skills, task, { sandbox: this.isSandbox });
+    const canLoad = tools.some((t) => t.name === "load_skill");
+    for (const s of active) {
+      this.emit({ type: "log", level: "info", message: `Skill ${s.name} activated` });
+      const files = listSkillFiles(s);
+      this.emit({
+        type: "skill.activated",
+        name: s.name,
+        description: s.description,
+        source: s.source,
+        content: s.body,
+        ...(files.length ? { files } : {}),
+      });
+    }
+    return [
+      canLoad
+        ? skillsIndex(
+            skills,
+            active.map((s) => s.name),
+          )
+        : "",
+      ...active.map(renderSkill),
+    ]
+      .filter(Boolean)
+      .join("\n\n");
   }
 
   private emitUserMessage(text: string, attachments?: AttachmentInfo[]) {

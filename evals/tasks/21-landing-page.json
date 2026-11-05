@@ -1,0 +1,15 @@
+{
+  "id": "21-landing-page",
+  "suite": "apps",
+  "sandbox": true,
+  "task": "Make a landing page for Lumen, a small studio that designs reading lamps. It needs a hero, the three lamps with prices, how ordering works, and a newsletter sign-up.",
+  "timeoutMs": 900000,
+  "checks": [
+    { "type": "maxFiles", "count": 3 },
+    { "type": "fileContains", "path": "**/*.{html,css,js}", "pattern": "@media" },
+    { "type": "fileContains", "path": "**/*.{html,css,js}", "pattern": "type=\"email\"|type=email" },
+    { "type": "fileNotContains", "path": "**/*.{html,css,js}", "pattern": "lorem ipsum", "flags": "i" },
+    { "type": "preview", "viewports": ["small", "phone", "desktop"], "minImagesLoaded": 2, "imagesRequireEnv": "UNSPLASH_ACCESS_KEY" },
+    { "type": "judge", "minScore": 4 }
+  ]
+}

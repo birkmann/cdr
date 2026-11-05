@@ -48,7 +48,7 @@ Usage:
   cdr models [--remote]       show configured models (--remote: query providers)
   cdr config                  print the effective config (secrets redacted)
   cdr init                    write cdr.config.json + AGENTS.md for this project
-  cdr eval                    run the eval task set (evals/)
+  cdr eval                    run the eval task set (evals/; --suite apps for app building)
 
 Options:
   -C, --cwd <dir>                 project directory (default: current directory)
@@ -71,6 +71,9 @@ Options:
       --criteria <text>           goal new: acceptance criterion (repeatable)
       --budget-cost <n> --max-rounds <n> --base <branch> --description <text>   goal new options
       --filter <s> --keep         eval: only tasks matching <s>; keep temp dirs
+      --suite <name> --repeat <n> eval: task suite (code | apps | all, default code); runs per task
+      --judge <provider/model>    eval: model that scores judge checks (default: the evaluated model)
+      --label <text>              eval: name stored with the results (see scripts/evals/compare.mjs)
   -h, --help / --version
 `;
 
@@ -102,6 +105,10 @@ interface Flags {
   remote?: boolean;
   filter?: string;
   keep?: boolean;
+  suite?: string;
+  repeat?: string;
+  judge?: string;
+  label?: string;
   force?: boolean;
   sandbox?: boolean;
   help?: boolean;
@@ -141,6 +148,10 @@ function parse(argv: string[]) {
       remote: { type: "boolean" },
       filter: { type: "string" },
       keep: { type: "boolean" },
+      suite: { type: "string" },
+      repeat: { type: "string" },
+      judge: { type: "string" },
+      label: { type: "string" },
       force: { type: "boolean" },
       sandbox: { type: "boolean", short: "s" },
       help: { type: "boolean", short: "h" },
@@ -388,7 +399,9 @@ export async function main(argv: string[], ctx: CliContext = {}): Promise<number
       case "eval": {
         const dir = findEvalsDir(cwd);
         if (!dir) throw new Error("No evals/ directory with tasks/ found");
-        const model = f.model ?? harness.config(cwd).models.executor!;
+        // Always read the project config: it also loads the project .env (provider and Unsplash keys).
+        const cwdConfig = harness.config(cwd);
+        const model = f.model ?? cwdConfig.models.executor!;
         out.write(`Running evals from ${dir} with ${c.bold(model)}\n`);
         const summary = await runEvals({
           evalsDir: dir,
@@ -396,6 +409,10 @@ export async function main(argv: string[], ctx: CliContext = {}): Promise<number
           workflow: f.workflow,
           filter: f.filter,
           keep: f.keep,
+          suite: f.suite,
+          judgeModel: f.judge,
+          label: f.label,
+          repeat: f.repeat ? Number(f.repeat) : undefined,
           onProgress: (m) => out.write(m + "\n"),
         });
         const path = saveEvalSummary(dir, summary);
@@ -406,12 +423,11 @@ export async function main(argv: string[], ctx: CliContext = {}): Promise<number
         for (const r of summary.results.filter((x) => !x.passed)) {
           out.write(
             c.red(
-              `  ✘ ${r.id}: ${
-                r.error ??
-                r.checks
-                  .filter((x) => !x.passed)
-                  .map((x) => `${x.check.type} ${x.detail ?? ""}`)
-                  .join("; ")
+              `  ✘ ${r.id}${r.run ? ` #${r.run}` : ""}: ${
+                [
+                  ...r.checks.filter((x) => !x.passed).map((x) => `${x.check.type} ${x.detail ?? ""}`),
+                  ...(r.error ? [r.error] : []),
+                ].join("; ") || r.runStatus
               }\n`,
             ),
           );

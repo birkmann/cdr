@@ -109,6 +109,31 @@
           "description": "Allow network access inside the bwrap sandbox (package installs).",
           "type": "boolean"
         },
+        "skills": {
+          "additionalProperties": false,
+          "description": "Skills (SKILL.md folders) offered to agents. Built-in, ~/.harness/skills and <project>/.harness/skills are always searched.",
+          "properties": {
+            "disabled": {
+              "description": "Skill names to hide.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "enabled": {
+              "description": "Set to false to disable skills entirely.",
+              "type": "boolean"
+            },
+            "paths": {
+              "description": "Extra folders containing skill folders (relative to the project root, or absolute).",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        },
         "temperature": {
           "type": "number"
         },

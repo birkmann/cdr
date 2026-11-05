@@ -17,6 +17,7 @@ for (const need of ["dist-harness/cdr.mjs", "apps/web/dist/index.html"])
 rmSync(dir, { recursive: true, force: true });
 mkdirSync(join(dir, "bin"), { recursive: true });
 cpSync(join(root, "dist-harness/cdr.mjs"), join(dir, "bin/cdr.mjs"));
+cpSync(join(root, "packages/core/skills"), join(dir, "bin/skills"), { recursive: true });
 writeFileSync(join(dir, "bin/package.json"), JSON.stringify({ type: "module", private: true }, null, 2) + "\n");
 cpSync(join(root, "apps/web/dist"), join(dir, "web"), { recursive: true });
 cpSync(join(root, "LICENSE"), join(dir, "LICENSE"));
@@ -39,7 +40,7 @@ Requires Node.js 22 or newer.
   bin/cdr --help          all commands
 
 Put provider keys (see .env.example) in a .env file in your project or in ~/.harness/.env.
-Documentation: https://github.com/birkmann/cdr#readme
+Documentation: https://github.com/birkmann/harness-engineering#readme
 `,
 );
 rmSync(join(outDir, `${name}.tar.gz`), { force: true });

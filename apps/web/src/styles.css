@@ -298,6 +298,9 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent-soft
 .activity-toggle:hover { color: var(--text); }
 .activity-toggle > svg:first-child { color: var(--muted); flex: none; }
 .activity-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.activity-elapsed { font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.activity-times { display: flex; flex-wrap: wrap; gap: 4px 16px; padding: 9px 14px; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; }
+.activity-times time { color: var(--text-2); }
 .activity-action { font-size: 11px; white-space: nowrap; opacity: .8; }
 .activity-details { margin-top: 6px; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
 .activity-details > * { padding: 12px 14px; margin: 0; border-radius: 0; border: 0; border-bottom: 1px solid var(--border); }
@@ -383,6 +386,12 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent-soft
 .chev.open { transform: rotate(90deg); }
 .chev-space { width: 12px; flex: none; }
 .tool-body { border-top: 1px solid var(--border); max-height: 420px; overflow: auto; }
+.tool-body:has(> .skill-body) { max-height: 560px; }
+.skill-body { padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.skill-meta { display: flex; flex-direction: column; gap: 2px; font-size: 13px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+.skill-meta p { margin: 0; }
+.skill-body .md { font-size: 13.5px; }
+.skill-files { padding-top: 8px; border-top: 1px solid var(--border); overflow-wrap: anywhere; }
 .tool-output { padding: 10px 12px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12.5px; color: var(--text-2); background: var(--code-bg); }
 .spinner { width: 12px; height: 12px; border: 2px solid var(--border-strong); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }

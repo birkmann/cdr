@@ -1,0 +1,15 @@
+{
+  // Editor/type-check config for root-level files (vitest config & setup).
+  // Packages have their own tsconfigs and are built via `tsc -b packages/...`.
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2023"],
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "types": ["node"]
+  },
+  "include": ["*.ts"]
+}

@@ -1,15 +1,5 @@
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-  appendFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync, appendFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
 import type { Risk, TodoItem } from "@harness/protocol";
@@ -22,6 +12,8 @@ import { globToRegExp, truncateMiddle } from "../util.js";
 import { harnessHome } from "../config.js";
 import { isReadOnlyCommand } from "../permissions.js";
 import { searchUnsplashTool, useUnsplashPhotoTool } from "./unsplash.js";
+import { loadSkillTool } from "./skill.js";
+import { VIEWPORTS, formatPageReport, probePage } from "./browser.js";
 
 const MAX_READ_BYTES = 2_000_000;
 const DEFAULT_READ_LINES = 2000;
@@ -556,74 +548,45 @@ export function findChrome(): string | null {
 export const checkPreviewTool: Tool = {
   name: "check_preview",
   description:
-    "Load an HTML file from the project in a headless browser for a few seconds and report JavaScript errors, " +
-    "console output and a summary of the rendered page. Use this ONCE to check a web page/game after writing it, " +
+    "Load an HTML file from the project in a headless browser at phone (390px) and desktop (1280px) widths and report " +
+    "JavaScript errors (also while clicking every button), failed requests, horizontal overflow, broken images, " +
+    "controls without an accessible name, and a summary of the rendered page. Use it after writing a page and after fixing what it reported, " +
     "instead of installing browsers or writing test scripts.",
   parameters: {
     type: "object",
     properties: {
       path: { type: "string", description: "HTML file relative to the project root (default index.html)" },
+      interact: {
+        type: "boolean",
+        description:
+          "Also click every visible button and reload to catch errors in event handlers (default true).",
+      },
+      viewports: {
+        type: "array",
+        items: { type: "string", enum: Object.keys(VIEWPORTS) },
+        description: "Viewport names to check (default phone and desktop). small = 320px, tablet = 768px.",
+      },
     },
   },
   readOnly: true,
   risk: () => "low",
-  async execute(args: { path?: string }, ctx) {
+  async execute(args: { path?: string; viewports?: string[]; interact?: boolean }, ctx) {
     const abs = resolveInProject(ctx.projectRoot, args.path || "index.html");
     if (!existsSync(abs)) return { ok: false, output: `No such file: ${args.path || "index.html"}` };
     const chrome = findChrome();
     if (!chrome)
       return { ok: true, output: "No headless browser is installed; review the code carefully instead." };
-    const profile = mkdtempSync(join(tmpdir(), "harness-chrome-"));
+    const viewports = (args.viewports ?? []).map((v) => VIEWPORTS[v]).filter(Boolean);
     try {
-      const r = spawnSync(
-        chrome,
-        [
-          "--headless=new",
-          "--disable-gpu",
-          "--no-first-run",
-          "--no-default-browser-check",
-          "--mute-audio",
-          `--user-data-dir=${profile}`,
-          "--enable-logging=stderr",
-          "--v=0",
-          "--virtual-time-budget=3000",
-          "--window-size=1024,768",
-          "--dump-dom",
-          pathToFileURL(abs).href,
-        ],
-        { encoding: "utf8", timeout: 30_000, maxBuffer: 32 * 1024 * 1024 },
-      );
-      const consoleLines = (r.stderr ?? "")
-        .split("\n")
-        .map((l) => /CONSOLE\(?\d*\)?:?\d*\] "(.*)", source: (.*)$/.exec(l))
-        .filter((m): m is RegExpExecArray => !!m)
-        .map((m) => `${m[1]}  (${m[2].replace(pathToFileURL(ctx.projectRoot).href + "/", "")})`);
-      const errors = consoleLines.filter((l) => /Uncaught|Error|error|Failed to load/.test(l));
-      const dom = r.stdout ?? "";
-      const text = dom
-        .replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, " ")
-        .replace(/<[^>]+>/g, " ")
-        .replace(/\s+/g, " ")
-        .trim();
-      const count = (tag: string) => (dom.match(new RegExp(`<${tag}[\\s>]`, "gi")) ?? []).length;
-      const lines = [
-        r.error ? `Browser failed: ${r.error.message}` : `Page loaded (${dom.length} bytes of DOM).`,
-        `Elements: ${count("canvas")} canvas, ${count("button")} buttons, ${count("svg")} svg, ${count("input")} inputs.`,
-        `Visible text: ${text.slice(0, 400) || "(none)"}`,
-        errors.length
-          ? `JavaScript errors (${errors.length}):\n${errors.slice(0, 15).join("\n")}`
-          : "No JavaScript errors.",
-        consoleLines.length > errors.length
-          ? `Console:\n${consoleLines
-              .filter((l) => !errors.includes(l))
-              .slice(0, 10)
-              .join("\n")}`
-          : "",
-        "Note: no user input was simulated.",
-      ];
-      return { ok: errors.length === 0 && !r.error, output: lines.filter(Boolean).join("\n") };
-    } finally {
-      rmSync(profile, { recursive: true, force: true });
+      const report = await probePage(chrome, pathToFileURL(abs).href, {
+        viewports,
+        signal: ctx.signal,
+        exercise: args.interact !== false,
+      });
+      const base = pathToFileURL(ctx.projectRoot).href.replace(/\/?$/, "/");
+      return { ok: report.ok, output: formatPageReport(report, rel(ctx.projectRoot, abs), base) };
+    } catch (e) {
+      return { ok: false, output: `Browser failed: ${(e as Error).message}` };
     }
   },
 };
@@ -641,6 +604,7 @@ export function builtinTools(): Tool[] {
     askUserTool,
     todoTool,
     rememberTool,
+    loadSkillTool,
     setPreviewTool,
     checkPreviewTool,
     searchUnsplashTool,
