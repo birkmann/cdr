@@ -54,7 +54,7 @@ A desktop workspace built with Tauri 2 and Rust:
 - **Git:** stage hunks, commit, browse history, switch branches, push, and open pull requests.
 - **Agents:** the agent panel sits next to your code. The Agents view lists every agent and subagent, with one inbox for their approvals.
 
-Ctrl+P opens files, Ctrl+Shift+P runs commands, and Ctrl+mouse wheel zooms. [Read more →](docs/desktop.md)
+Ctrl+O opens the file dialog, Ctrl+P searches project files (Quick Open), Ctrl+Shift+P opens the command palette, and Ctrl+mouse wheel zooms. [Read more →](docs/desktop.md)
 
 ## Web app
 

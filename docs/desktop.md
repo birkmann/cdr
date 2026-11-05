@@ -68,7 +68,10 @@ Rust (crates/studio-app)                ▼
 | **Agents** (Ctrl+Shift+A) | See the tree of conversations and their subagents, with status, worktree and stop buttons. The approvals inbox answers permission requests from every agent; you get an OS notification when the window is in the background. |
 | **Goals** (Ctrl+Shift+J) | Define a goal with acceptance criteria, a budget, permissions, models and an optional schedule, then run it unattended. Review its checkpoints and criteria. Merge the result, open a pull request, request changes or discard it. |
 | **Panel** (Ctrl+J) | Terminals, Problems with "Ask agent to fix errors", and the harness log. |
-| **Palette** (Ctrl+P, Ctrl+Shift+P) | Fuzzy file finder, plus every command: Git actions, themes, package scripts and the harness. |
+| **Open file** (Ctrl+O) | Choose a file in the native file dialog. Files in the current folder open in an editor tab. For a file outside it, Studio offers to switch to the containing folder; save modified files first. With no folder open, Studio opens the file's containing folder. |
+| **Open folder** (Ctrl+K, then Ctrl+O) | Choose a workspace folder. |
+| **Quick Open** (Ctrl+P) | Search project files by name and press Enter to open one. Type `>` to search commands instead. |
+| **Command palette** (Ctrl+Shift+P or F1) | Search commands: Git actions, themes, package scripts and the harness. |
 | **Zoom** | Ctrl+mouse wheel, Ctrl + / Ctrl − (also on the numpad) and Ctrl+0 scale the whole interface, like VS Code. The level is remembered; the status bar shows it when it is not 100% and resets it on click. |
 | **Settings** (Ctrl+,) | Theme, file icons, provider keys, GitHub sign-in, clone folder and harness status. |
 

@@ -1,4 +1,5 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { openFile, openFolder } from "../file-actions";
 import { useStudio, type SideView } from "../store";
 import type { HarnessStatus } from "../ipc";
 import { Splitter, usePanelSize } from "./Splitter";
@@ -38,16 +39,38 @@ export function Shell({ harnessStatus }: { harnessStatus: HarnessStatus }) {
   const agentSize = usePanelSize("morrow.studio.agent", 460, 320, 900);
   const bottomSize = usePanelSize("morrow.studio.bottom", 260, 120, 700);
   const approvals = useApprovals();
+  const chordUntil = useRef(0);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.altKey || e.isComposing) return;
       const mod = e.ctrlKey || e.metaKey;
-      if (!mod) return;
       const k = e.key.toLowerCase();
+      if (["control", "meta", "shift"].includes(k)) return;
+      const chord = chordUntil.current > Date.now();
+      chordUntil.current = 0;
+      if (chord && mod && !e.shiftKey && k === "o") {
+        e.preventDefault();
+        setPalette(null);
+        void openFolder(st);
+        return;
+      }
+      if (k === "f1" && !mod && !e.shiftKey) return void (e.preventDefault(), setPalette("commands"));
+      if (!mod) return;
       const toggleSide = (v: SideView) => st.setSide(st.side === v ? null : v);
       if (e.shiftKey && k === "p") return void (e.preventDefault(), setPalette("commands"));
       if (!e.shiftKey && k === "p") return void (e.preventDefault(), setPalette("files"));
-      if (!e.shiftKey && k === "k") return void (e.preventDefault(), setPalette("commands"));
+      if (!e.shiftKey && k === "k") {
+        e.preventDefault();
+        chordUntil.current = Date.now() + 1500;
+        return;
+      }
+      if (!e.shiftKey && k === "o") {
+        e.preventDefault();
+        setPalette(null);
+        void openFile(st);
+        return;
+      }
       if (e.shiftKey && k === "e") return void (e.preventDefault(), toggleSide("files"));
       if (e.shiftKey && k === "f") return void (e.preventDefault(), st.setSide("search"));
       if (e.shiftKey && k === "g") return void (e.preventDefault(), toggleSide("git"));
@@ -78,7 +101,7 @@ export function Shell({ harnessStatus }: { harnessStatus: HarnessStatus }) {
   return (
     <div className="st-app">
       <TitleBar
-        onPalette={() => setPalette("commands")}
+        onPalette={() => setPalette("files")}
         onClone={() => setDialog("clone")}
         approvals={approvals.length}
       />
@@ -171,6 +194,7 @@ export function Shell({ harnessStatus }: { harnessStatus: HarnessStatus }) {
       <StatusBar harnessStatus={harnessStatus} onSettings={() => setDialog("settings")} />
       {palette && (
         <Palette
+          key={palette}
           mode={palette}
           onClose={() => setPalette(null)}
           onDialog={(d) => {

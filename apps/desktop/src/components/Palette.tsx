@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { openFile, openFolder } from "../file-actions";
 import { useApp } from "@web/app-state";
 import { THEMES } from "@web/themes";
 import { fs, git, harness } from "../ipc";
@@ -54,14 +54,12 @@ export function Palette({
     const ws = !!root;
     const repo = ws && st.isRepo;
     const c: Command[] = [
+      { id: "openfile", label: "File: Open file…", hint: "Ctrl+O", run: () => openFile(st) },
       {
         id: "open",
         label: "Open folder…",
-        hint: "Ctrl+O",
-        run: async () => {
-          const d = await openDialog({ directory: true, title: "Open folder" });
-          if (typeof d === "string") await st.attempt(() => st.openWorkspace(d));
-        },
+        hint: "Ctrl+K Ctrl+O",
+        run: () => openFolder(st),
       },
       { id: "clone", label: "Git: Clone repository…", run: () => onDialog("clone") },
       { id: "close", label: "Close folder", when: ws, run: () => st.closeWorkspace() },
@@ -219,7 +217,7 @@ export function Palette({
 
   return (
     <div className="st-modal-backdrop top" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="st-palette" role="dialog" aria-label="Command palette">
+      <div className="st-palette" role="dialog" aria-label={isCommands ? "Command palette" : "Quick Open"}>
         <input
           className="st-input"
           autoFocus

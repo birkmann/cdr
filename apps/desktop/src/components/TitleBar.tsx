@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { openFile, openFolder } from "../file-actions";
 import { Popover } from "@web/components/Pickers";
 import { CDRMark } from "@web/components/Brand";
 import { app, git, type Branch, type RecentRepo } from "../ipc";
@@ -27,10 +27,10 @@ export function TitleBar({
       <button
         className="st-title-search"
         onClick={onPalette}
-        title="Search files and commands (Ctrl+P / Ctrl+Shift+P)"
+        title="Quick Open: search project files (Ctrl+P). Type > for commands."
       >
         <ISearch size={14} />
-        <span>{st.workspace ? `Search ${st.workspace.name}` : "Search commands"}</span>
+        <span>{st.workspace ? `Search ${st.workspace.name}` : "Quick Open"}</span>
         <kbd>Ctrl P</kbd>
       </button>
       <div className="st-title-right">
@@ -67,10 +67,6 @@ export function TitleBar({
 function RepoMenu({ onClone }: { onClone(): void }) {
   const st = useStudio();
   const [recent, setRecent] = useState<RecentRepo[]>([]);
-  const openFolder = async () => {
-    const dir = await openDialog({ directory: true, multiple: false, title: "Open folder" });
-    if (typeof dir === "string") await st.attempt(() => st.openWorkspace(dir));
-  };
   return (
     <Popover
       className="st-repo-menu"
@@ -91,7 +87,8 @@ function RepoMenu({ onClone }: { onClone(): void }) {
     >
       {(close) => (
         <div className="st-menu">
-          <button onClick={() => (close(), void openFolder())}>Open folder…</button>
+          <button onClick={() => (close(), void openFile(st))}>Open file…</button>
+          <button onClick={() => (close(), void openFolder(st))}>Open folder…</button>
           <button onClick={() => (close(), onClone())}>Clone repository…</button>
           {st.workspace && <button onClick={() => (close(), st.closeWorkspace())}>Close folder</button>}
           {recent.length > 0 && <div className="st-menu-label">Recent</div>}

@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { openFile, openFolder } from "../file-actions";
 import { CDRMark } from "@web/components/Brand";
 import { app, type RecentRepo } from "../ipc";
 import { timeAgo, useStudio } from "../store";
-import { IFolder, IDown, IX } from "./icons";
+import { IFile, IFolder, IDown, IX } from "./icons";
 
 export function Welcome({ compact = false, onClone }: { compact?: boolean; onClone(): void }) {
   const st = useStudio();
@@ -14,10 +14,6 @@ export function Welcome({ compact = false, onClone }: { compact?: boolean; onClo
       .then(setRecent)
       .catch(() => {});
   }, [st.workspace]);
-  const openFolder = async () => {
-    const dir = await openDialog({ directory: true, multiple: false, title: "Open folder" });
-    if (typeof dir === "string") await st.attempt(() => st.openWorkspace(dir));
-  };
   if (compact)
     return (
       <div className="st-panel">
@@ -26,7 +22,7 @@ export function Welcome({ compact = false, onClone }: { compact?: boolean; onClo
         </div>
         <div className="st-empty">
           <p>No folder is open.</p>
-          <button onClick={() => void openFolder()}>Open folder</button>
+          <button onClick={() => void openFolder(st)}>Open folder</button>
           <button className="ghost" onClick={onClone}>
             Clone repository
           </button>
@@ -46,8 +42,11 @@ export function Welcome({ compact = false, onClone }: { compact?: boolean; onClo
         <div className="st-welcome-grid">
           <section>
             <h3>Start</h3>
-            <button className="st-link" onClick={() => void openFolder()}>
-              <IFolder size={16} /> Open folder… <kbd>Ctrl O</kbd>
+            <button className="st-link" onClick={() => void openFile(st)}>
+              <IFile size={16} /> Open file… <kbd>Ctrl O</kbd>
+            </button>
+            <button className="st-link" onClick={() => void openFolder(st)}>
+              <IFolder size={16} /> Open folder… <kbd>Ctrl K Ctrl O</kbd>
             </button>
             <button className="st-link" onClick={onClone}>
               <IDown size={16} /> Clone repository…
@@ -100,8 +99,9 @@ export function Welcome({ compact = false, onClone }: { compact?: boolean; onClo
                 and open pull requests (<kbd>Ctrl Shift G</kbd>).
               </li>
               <li>
-                <strong>Everything else</strong>: <kbd>Ctrl P</kbd> opens files, <kbd>Ctrl Shift P</kbd> runs
-                commands, <kbd>Ctrl J</kbd> opens a terminal.
+                <strong>Navigation</strong>: <kbd>Ctrl O</kbd> opens a file dialog, <kbd>Ctrl P</kbd> searches
+                project files (Quick Open), <kbd>Ctrl Shift P</kbd> opens the command palette, and{" "}
+                <kbd>Ctrl J</kbd> toggles the panel.
               </li>
             </ul>
           </section>
