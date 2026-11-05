@@ -15,10 +15,6 @@
   <img src="https://img.shields.io/badge/node-%E2%89%A5%2022-339933.svg" alt="Node.js 22 or newer" />
 </p>
 
-<p align="center">
-  <img src="docs/images/desktop-editor.png" alt="CDR Studio editor and agent panel" />
-</p>
-
 - **Providers:** DeepSeek, Anthropic, OpenRouter, Ollama, and OpenAI-compatible APIs; separate models per workflow role.
 - **Workflows:** planning, file edits, shell tools, build/test verification, and review; skills, MCP tools, subagents, and autonomous goals.
 - **Permissions:** approval modes, project-confined file tools, optional bubblewrap sandboxing, and secret redaction.
@@ -59,8 +55,13 @@ Configure providers, model roles, permissions, and verification commands in `cdr
 **Desktop:** editor, project search, language-server diagnostics, terminals, Git staging and history, and agent approvals.
 
 <p align="center">
-  <img src="docs/images/desktop-git.png" width="49%" alt="Git diff and staging" />
-  <img src="docs/images/desktop-history.png" width="49%" alt="Commit history and details" />
+  <img src="docs/images/desktop-editor.png" width="100%" alt="CDR Studio editor and agent panel" />
+</p>
+
+<!-- Proportional widths keep the 1480×860 and 1600×1000 screenshots at the same displayed height. -->
+<p align="center">
+  <img src="docs/images/desktop-git.png" width="51%" alt="Git diff and staging" />
+  <img src="docs/images/desktop-history.png" width="47.4%" alt="Commit history and details" />
 </p>
 
 **Web:** chat, project sandboxes, attachments, file changes, and live previews.
@@ -94,4 +95,4 @@ Core packages live in `packages/`, interfaces in `apps/`, and the desktop backen
 - [Architecture](docs/architecture.md) · [Protocol](docs/protocol.md) · [SDK](docs/sdk.md)
 - [Security](SECURITY.md) · [Third-party notices](THIRD_PARTY_NOTICES.md)
 
-[MIT](LICENSE) © Rafael Birkmann
+[MIT](LICENSE)
