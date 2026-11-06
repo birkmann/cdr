@@ -161,11 +161,23 @@ export interface Browser {
   close(): Promise<void>;
 }
 
-/** Start headless Chrome on a pipe with a fresh profile (deleted on close). */
+/**
+ * Start headless Chrome on a pipe with a fresh profile (deleted on close). A start that does not answer in
+ * time is tried once more: on a busy machine the first start of a browser can take longer than the timeout.
+ */
 export async function launchChrome(
   chrome: string,
   opts: { args?: string[]; signal?: AbortSignal } = {},
 ): Promise<Browser> {
+  try {
+    return await launchOnce(chrome, opts);
+  } catch (e) {
+    if (opts.signal?.aborted || !/timed out/.test((e as Error).message)) throw e;
+    return launchOnce(chrome, opts);
+  }
+}
+
+async function launchOnce(chrome: string, opts: { args?: string[]; signal?: AbortSignal }): Promise<Browser> {
   const profile = mkdtempSync(join(tmpdir(), "harness-chrome-"));
   let child: ChildProcess | undefined;
   const kill = () => {

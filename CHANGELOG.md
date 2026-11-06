@@ -4,6 +4,8 @@ All notable changes are listed here. The project follows [Semantic Versioning](h
 
 ## Unreleased
 
+- Page capture and `check_preview` try once more when headless Chrome is slow to start on a busy machine.
+
 ## 0.1.0 (2026-11-06)
 
 First public release.
