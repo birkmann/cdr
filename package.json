@@ -1,6 +1,6 @@
 {
   "name": "cdr",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "CDR: a provider-agnostic AI coding harness with a terminal workspace, a web app, and a native desktop app.",
   "private": true,
   "license": "MIT",

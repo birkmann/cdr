@@ -4,6 +4,8 @@ All notable changes are listed here. The project follows [Semantic Versioning](h
 
 ## Unreleased
 
+## 0.2.0 (2026-11-06)
+
 - Page capture and `check_preview` try once more when headless Chrome is slow to start on a busy machine.
 - The desktop Agents view lists every running agent in any folder, with where it came from, elapsed time, model and tokens, and has **Stop all**. Conversations can be deleted from it, including ones whose folder is gone.
 - Deleting a conversation also deletes its subagents, their worktrees and their merged branches, and can remove its sandbox folder.
