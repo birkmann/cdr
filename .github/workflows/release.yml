@@ -83,7 +83,7 @@ jobs:
             os: ubuntu-22.04 # older glibc keeps the AppImage compatible with more distributions
             args: ""
           - name: macOS
-            os: macos-14
+            os: macos-latest
             args: --target universal-apple-darwin
           - name: Windows
             os: windows-2022
