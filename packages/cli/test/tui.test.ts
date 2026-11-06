@@ -393,10 +393,24 @@ describe("full-screen session integration", () => {
     const reply = new Promise<{ text: string }>((resolve) => {
       release = resolve;
     });
-    const x = setup(new MockProvider({ handler: () => reply }));
+    let waiting = false;
+    const x = setup(
+      new MockProvider({
+        handler: () => {
+          waiting = true;
+          return reply;
+        },
+      }),
+    );
     try {
       x.send("think about this");
       await waitFor(() => expect(x.outputText).toContain("Thinking"));
+      // On a slow machine the events before the model call can still be arriving; wait until the
+      // provider is blocked and the app has applied every event, so later frames come from the timer.
+      await waitFor(() => {
+        expect(waiting).toBe(true);
+        expect(x.app.state.lastSeq).toBe(x.session.events.at(-1)?.seq);
+      });
       const first = x.app.snapshot();
       const outputLength = x.outputText.length;
       await waitFor(() => expect(x.app.snapshot().frame).toBeGreaterThan(first.frame + 2));
