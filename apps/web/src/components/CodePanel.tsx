@@ -159,6 +159,9 @@ export function useEditCount(s: UseSessionResult): number {
   return useMemo(() => Object.values(s.tools).filter((t) => t.diff).length, [s.tools]);
 }
 
+/** Quiet time after the agent's last file change before a running session's preview reloads. */
+const SETTLE_MS = 1200;
+
 /** Runs whose recreation has been placed over the screenshot (kept across tab switches: no second reveal). */
 const revealedRuns = new Set<string>();
 
@@ -258,13 +261,24 @@ export function Preview({
       cancelled = true;
     };
   }, [sessionId, refreshKey, publication, s.status, preparing]);
+  // While the agent works, reload once its writes have settled (like a preview opened in a browser tab),
+  // instead of waiting for the whole turn to end.
+  const settle = useRef<ReturnType<typeof setTimeout>>();
   useEffect(() => {
     const published = publication !== observed.current.publication;
     if (changes !== observed.current.changes || published) dirty.current = true;
     observed.current = { changes, publication };
+    clearTimeout(settle.current);
     if (dirty.current && autoRefresh && (published || !busy)) refresh();
-    else setUpdates(dirty.current);
+    else {
+      setUpdates(dirty.current);
+      if (dirty.current && autoRefresh)
+        settle.current = setTimeout(() => {
+          if (dirty.current) refresh();
+        }, SETTLE_MS);
+    }
   }, [changes, publication, s.status, autoRefresh]);
+  useEffect(() => () => clearTimeout(settle.current), []);
   useEffect(() => {
     setLoading(true);
     setUpdated(false);
@@ -334,7 +348,7 @@ export function Preview({
           <span role="status" aria-live="polite">
             {updates
               ? autoRefresh && ["running", "waiting"].includes(s.status)
-                ? "Changes in progress — preview will refresh when ready."
+                ? "Changes in progress — preview will refresh in a moment."
                 : "A newer version is ready. Refresh to see the changes."
               : busy
                 ? "Build in progress — showing the last preview."

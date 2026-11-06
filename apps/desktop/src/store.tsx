@@ -76,6 +76,8 @@ export interface Toast {
   id: number;
   kind: "info" | "error" | "success";
   text: string;
+  /** How many times this same message was raised while it was showing. */
+  count: number;
 }
 
 interface Store {
@@ -128,6 +130,8 @@ interface Store {
   toasts: Toast[];
   toast(text: string, kind?: Toast["kind"]): void;
   dismiss(id: number): void;
+  /** Pause (hover) or restart a toast's auto-dismiss timer. */
+  holdToast(id: number, hold: boolean): void;
   /** Run an async action, reporting failures as a toast. */
   attempt<T>(fn: () => Promise<T>, success?: string): Promise<T | undefined>;
   /** Text queued for the agent composer (from "Ask agent" actions). */
@@ -371,12 +375,65 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     }
   }, [side, bottom, agentPanel, agentDock]);
 
-  const toast = useCallback((text: string, kind: Toast["kind"] = "info") => {
-    const id = ++toastId.current;
-    setToasts((t) => [...t.slice(-4), { id, kind, text }]);
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), kind === "error" ? 9000 : 4000);
+  const toastTimers = useRef(new Map<number, { timer?: ReturnType<typeof setTimeout>; ms: number }>());
+  // Kept in sync synchronously so two toasts raised in one tick still dedupe.
+  const toastsRef = useRef<Toast[]>([]);
+  const setToastList = useCallback((next: Toast[]) => {
+    toastsRef.current = next;
+    setToasts(next);
   }, []);
-  const dismiss = useCallback((id: number) => setToasts((t) => t.filter((x) => x.id !== id)), []);
+  const dismiss = useCallback(
+    (id: number) => {
+      const t = toastTimers.current.get(id);
+      if (t?.timer) clearTimeout(t.timer);
+      toastTimers.current.delete(id);
+      setToastList(toastsRef.current.filter((x) => x.id !== id));
+    },
+    [setToastList],
+  );
+  const armToast = useCallback(
+    (id: number) => {
+      const t = toastTimers.current.get(id);
+      if (!t) return;
+      if (t.timer) clearTimeout(t.timer);
+      t.timer = setTimeout(() => dismiss(id), t.ms);
+    },
+    [dismiss],
+  );
+  const toast = useCallback(
+    (text: string, kind: Toast["kind"] = "info") => {
+      // The same message again while it is still showing bumps a counter instead of stacking a copy.
+      const same = toastsRef.current.find((x) => x.text === text && x.kind === kind);
+      if (same) {
+        setToastList(toastsRef.current.map((x) => (x.id === same.id ? { ...x, count: x.count + 1 } : x)));
+        armToast(same.id);
+        return;
+      }
+      const id = ++toastId.current;
+      const ms = kind === "error" ? 9000 : 4000;
+      toastTimers.current.set(id, { ms });
+      const next = [...toastsRef.current, { id, kind, text, count: 1 }];
+      for (const old of next.slice(0, -4)) {
+        const t = toastTimers.current.get(old.id);
+        if (t?.timer) clearTimeout(t.timer);
+        toastTimers.current.delete(old.id);
+      }
+      setToastList(next.slice(-4));
+      armToast(id);
+    },
+    [armToast, setToastList],
+  );
+  const holdToast = useCallback(
+    (id: number, hold: boolean) => {
+      const t = toastTimers.current.get(id);
+      if (!t) return;
+      if (hold) {
+        if (t.timer) clearTimeout(t.timer);
+        t.timer = undefined;
+      } else armToast(id);
+    },
+    [armToast],
+  );
   const attempt = useCallback(
     async <T,>(fn: () => Promise<T>, success?: string) => {
       try {
@@ -587,6 +644,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     setSessionId,
     toasts,
     toast,
+    holdToast,
     dismiss,
     attempt,
     agentDraft,

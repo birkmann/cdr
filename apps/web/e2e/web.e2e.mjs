@@ -249,10 +249,11 @@ try {
   writeFileSync(join(previewSession.projectRoot, "game.js"), "document.getElementById('t').textContent = 'SNAKE READY';");
   previewSession.emit({ type: "tool.call", id: "preview-shell-build", name: "bash", args: { command: "node build.js" } });
   previewSession.emit({ type: "tool.result", id: "preview-shell-build", name: "bash", ok: true, output: "Built" });
-  await page.getByText("Changes in progress — preview will refresh when ready.", { exact: true }).waitFor();
-  assert.equal(await previewText.innerText(), "PURPLE SNAKE", "waits for the build turn to finish");
-  previewSession.emit({ type: "status", status: "idle" });
+  await page.getByText("Changes in progress — preview will refresh in a moment.", { exact: true }).waitFor();
+  assert.equal(await previewText.innerText(), "PURPLE SNAKE", "waits for the agent's writes to settle");
+  // reloads mid-turn once the writes have settled, like a preview opened in a browser tab
   await previewText.filter({ hasText: "SNAKE READY" }).waitFor();
+  previewSession.emit({ type: "status", status: "idle" });
   await page.getByText("Preview refreshed — showing the latest version.", { exact: true }).waitFor();
 
   // Resize the chat/details split across a live iframe, then restore after reload.

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useApp } from "@web/app-state";
 import {
@@ -100,6 +100,8 @@ function RepoPanel({ root }: { root: string }) {
   const staged = files.filter((f) => !f.conflicted && f.index !== "unmodified" && f.index !== "untracked");
   const unstaged = files.filter((f) => !f.conflicted && f.worktree !== "unmodified");
   const [message, setMessage] = useState("");
+  const [commitError, setCommitError] = useState<string | null>(null);
+  const messageRef = useRef<HTMLTextAreaElement>(null);
   const [amend, setAmend] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -121,15 +123,21 @@ function RepoPanel({ root }: { root: string }) {
     try {
       const r = await client.commitMessage(root, settings.model || undefined);
       setMessage(r.message);
+      setCommitError(null);
     } catch (e) {
-      st.toast(`Could not generate a commit message: ${(e as Error).message}`, "error");
+      setCommitError(`Could not generate a commit message: ${(e as Error).message}`);
     } finally {
       setGenerating(false);
     }
   };
 
   const commit = async () => {
-    if (!message.trim()) return st.toast("Write a commit message first.", "error");
+    if (!message.trim()) {
+      setCommitError("Write a commit message first.");
+      messageRef.current?.focus();
+      return;
+    }
+    setCommitError(null);
     setBusy(true);
     try {
       if (!staged.length && !amend) {
@@ -144,7 +152,7 @@ function RepoPanel({ root }: { root: string }) {
       setMessage("");
       setAmend(false);
     } catch (e) {
-      st.toast((e as Error).message, "error");
+      setCommitError((e as Error).message);
     } finally {
       setBusy(false);
       await after();
@@ -337,11 +345,15 @@ function RepoPanel({ root }: { root: string }) {
         <div className="st-commit">
           <div className="st-commit-input">
             <textarea
-              className="st-input"
+              ref={messageRef}
+              className={`st-input${commitError ? " invalid" : ""}`}
               rows={Math.min(8, Math.max(3, message.split("\n").length))}
               placeholder={`Message (Ctrl+Enter to commit on ${s?.branch ?? "HEAD"})`}
               value={message}
-              onChange={(e) => setMessage(e.target.value)}
+              onChange={(e) => {
+                setMessage(e.target.value);
+                if (commitError) setCommitError(null);
+              }}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
                   e.preventDefault();
@@ -349,6 +361,8 @@ function RepoPanel({ root }: { root: string }) {
                 }
               }}
               aria-label="Commit message"
+              aria-invalid={commitError ? true : undefined}
+              aria-describedby={commitError ? "st-commit-error" : undefined}
             />
             <button
               className="ghost icon tiny st-generate"
@@ -362,6 +376,11 @@ function RepoPanel({ root }: { root: string }) {
               {generating ? <span className="st-spin small" /> : <ISparkle size={15} />}
             </button>
           </div>
+          {commitError && (
+            <div id="st-commit-error" className="st-field-error" role="alert">
+              {commitError}
+            </div>
+          )}
           <div className="st-row">
             <button
               className="st-grow"
