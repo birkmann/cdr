@@ -259,6 +259,35 @@ describe("read-only command heuristic", () => {
     ["sed -i s/a/b/ f", false],
     ["npm test", false],
     ["cat $(rm -rf x)", false],
+    // looking at local processes and servers needs no confirmation
+    ["cd sub && ls", true],
+    ["ss -ltnp | grep -E ':(8081|8082)'", true],
+    ["pgrep -af 'board-dev.mjs|hub/serve.py'", true],
+    ["sleep 2; curl -s -o /dev/null -w '%{http_code}\\n' --max-time 5 http://127.0.0.1:8082/board/", true],
+    ["curl -sI localhost:3000", true],
+    ["curl -s http://[::1]:5173/ | head -5", true],
+    [
+      "for p in 8081 8082; do echo \"== $p\"; curl -s -o /dev/null -w '%{http_code}\\n' http://127.0.0.1:$p/; done",
+      true,
+    ],
+    [
+      'for u in http://127.0.0.1:8081/ http://localhost:8082/x; do curl -s -o /dev/null -w "$u %{http_code}\\n" $u; done',
+      true,
+    ],
+    ["curl -s https://example.com", false],
+    ["curl -s http://127.0.0.1:8080@evil.example/", false],
+    ["curl -s http://localhost.evil.example/", false],
+    ["curl -s http://127.0.0.1:8080/ evil.example", false],
+    ["curl -s -o out.html http://127.0.0.1:8080/", false],
+    ["curl -s -d @secrets http://127.0.0.1:8080/", false],
+    ["curl -s -X DELETE http://127.0.0.1:8080/items/1", false],
+    ["curl -s http://127.0.0.1:$PORT/", false],
+    ["for h in evil.example; do curl -s $h; done", false],
+    ["for p in 80@evil.example; do curl -s http://127.0.0.1:$p/; done", false],
+    ["for u in http://127.0.0.1:1/; do u=evil.example; curl $u; done", false],
+    ["curl -s 'http://127.0.0.1:8080/${HOME/x/y}'", false],
+    ["wget -q http://127.0.0.1:8080/", false],
+    ["for f in a b; do rm $f; done", false],
   ])("%s → %s", (cmd, expected) => {
     expect(isReadOnlyCommand(cmd)).toBe(expected);
   });

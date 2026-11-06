@@ -8,6 +8,7 @@ import {
   loadConfig,
   harnessHome,
   initProject,
+  keySource,
   loadDotEnv,
   parseModelRef,
   redact,
@@ -116,6 +117,43 @@ describe("config", () => {
     const env: NodeJS.ProcessEnv = { B_TEST_KEY: "keep" };
     loadDotEnv(dir, env);
     expect(env).toEqual({ A_TEST_KEY: "quoted", B_TEST_KEY: "keep", C_TEST_KEY: "c" });
+  });
+
+  it("reports where an API key comes from", () => {
+    const project = mkdtempSync(join(tmpdir(), "env-proj-"));
+    const home = mkdtempSync(join(tmpdir(), "env-home-"));
+    writeFileSync(join(project, ".env"), "P_KEY=p\nSHADOWED_KEY=from-file\n");
+    writeFileSync(join(home, ".env"), "H_KEY=h\n");
+    try {
+      vi.stubEnv("CDR_HOME", home);
+      const env: NodeJS.ProcessEnv = { P_KEY: "p", H_KEY: "h", SHADOWED_KEY: "from-shell", S_KEY: "s" };
+      expect(keySource("P_KEY", project, env)).toEqual({
+        source: "project-env",
+        file: join(project, ".env"),
+      });
+      expect(keySource("H_KEY", project, env)).toEqual({ source: "home-env", file: join(home, ".env") });
+      // a value set before the .env was loaded wins, so the file is not its source
+      expect(keySource("SHADOWED_KEY", project, env)).toEqual({ source: "environment" });
+      expect(keySource("S_KEY", project, env)).toEqual({ source: "environment" });
+      expect(keySource("MISSING_KEY", project, env)).toBeUndefined();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("remembers the .env a key was loaded from, even when asked about another project", () => {
+    const loadedFrom = mkdtempSync(join(tmpdir(), "env-a-"));
+    const other = mkdtempSync(join(tmpdir(), "env-b-"));
+    writeFileSync(join(loadedFrom, ".env"), "ORIGIN_TEST_KEY=x\n");
+    try {
+      loadDotEnv(loadedFrom);
+      expect(keySource("ORIGIN_TEST_KEY", other)).toEqual({
+        source: "project-env",
+        file: join(loadedFrom, ".env"),
+      });
+    } finally {
+      delete process.env.ORIGIN_TEST_KEY;
+    }
   });
 });
 

@@ -150,6 +150,19 @@ export function transcript(
             }),
           );
           break;
+        case "launch.ready":
+          add(`▶ ${e.title || "Ready to run"} · ${e.cwd ? `cd ${e.cwd} && ` : ""}${e.command}`, {
+            fg: t.green,
+          });
+          break;
+        case "branch.merged":
+          add(
+            `⑂ Merged ${e.messages} message${e.messages === 1 ? "" : "s"} from branch ${e.branchTitle ?? e.branchSessionId}`,
+            {
+              fg: t.muted,
+            },
+          );
+          break;
         case "preview.ready":
           add(`↗ Preview ready · ${e.title || e.path}\n  Open this conversation in CDR web to view it.`, {
             fg: t.green,

@@ -1,9 +1,11 @@
 import { useApp } from "@web/app-state";
 import type { HarnessStatus } from "../ipc";
 import { useStudio } from "../store";
-import { useEffect, useState } from "react";
+import type { ProviderBalance } from "@harness/protocol";
+import { useEffect, useRef, useState } from "react";
 import { getZoom, onZoomChange, zoomReset } from "../zoom";
-import { IBranch, IDown, IUp, IWarn } from "./icons";
+import { openGithubSettings, useGithubUser } from "../github-account";
+import { IBranch, IDown, IGithub, IUp, IWarn } from "./icons";
 
 function ZoomIndicator() {
   const [zoom, setZoom] = useState(getZoom);
@@ -16,6 +18,108 @@ function ZoomIndicator() {
       title="Zoom (Ctrl+mouse wheel, Ctrl +/−). Click to reset to 100% (Ctrl+0)."
     >
       {Math.round(zoom * 100)}%
+    </button>
+  );
+}
+
+const SYMBOLS: Record<string, string> = { USD: "$", CNY: "¥" };
+const money = (currency: string, n: number) =>
+  `${SYMBOLS[currency] ?? ""}${n.toFixed(2)}${SYMBOLS[currency] ? "" : ` ${currency}`}`;
+const LOW_BALANCE: Record<string, number> = { USD: 2, CNY: 14 };
+
+/** Provider account balance (e.g. DeepSeek), like the terminal UI's: refreshed on start, after each run and every 5 min. */
+function Balance({ model, projectPath, running }: { model?: string; projectPath?: string; running: number }) {
+  const { client } = useApp();
+  const provider = model?.split("/")[0] ?? "";
+  const [state, setState] = useState<{
+    provider: string;
+    items: ProviderBalance[];
+    start?: ProviderBalance[];
+    error?: boolean;
+  } | null>(null);
+  const [tick, setTick] = useState(0);
+
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 5 * 60_000);
+    return () => clearInterval(id);
+  }, []);
+  // a run finishing changes the balance
+  const prevRunning = useRef(running);
+  useEffect(() => {
+    if (running < prevRunning.current) setTick((t) => t + 1);
+    prevRunning.current = running;
+  }, [running]);
+
+  useEffect(() => {
+    if (!client) return;
+    let live = true;
+    client
+      .balance({ model, projectPath })
+      .then((r) => {
+        if (!live) return;
+        setState((prev) => {
+          if (!r.items) return null;
+          const same = prev?.provider === r.provider;
+          return { provider: r.provider, items: r.items, start: same ? (prev?.start ?? r.items) : r.items };
+        });
+      })
+      .catch(() => {
+        if (live) setState((prev) => (prev && prev.provider === provider ? { ...prev, error: true } : null));
+      });
+    return () => {
+      live = false;
+    };
+  }, [client, model, projectPath, provider, tick]);
+
+  if (!state || (provider && state.provider !== provider)) return null;
+  if (!state.items.length)
+    return state.error ? <span className="st-sb muted">balance unavailable</span> : null;
+  const main = state.items[0]!;
+  const low = main.total < (LOW_BALANCE[main.currency] ?? 0);
+  const details = [`${state.provider} account balance`];
+  for (const item of state.items) {
+    details.push(money(item.currency, item.total));
+    const before = state.start?.find((x) => x.currency === item.currency)?.total;
+    if (before !== undefined && before - item.total >= 0.005)
+      details.push(`spent ${money(item.currency, before - item.total)} since the app started`);
+  }
+  if (main.granted !== undefined && main.toppedUp !== undefined && (main.granted > 0 || main.toppedUp > 0))
+    details.push(
+      `granted ${money(main.currency, main.granted)}`,
+      `topped up ${money(main.currency, main.toppedUp)}`,
+    );
+  if (state.error) details.push("last refresh failed");
+  return (
+    <button
+      className={`st-sb ${low ? "bad" : "muted"}`}
+      title={details.join("\n")}
+      onClick={() => setTick((t) => t + 1)}
+    >
+      Balance {state.items.map((i) => money(i.currency, i.total)).join(" · ")}
+    </button>
+  );
+}
+
+/** GitHub account: who git pushes and pull requests act as. Opens Settings → GitHub. */
+function GithubAccount() {
+  const user = useGithubUser();
+  if (user === undefined) return null;
+  return user ? (
+    <button
+      className="st-sb"
+      onClick={openGithubSettings}
+      title={`Signed in to GitHub as @${user.login}. Pushes and pull requests use this account.`}
+    >
+      {user.avatarUrl ? <img className="st-sb-avatar" src={user.avatarUrl} alt="" /> : <IGithub size={12} />}@
+      {user.login}
+    </button>
+  ) : (
+    <button
+      className="st-sb warn"
+      onClick={openGithubSettings}
+      title="Sign in to push to GitHub and open pull requests"
+    >
+      <IGithub size={12} /> Sign in to GitHub
     </button>
   );
 }
@@ -72,7 +176,13 @@ export function StatusBar({
           </button>
         )}
         <ZoomIndicator />
+        <GithubAccount />
         {current?.model && <span className="st-sb muted">{current.model}</span>}
+        <Balance
+          model={current?.model}
+          projectPath={current?.projectPath ?? st.workspace?.root}
+          running={running}
+        />
         <button
           className={`st-sb ${harnessStatus.state === "failed" || connection === "offline" ? "bad" : ""}`}
           onClick={onSettings}

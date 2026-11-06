@@ -102,7 +102,7 @@ describe("continue failed jobs", () => {
     const starts = third.events.filter((e) => e.type === "run.start");
     expect(starts).toHaveLength(3);
     expect(starts[2]).toMatchObject({ continuedFrom: starts[1].seq, task: "Build both files" });
-    expect(() => third.continueJob()).toThrow("no failed or stopped job");
+    expect(() => third.continueJob()).toThrow("no failed, stopped or interrupted job");
   });
 
   it("does not treat a rejected plan as approved", async () => {

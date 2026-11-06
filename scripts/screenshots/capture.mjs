@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Regenerates the README screenshots in docs/images with the scripted demo model (no API keys).
 //   pnpm build && cargo build -p studio-app --features tauri/custom-protocol
-//   node scripts/screenshots/capture.mjs [web] [desktop] [desktop-git] [terminal] [terminal-classic] [terminal-approval]
+//   node scripts/screenshots/capture.mjs [web] [desktop] [desktop-git] [desktop-agents] [terminal] [terminal-classic] [terminal-approval]
 //   node scripts/screenshots/capture.mjs web --real [--model <provider/model>] [--prompt "<brief>"] [--out <dir>]
 //     --real builds the app with a real model (API key from .env) and the web-app skill instead of the
 //     scripted demo, and saves web-*-real.png (default folder: a temp dir, printed at the end).
@@ -274,6 +274,7 @@ term.write(u, () => { document.body.dataset.done = "1"; });
 // ------------------------------------------------------------------ desktop app (Tauri, WebDriver)
 async function desktop() {
   const gitOnly = only.has("desktop-git") && !want("desktop");
+  const agentsOnly = only.has("desktop-agents") && !want("desktop");
   const app = process.env.STUDIO_BIN ?? join(root, "target/debug/cdr-studio");
   const driverBin = process.env.TAURI_DRIVER ?? join(homedir(), ".cargo/bin/tauri-driver");
   if (!existsSync(app)) throw new Error(`Build the app first: cargo build -p studio-app --features tauri/custom-protocol`);
@@ -307,7 +308,19 @@ async function desktop() {
   writeFileSync(loop, readFileSync(loop, "utf8").replace("export class PermissionPolicy", "/** Decides whether a tool call runs, asks, or is refused. */\nexport class PermissionPolicy"));
   const xdg = join(tmp, "config");
   mkdirSync(join(xdg, "io.github.birkmann.cdr"), { recursive: true });
-  writeFileSync(join(xdg, "io.github.birkmann.cdr/settings.json"), JSON.stringify({ recentRepos: [{ path: repo, name: "cdr", openedAt: Math.floor(Date.now() / 1000) - 3600 }] }));
+  // A second checkout: two agents never edit the same folder at once, so the split-view shot's
+  // second conversation works here.
+  const uiRepo = join(tmp, "projects", "cdr-ui");
+  execFileSync("git", ["clone", "-q", "--local", repo, uiRepo]);
+  writeFileSync(
+    join(xdg, "io.github.birkmann.cdr/settings.json"),
+    JSON.stringify({
+      recentRepos: [
+        { path: repo, name: "cdr", openedAt: Math.floor(Date.now() / 1000) - 3600 },
+        { path: uiRepo, name: "cdr-ui", openedAt: Math.floor(Date.now() / 1000) - 7200 },
+      ],
+    }),
+  );
   const env = {
     ...process.env,
     XDG_CONFIG_HOME: xdg,
@@ -340,6 +353,91 @@ async function desktop() {
   const clickText = (css, text) =>
     until(() => js(`const e=[...document.querySelectorAll(arguments[0])].find(x=>x.textContent.includes(arguments[1])&&x.offsetParent);if(!e)return false;e.click();return true`, css, text), `${css} ${text}`);
   const shot = async (name) => writeFileSync(join(out, name), Buffer.from(await wd("GET", "/session/:sid/screenshot"), "base64"));
+  /** Type into a composer and press Enter. */
+  const send = (css, text) =>
+    js(
+      `const t=document.querySelector(arguments[0]); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(t, arguments[1]); t.dispatchEvent(new Event('input',{bubbles:true})); t.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))`,
+      css,
+      text,
+    );
+  /** Attach a PNG (base64) to the composer under `scope` through its file input. */
+  const attach = async (scope, name, base64) => {
+    await js(
+      `const input=document.querySelector(arguments[0]+' .composer input[type=file]'); const bin=atob(arguments[2]); const bytes=new Uint8Array(bin.length); for (let i=0;i<bin.length;i++) bytes[i]=bin.charCodeAt(i);
+       const dt=new DataTransfer(); dt.items.add(new File([bytes], arguments[1], {type:'image/png'})); input.files=dt.files; input.dispatchEvent(new Event('change',{bubbles:true}));`,
+      scope,
+      name,
+      base64,
+    );
+    await until(() => js(`return !!document.querySelector(arguments[0]+' .composer .attachment')`, scope), `${name} attached`);
+  };
+  /** Wait for an agent's steps, show them expanded, and wait until `text` is among them. */
+  const showSteps = async (scope, text) => {
+    await until(
+      () =>
+        js(
+          `const b=document.querySelector(arguments[0]+' .activity-toggle'); if(!b) return false; if (b.getAttribute('aria-expanded')!=='true') b.click(); return document.querySelector(arguments[0]).textContent.includes(arguments[1])`,
+          scope,
+          text,
+        ),
+      `${scope}: ${text}`,
+      60000,
+    );
+  };
+  // The README's main shot: three conversations side by side, two agents working and one new.
+  async function agentsShot() {
+    // Tall enough that each conversation shows its attachment and every step without scrolling.
+    await wd("POST", "/session/:sid/window/rect", { width: 1600, height: 1100 });
+    // A phone-width capture of the Form reference app, as a user would paste it.
+    const browser = await chromium.launch({ executablePath: chrome, headless: true });
+    let phone;
+    try {
+      const page = await browser.newPage({ viewport: { width: 390, height: 760 }, deviceScaleFactor: 2 });
+      await page.goto(pathToFileURL(join(repo, "packages/core/skills/web-app/reference/form.html")).href);
+      await page.waitForFunction(() => [...document.images].every((i) => i.complete), null, { timeout: 20000 }).catch(() => {});
+      await sleep(500);
+      phone = (await page.screenshot()).toString("base64");
+    } finally {
+      await browser.close();
+    }
+    // Start from an empty editor with the Agents view open and the agent panel hidden.
+    await until(
+      () =>
+        js(`const tabs=[...document.querySelectorAll('.st-tab')]; if (tabs.length===1 && tabs[0].textContent.includes('Welcome')) return true;
+            (tabs.find((t) => !t.textContent.includes('Welcome')) ?? tabs[0])?.querySelector('.st-tab-close')?.click(); return false;`),
+      "tabs closed",
+    );
+    await js(`document.querySelector('.st-activity-btn[aria-label="Agents"]:not(.on)')?.click()`);
+    await js(`document.querySelector('.st-agent button[aria-label="New conversation"]')?.click()`);
+    await until(() => js(`return !!document.querySelector('.st-agent button[aria-label="New conversation in an editor tab"]')`), "panel ready");
+    await js(`document.querySelector('.st-agent button[aria-label="New conversation in an editor tab"]').click()`);
+    await until(() => js(`return !!document.querySelector('.st-chat-tab .st-new-chat textarea')`), "first conversation tab");
+    await js(`window.dispatchEvent(new KeyboardEvent('keydown',{key:'l',ctrlKey:true}))`);
+    await until(() => js(`return !document.querySelector('.st-agent')`), "agent panel hidden");
+    // Left: a phone layout bug, reported with a screenshot; the agent checks it in a headless browser.
+    await attach(".st-chat-tab", "form-390.png", phone);
+    await send(".st-chat-tab .st-new-chat textarea", "On phones the product grid in the Form app crops the last card (screenshot). Fix the grid and check it at 390px.");
+    await showSteps(".st-editor:nth-child(1) .st-chat-tab", "update checklist");
+    // Middle: a request about the app itself, with a capture of this window attached.
+    const self = await wd("GET", "/session/:sid/screenshot");
+    await js(`document.querySelector('.st-chat-tab button[aria-label="New conversation to the side"]').click()`);
+    await until(() => js(`return document.querySelectorAll('.st-chat-tab').length===2 && !!document.querySelector('.st-editor:nth-child(2) .st-new-chat textarea')`), "second conversation tab");
+    await js(`document.querySelector('.st-editor:nth-child(2) .st-target .pill').click()`);
+    await clickText(".st-editor:nth-child(2) .st-target .st-menu button", "cdr-ui");
+    await until(() => js(`return document.querySelector('.st-editor:nth-child(2) .st-target-name').textContent==='cdr-ui'`), "second checkout picked");
+    await attach(".st-editor:nth-child(2) .st-chat-tab", "studio.png", self);
+    await send(".st-editor:nth-child(2) .st-new-chat textarea", "Make the conversation header one row like in this screenshot, and keep the composer toolbar on a single line.");
+    await showSteps(".st-editor:nth-child(2) .st-chat-tab", "update checklist");
+    // Right: a new conversation, waiting for its first message.
+    await js(`document.querySelector('.st-editor:nth-child(2) .st-chat-tab button[aria-label="New conversation to the side"]').click()`);
+    await until(() => js(`return document.querySelectorAll('.st-editor').length===3 && !!document.querySelector('.st-editor:nth-child(3) .st-new-chat')`), "third column");
+    await sleep(2500);
+    // Follow the newest step in each conversation, as a user watching it would.
+    await js(`document.querySelectorAll('.st-chat-tab .messages').forEach((m) => m.scrollTo(0, m.scrollHeight))`);
+    await sleep(600);
+    await shot("desktop-agents.png");
+    console.log("✓ desktop-agents");
+  }
   try {
     await until(() => fetch(`${base}/status`).then((r) => r.ok), "tauri-driver");
     sid = (await wd("POST", "/session", { capabilities: { alwaysMatch: { "tauri:options": { application: app } } } })).sessionId;
@@ -348,6 +446,7 @@ async function desktop() {
     await js(`localStorage.setItem('harness.settings.v1', JSON.stringify({...JSON.parse(localStorage.getItem('harness.settings.v1')||'{}'), theme:'dark', model:''}))`);
     await clickText(".st-welcome .st-link", "cdr");
     await until(() => js(`return document.querySelector('.st-titlebar').textContent.includes('main')`), "repo open");
+    if (agentsOnly) return await agentsShot();
     for (const dir of ["packages", "core", "src"]) await clickText(".st-tree-row", dir);
     await clickText(".st-tree-row", "permissions.ts");
     await until(() => js(`return document.querySelector('.cm-content')?.textContent.includes('HARD_DENY')`), "editor");
@@ -390,6 +489,7 @@ async function desktop() {
     await sleep(600);
     await shot("desktop-history.png");
     console.log("✓ desktop");
+    await agentsShot();
   } catch (e) {
     if (sid) writeFileSync(join(tmp, "desktop-failure.png"), Buffer.from(await wd("GET", "/session/:sid/screenshot"), "base64"));
     throw e;
@@ -408,7 +508,7 @@ const targets = [
   ["desktop", desktop],
 ];
 for (const [name, fn] of targets) {
-  if (!want(name) && !(name === "desktop" && only.has("desktop-git"))) continue;
+  if (!want(name) && !(name === "desktop" && (only.has("desktop-git") || only.has("desktop-agents")))) continue;
   try {
     await fn();
   } catch (e) {

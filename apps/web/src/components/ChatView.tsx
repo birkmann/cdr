@@ -1,5 +1,15 @@
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import type { CSSProperties, DragEvent, ReactNode } from "react";
 import { ColumnResize, useColumnWidth } from "./ColumnResize";
 import { readThreadView, saveThreadView } from "../thread-view";
 import {
@@ -16,23 +26,44 @@ import { Composer, useSkills, type PendingFile } from "./Composer";
 import { CodeBlock, Markdown, langForPath } from "./Markdown";
 import { Decisions, Thinking } from "./Thinking";
 import { EffortPicker, ModelPicker, ModePicker, PermissionPicker, type Mode } from "./Pickers";
-import { CodePanel, type OpenDocument, type Tab } from "./CodePanel";
+import { CodePanel, type OpenDocument, type PreviewHost, type Tab } from "./CodePanel";
 import { DiffBlock } from "./Diff";
 import { RecreateCard } from "./RecreateCard";
+import { frameworkIconUrl, frameworkName } from "./framework-icons";
+import { turnLaunches, type LaunchView } from "@harness/client";
 import { useSessionLinks, useStartRecreate } from "../recreate";
 import {
   IconAlert,
   IconCheck,
   IconChevronRight,
+  IconCopy,
+  IconExternal,
   IconFile,
   IconFolder,
+  IconGit,
   IconPanel,
   IconPlay,
   IconRefresh,
   IconSparkle,
   IconTerminal,
+  IconTrash,
   IconX,
 } from "./icons";
+
+/** Lets a host app open a conversation's project folder. */
+export interface FolderHost {
+  open(path: string): void;
+  reveal?(path: string): void;
+}
+
+/** Per-message edits (delete, branch) offered by the conversation around a message. */
+interface MessageEdits {
+  /** False while the conversation runs: the log cannot change under a run. */
+  enabled: boolean;
+  remove(messageId: string): Promise<void>;
+  branch(messageId: string): Promise<void>;
+}
+const MessageEditsContext = createContext<MessageEdits | undefined>(undefined);
 
 const ALL_ROLES = (ref: string) =>
   ref ? { executor: ref, planner: ref, reviewer: ref, summarizer: ref } : undefined;
@@ -41,26 +72,51 @@ export function ChatView({
   id,
   initialPreview = false,
   initialHistory = false,
+  previewHost,
+  folderHost,
+  launchHost,
+  onOpenSession,
+  headActions,
+  onHeadDragStart,
 }: {
   id: string;
   initialPreview?: boolean;
   initialHistory?: boolean;
+  /** Opens the preview outside this view (the desktop app's editor area) instead of the side panel. */
+  previewHost?: PreviewHost;
+  /** Lets the host app open the conversation's folder (the desktop app's explorer, the OS file manager). */
+  folderHost?: FolderHost;
+  /** Starts a native program the agent built (the desktop app runs it in a terminal); without it, the launch card copies the command. */
+  launchHost?: LaunchHost;
+  /** Shows another conversation (a new branch or duplicate); defaults to navigating the web app to it. */
+  onOpenSession?(id: string): void;
+  /** Extra buttons at the end of the conversation header (the desktop app's history, split and new). */
+  headActions?: ReactNode;
+  /** Makes the header draggable (the desktop app docks its agent panel by dragging it). */
+  onHeadDragStart?(e: DragEvent): void;
 }) {
-  const { client, sessions, refreshSessions, settings } = useApp();
+  const { client, sessions, refreshSessions, settings, navigate } = useApp();
+  const openSession = (sid: string) =>
+    onOpenSession ? onOpenSession(sid) : navigate({ name: "chat", id: sid });
   const viewKey = `${settings.server || location.origin}:${id}`;
   const [savedView] = useState(() => readThreadView(viewKey));
   const state = useSession(client, id);
   const info = sessions.find((x) => x.id === id);
   const s = { ...state, externalRun: info?.externalRun ?? state.externalRun };
+  // The conversation list (status bar, sidebars) polls; refresh it as soon as this run starts or ends.
+  useEffect(() => {
+    if (info && info.status !== state.status) void refreshSessions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.status]);
   const [mode, setMode] = useState<Mode>("chat");
   const [continuing, setContinuing] = useState(false);
   const [panel, setPanel] = useState(() => initialPreview || initialHistory || (savedView.panel ?? false));
   const [tab, setTab] = useState<Tab>(
-    initialPreview
+    initialPreview && !previewHost
       ? "preview"
       : initialHistory
         ? "history"
-        : savedView.tab === "document" && !savedView.doc
+        : (savedView.tab === "document" && !savedView.doc) || (savedView.tab === "preview" && previewHost)
           ? "changes"
           : (savedView.tab ?? "changes"),
   );
@@ -82,20 +138,35 @@ export function ChatView({
     min: 360,
     max: (available) => available - 320,
   });
+  // Stacked layouts (narrow windows, the desktop agent column) put the details panel under the chat.
+  const rows = useColumnWidth("cdr.chat-height", {
+    initial: (available) => available * 0.52,
+    min: 200,
+    max: (available) => available - 120,
+    axis: "y",
+  });
+  const setColumnsNode = columns.ref;
+  const setRowsNode = rows.ref;
+  const layoutRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      setColumnsNode(node);
+      setRowsNode(node);
+    },
+    [setColumnsNode, setRowsNode],
+  );
   // Jump to the preview whenever the agent publishes one.
   const seenPreview = useRef<number | undefined>(undefined);
   useEffect(() => {
     if (!s.preview) return;
-    if (seenPreview.current !== undefined && seenPreview.current !== s.preview.seq) {
-      setPanel(true);
-      setTab("preview");
-    } else if (seenPreview.current === undefined && !savedView.tab) {
-      setTab("preview");
-      setPanel(true);
-    }
+    if (
+      (seenPreview.current !== undefined && seenPreview.current !== s.preview.seq) ||
+      (seenPreview.current === undefined && !savedView.tab)
+    )
+      openPreview();
     seenPreview.current = s.preview.seq;
   }, [s.preview?.seq]);
   const openPreview = () => {
+    if (previewHost) return previewHost.open();
     setPanel(true);
     setTab("preview");
   };
@@ -112,6 +183,12 @@ export function ChatView({
   const [notice, setNotice] = useState<string>();
   const busy = s.status === "running" || s.status === "waiting";
   const projectPath = s.projectPath ?? info?.projectPath ?? "";
+  const folderLabel = (
+    <>
+      {(s.sandbox ?? info?.sandbox) ? <span className="badge">sandbox</span> : <IconFolder size={12} />}{" "}
+      {basename(projectPath)}
+    </>
+  );
   const model = s.models?.executor ?? info?.model ?? "";
   const permissionMode = s.permissionMode ?? info?.permissionMode ?? "ask";
 
@@ -126,6 +203,48 @@ export function ChatView({
       attachments: files.map(({ name, mimeType, data }) => ({ name, mimeType, data })),
     });
     void refreshSessions();
+  };
+
+  const forkedFrom = s.forkedFrom ?? info?.forkedFrom;
+  const origin = forkedFrom ? sessions.find((x) => x.id === forkedFrom.sessionId) : undefined;
+  const [editing, setEditing] = useState(false);
+  /** Run one conversation edit at a time and report its failure in the notice. */
+  const edit = async (fn: () => Promise<void>) => {
+    if (!client || editing) return;
+    setEditing(true);
+    try {
+      await fn();
+    } catch (e) {
+      setNotice((e as Error).message);
+    } finally {
+      setEditing(false);
+    }
+  };
+  const duplicate = () =>
+    edit(async () => {
+      const copy = await client!.forkSession(id);
+      await refreshSessions();
+      openSession(copy.id);
+    });
+  const mergeBack = () =>
+    edit(async () => {
+      const r = await client!.mergeBranch(id);
+      await refreshSessions();
+      openSession(r.targetId);
+    });
+  const messageEdits: MessageEdits = {
+    enabled: !busy && !s.externalRun && !editing,
+    remove: (messageId) =>
+      edit(async () => {
+        await client!.deleteMessage(id, messageId);
+        void refreshSessions();
+      }),
+    branch: (messageId) =>
+      edit(async () => {
+        const copy = await client!.forkSession(id, { messageId });
+        await refreshSessions();
+        openSession(copy.id);
+      }),
   };
 
   const change = async (patch: Parameters<NonNullable<typeof client>["updateSettings"]>[1]) => {
@@ -146,12 +265,16 @@ export function ChatView({
 
   return (
     <div
-      ref={columns.ref}
-      style={{ "--chat-width": `${columns.width}px` } as CSSProperties}
+      ref={layoutRef}
+      style={{ "--chat-width": `${columns.width}px`, "--chat-height": `${rows.width}px` } as CSSProperties}
       className={`chat-layout ${panel ? "with-panel" : ""}`}
     >
       <section className="chat">
-        <header className="chat-head">
+        <header
+          className="chat-head"
+          draggable={onHeadDragStart ? true : undefined}
+          onDragStart={onHeadDragStart}
+        >
           <div className="chat-title">
             {renaming ? (
               <form
@@ -188,16 +311,61 @@ export function ChatView({
                 <span>⌄</span>
               </button>
             )}
-            <span className="muted small" title={projectPath}>
-              {(s.sandbox ?? info?.sandbox) ? (
-                <span className="badge">sandbox</span>
+            <span className="muted small chat-folder" title={folderHost ? undefined : projectPath}>
+              {folderHost ? (
+                <button
+                  className="chat-folder-open"
+                  title={`Open ${projectPath} in the explorer`}
+                  onClick={() => folderHost.open(projectPath)}
+                >
+                  {folderLabel}
+                </button>
               ) : (
-                <IconFolder size={12} />
-              )}{" "}
-              {basename(projectPath)}
+                folderLabel
+              )}
+              {folderHost?.reveal && (
+                <button
+                  className="ghost icon tiny chat-folder-reveal"
+                  title="Reveal in file manager"
+                  aria-label="Reveal in file manager"
+                  onClick={() => folderHost.reveal!(projectPath)}
+                >
+                  <IconExternal size={11} />
+                </button>
+              )}
+              {forkedFrom && (
+                <button
+                  className="chat-branch-of"
+                  disabled={!origin}
+                  title={origin ? `Open the conversation this one came from` : "The original was deleted"}
+                  onClick={() => origin && openSession(origin.id)}
+                >
+                  <IconGit size={11} /> {forkedFrom.messageId ? "Branch" : "Copy"} of{" "}
+                  {origin?.title ?? "a deleted conversation"}
+                </button>
+              )}
             </span>
           </div>
           <div className="chat-head-right">
+            {forkedFrom && origin && (
+              <button
+                className="ghost tiny"
+                disabled={!messageEdits.enabled}
+                onClick={() => void mergeBack()}
+                title={`Add the messages written here to “${origin.title ?? "the original"}”`}
+              >
+                <IconGit size={13} /> Merge back
+              </button>
+            )}
+            <button
+              className="ghost icon"
+              disabled={!messageEdits.enabled}
+              onClick={() => void duplicate()}
+              title="Duplicate conversation"
+              aria-label="Duplicate conversation"
+            >
+              <IconCopy size={16} />
+            </button>
             <StatusPill status={s.status} phase={s.phase} planOnly={s.workflow === "plan-only"} />
             <span className="muted small tokens" title="tokens in / out">
               {fmtTokens(s.usage.inputTokens)} / {fmtTokens(s.usage.outputTokens)}
@@ -211,21 +379,32 @@ export function ChatView({
             >
               <IconPanel size={17} />
             </button>
+            {headActions}
           </div>
         </header>
-        <Messages
-          s={s}
-          sessionId={id}
-          viewKey={viewKey}
-          onOpenPreview={openPreview}
-          onCompare={openCompare}
-          onOpenDocument={openDocument}
-        />
+        <LaunchContext.Provider value={{ host: launchHost, projectPath }}>
+          <MessageEditsContext.Provider value={messageEdits}>
+            <Messages
+              s={s}
+              sessionId={id}
+              viewKey={viewKey}
+              onOpenPreview={openPreview}
+              onCompare={openCompare}
+              onOpenDocument={openDocument}
+            />
+          </MessageEditsContext.Provider>
+        </LaunchContext.Provider>
         <div className="chat-bottom">
-          {["failed", "cancelled"].includes(s.status) && (
+          {(["failed", "cancelled"].includes(s.status) || (s.interrupted && !s.externalRun)) && (
             <div className="continue-job" role="region" aria-label="Job recovery">
               <div>
-                <strong>{s.status === "failed" ? "This job didn’t finish" : "This job was stopped"}</strong>
+                <strong>
+                  {s.status === "failed"
+                    ? "This job didn’t finish"
+                    : s.status === "cancelled"
+                      ? "This job was stopped"
+                      : "This job was interrupted when the app closed"}
+                </strong>
                 <p>Continue in this workspace using the saved plan and progress.</p>
               </div>
               <button
@@ -304,6 +483,7 @@ export function ChatView({
       {panel && client && (
         <>
           <ColumnResize label="Resize chat and details" className="chat-resize" size={columns} />
+          <ColumnResize label="Resize chat and details" className="chat-row-resize" size={rows} />
           <CodePanel
             s={s}
             sessionId={id}
@@ -313,6 +493,7 @@ export function ChatView({
             setCompareRun={setCompareRun}
             doc={doc}
             closeDoc={closeDocument}
+            previewHost={previewHost}
           />
         </>
       )}
@@ -443,6 +624,13 @@ function TurnActivity({
   const previews = new Map<string, HarnessEvent>();
   for (const b of steps)
     if (b.kind === "event" && b.event.type === "preview.ready") previews.set(b.event.path, b.event);
+  const launches = active
+    ? []
+    : turnLaunches(
+        steps.flatMap((b) => (b.kind === "event" && b.event.type === "launch.ready" ? [b.event] : [])),
+        steps.flatMap((b) => (b.kind === "tools" ? b.ids.map((id) => s.tools[id]).filter(Boolean) : [])),
+        s.projectPath,
+      );
   const running = steps
     .flatMap((b) => (b.kind === "tools" ? b.ids.map((id) => s.tools[id]) : []))
     .reverse()
@@ -455,6 +643,8 @@ function TurnActivity({
           write_file: "Creating",
           patch_file: "Editing",
           bash: "Running a command",
+          run_app: "Starting the app",
+          stop_app: "Stopping the app",
           search_unsplash: "Finding photos",
           check_preview: "Checking the preview",
           load_skill: "Reading the skill",
@@ -547,12 +737,16 @@ function TurnActivity({
         <EventRow key={e.seq} e={e} s={s} onOpenPreview={onOpenPreview} />
       ))}
       {final && <MessageRow s={s} id={final} sessionId={sessionId} hideReasoning />}
+      {launches.map((l) => (
+        <LaunchCard key={`${l.cwd ?? ""}\n${l.command}`} launch={l} />
+      ))}
       {steps
         .filter(
           (b) =>
             b.kind === "event" &&
             (b.event.type === "error" ||
               b.event.type === "checkpoint.restored" ||
+              b.event.type === "branch.merged" ||
               (b.event.type === "done" && b.event.status !== "success") ||
               (b.event.type === "review.findings" &&
                 b.event.findings.some((f) => ["blocking", "major"].includes(f.severity)))),
@@ -841,7 +1035,15 @@ function MessageRow({
           </div>
         )}
         <div className="bubble">{m.text}</div>
-        {m.checkpoint && <RestoreCheckpoint s={s} sessionId={sessionId} checkpoint={m.checkpoint} />}
+        {m.checkpoint ? (
+          <RestoreCheckpoint s={s} sessionId={sessionId} checkpoint={m.checkpoint}>
+            <MessageEditButtons id={id} role="user" />
+          </RestoreCheckpoint>
+        ) : (
+          <div className="msg-actions user-actions">
+            <MessageEditButtons id={id} role="user" />
+          </div>
+        )}
       </div>
     );
   }
@@ -877,10 +1079,64 @@ function MessageRow({
           >
             {copied ? "Copied" : "Copy response"}
           </button>
+          <MessageEditButtons id={id} role="assistant" />
           {copyError && <span className="muted small">Select the response to copy it.</span>}
         </div>
       )}
     </div>
+  );
+}
+
+/** Branch and Delete for one message; Delete asks once inline before removing anything. */
+function MessageEditButtons({ id, role }: { id: string; role: "user" | "assistant" }) {
+  const edits = useContext(MessageEditsContext);
+  const [confirming, setConfirming] = useState(false);
+  if (!edits?.enabled) return null;
+  if (confirming)
+    return (
+      <span className="msg-delete-confirm" role="group" aria-label="Confirm delete">
+        <span className="small">
+          {role === "user" ? "Delete this message and its replies?" : "Delete this reply and its steps?"}
+        </span>
+        <button
+          className="tiny danger"
+          onClick={() => {
+            setConfirming(false);
+            void edits.remove(id);
+          }}
+        >
+          Delete
+        </button>
+        <button className="ghost tiny" onClick={() => setConfirming(false)}>
+          Cancel
+        </button>
+      </span>
+    );
+  return (
+    <>
+      <button
+        className="ghost tiny"
+        onClick={() => void edits.branch(id)}
+        title={
+          role === "user"
+            ? "Continue in a new conversation that ends after this exchange"
+            : "Continue in a new conversation that ends after this reply"
+        }
+      >
+        <IconGit size={12} /> Branch
+      </button>
+      <button
+        className="ghost tiny"
+        onClick={() => setConfirming(true)}
+        title={
+          role === "user"
+            ? "Remove this message and its replies from the conversation and the model's memory"
+            : "Remove this reply from the conversation and the model's memory"
+        }
+      >
+        <IconTrash size={12} /> Delete
+      </button>
+    </>
   );
 }
 
@@ -951,6 +1207,8 @@ const TOOL_VERB: Record<string, string> = {
   write_file: "Write",
   patch_file: "Edit",
   bash: "Run",
+  run_app: "Start app",
+  stop_app: "Stop app",
   grep: "Search",
   glob: "Find",
   list_dir: "List",
@@ -1121,10 +1379,13 @@ function RestoreCheckpoint({
   s,
   sessionId,
   checkpoint,
+  children,
 }: {
   s: UseSessionResult;
   sessionId: string;
   checkpoint: string;
+  /** More actions shown next to the restore button. */
+  children?: ReactNode;
 }) {
   const { client } = useApp();
   const [open, setOpen] = useState(false);
@@ -1132,7 +1393,7 @@ function RestoreCheckpoint({
   const [error, setError] = useState<string>();
   const [working, setWorking] = useState(false);
   const busy = ["running", "waiting"].includes(s.status) || !!s.externalRun;
-  if (busy && !open) return null;
+  if (busy && !open) return children ? <div className="msg-actions user-actions">{children}</div> : null;
   const load = async () => {
     if (!client) return;
     setOpen(true);
@@ -1166,6 +1427,7 @@ function RestoreCheckpoint({
         >
           <IconRefresh size={12} /> Restore files to here
         </button>
+        {children}
       </div>
     );
   return (
@@ -1257,6 +1519,70 @@ function RestoredRow({
   );
 }
 
+export interface LaunchHost {
+  /** Run `command` in `cwd` (an absolute folder) where the user can see and stop it. */
+  run(command: string, cwd: string, title: string): void;
+}
+
+const LaunchContext = createContext<{ host?: LaunchHost; projectPath?: string }>({});
+
+function joinPath(root: string, sub?: string): string {
+  if (!sub || sub === ".") return root;
+  return `${root.replace(/[\\/]+$/, "")}/${sub}`;
+}
+
+/** "Launch" button for a native program the agent built, with its language or framework's mark. */
+function LaunchCard({ launch }: { launch: LaunchView }) {
+  const { host, projectPath } = useContext(LaunchContext);
+  const [done, setDone] = useState(false);
+  useEffect(() => {
+    if (!done) return;
+    const t = setTimeout(() => setDone(false), 2500);
+    return () => clearTimeout(t);
+  }, [done]);
+  const name = frameworkName(launch.framework);
+  const icon = frameworkIconUrl(launch.framework);
+  const title = launch.title || `${basename(projectPath || "") || "App"} · native ${name}`;
+  const shown = `${launch.cwd && launch.cwd !== "." ? `cd ${launch.cwd} && ` : ""}${launch.command}`;
+  const canRun = !!host && !!projectPath;
+  const run = () => {
+    if (canRun) host!.run(launch.command, joinPath(projectPath!, launch.cwd), title);
+    else void navigator.clipboard?.writeText(shown);
+    setDone(true);
+  };
+  return (
+    <div
+      className={`launch-card fw-${launch.framework ?? "other"}`}
+      role="group"
+      aria-label={`Launch ${title}`}
+    >
+      <span className="launch-icon" title={name}>
+        {icon ? <img src={icon} alt="" width={22} height={22} /> : <IconTerminal size={18} />}
+      </span>
+      <span className="launch-text">
+        <span className="launch-kicker">
+          Native {name} app{launch.inferred ? " · detected" : ""}
+        </span>
+        <b>{title}</b>
+        <code
+          className="launch-command"
+          title={launch.cwd ? `Runs in ${launch.cwd}` : "Runs in the project folder"}
+        >
+          {shown}
+        </code>
+      </span>
+      <button
+        className="launch-btn"
+        onClick={run}
+        title={canRun ? `Run ${shown} in a new terminal` : "Copy the command to run it in your terminal"}
+      >
+        {canRun ? <IconPlay size={14} /> : <IconCopy size={14} />}
+        {done ? (canRun ? "Launched" : "Copied") : canRun ? `Launch ${name}` : "Copy command"}
+      </button>
+    </div>
+  );
+}
+
 function EventRow({ e, s, onOpenPreview }: { e: HarnessEvent; s: UseSessionResult; onOpenPreview(): void }) {
   switch (e.type) {
     case "preview.ready":
@@ -1330,6 +1656,13 @@ function EventRow({ e, s, onOpenPreview }: { e: HarnessEvent; s: UseSessionResul
       ) : null;
     case "checkpoint.restored":
       return <RestoredRow e={e} s={s} />;
+    case "branch.merged":
+      return (
+        <div className="branch-merged" role="separator">
+          <IconGit size={12} /> Merged {e.messages} message{e.messages === 1 ? "" : "s"} from branch{" "}
+          {e.branchTitle ? `“${e.branchTitle}”` : e.branchSessionId}
+        </div>
+      );
     case "checkpoint.failed":
       return <div className="muted small center">Checkpoint not saved: {e.message}</div>;
     case "log":
@@ -1468,9 +1801,26 @@ function PermissionCard({
               .split("\n")
               .join("\n+ ")}`
           : JSON.stringify(perm.args, null, 2);
+  // consent for a 1:1 recreation is given per run; there is no "always"
+  const canAlways = perm.tool !== "recreate_capture";
+  const alwaysScope =
+    perm.tool === "bash"
+      ? String(args.command ?? "")
+          .trim()
+          .split(/\s+/)
+          .slice(0, 2)
+          .join(" ")
+      : perm.tool;
+  const cardRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement)?.tagName === "TEXTAREA" || (e.target as HTMLElement)?.tagName === "INPUT")
+        return;
+      // With several conversations on screen (split editors), y/n answer only the one that has focus.
+      if (
+        document.querySelectorAll(".card.permission").length > 1 &&
+        !cardRef.current?.closest(".chat-layout")?.contains(e.target as Node)
+      )
         return;
       if (e.key === "y") void s.answerPermission(perm.id, "allow");
       if (e.key === "n") void s.answerPermission(perm.id, "deny");
@@ -1479,7 +1829,12 @@ function PermissionCard({
     return () => window.removeEventListener("keydown", onKey);
   }, [perm.id]);
   return (
-    <div className={`card permission risk-${perm.risk}`} role="region" aria-label="Permission request">
+    <div
+      ref={cardRef}
+      className={`card permission risk-${perm.risk}`}
+      role="region"
+      aria-label="Permission request"
+    >
       <div className="card-title">
         Allow <code>{perm.tool}</code>? <span className={`risk ${perm.risk}`}>{perm.risk} risk</span>
       </div>
@@ -1489,25 +1844,33 @@ function PermissionCard({
       ) : (
         <pre className="tool-output">{detail}</pre>
       )}
-      <div className="row">
-        <button onClick={() => s.answerPermission(perm.id, "allow")}>Allow</button>
-        {/* consent for a 1:1 recreation is given per run; there is no "always" */}
-        {perm.tool !== "recreate_capture" && (
-          <button className="secondary" onClick={() => s.answerPermission(perm.id, "always")}>
-            Always allow{" "}
-            {perm.tool === "bash"
-              ? `“${String(args.command ?? "")
-                  .split(/\s+/)
-                  .slice(0, 2)
-                  .join(" ")}”`
-              : perm.tool}
+      <div className={`perm-actions${canAlways ? "" : " two"}`}>
+        <button onClick={() => s.answerPermission(perm.id, "allow")} title="Allow once (y)">
+          Allow
+        </button>
+        {canAlways && (
+          <button
+            className="secondary"
+            onClick={() => s.answerPermission(perm.id, "always")}
+            title={`Always allow ${alwaysScope}`}
+          >
+            Always allow
           </button>
         )}
-        <span className="spacer" />
-        <button className="secondary danger-text" onClick={() => s.answerPermission(perm.id, "deny")}>
+        <button
+          className="secondary danger-text"
+          onClick={() => s.answerPermission(perm.id, "deny")}
+          title="Deny (n)"
+        >
           Deny
         </button>
       </div>
+      {canAlways && (
+        <div className="perm-scope muted small">
+          “Always allow” applies to {perm.tool === "bash" ? "commands starting with " : "every "}
+          <code>{alwaysScope}</code>
+        </div>
+      )}
     </div>
   );
 }

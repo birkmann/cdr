@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
-import type { HarnessConfig, ModelRole } from "@harness/protocol";
+import { dirname, join, resolve } from "node:path";
+import type { HarnessConfig, KeySource, ModelRole } from "@harness/protocol";
 import { deepMerge } from "./util.js";
 
 export const DEFAULT_CONFIG: HarnessConfig = {
@@ -131,11 +131,11 @@ export function resolveModelRef(cfg: HarnessConfig, roleOrRef: ModelRole | strin
   return ref;
 }
 
-/** Minimal .env parser. Does not override variables already set in the environment. */
-export function loadDotEnv(dir: string, env: NodeJS.ProcessEnv = process.env): string[] {
+/** Variables defined in `<dir>/.env` (empty when the file is missing). */
+export function parseDotEnv(dir: string): Record<string, string> {
   const path = join(resolve(dir), ".env");
-  if (!existsSync(path)) return [];
-  const loaded: string[] = [];
+  const out: Record<string, string> = {};
+  if (!existsSync(path)) return out;
   for (const line of readFileSync(path, "utf8").split(/\r?\n/)) {
     const m = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/.exec(line);
     if (!m) continue;
@@ -145,10 +145,51 @@ export function loadDotEnv(dir: string, env: NodeJS.ProcessEnv = process.env): s
     } else {
       value = value.replace(/\s+#.*$/, "");
     }
-    if (env[m[1]] === undefined) {
-      env[m[1]] = value;
-      loaded.push(m[1]);
+    out[m[1]] = value;
+  }
+  return out;
+}
+
+/** The .env file each variable was loaded from by `loadDotEnv` into `process.env`. */
+const dotEnvOrigin = new Map<string, string>();
+
+/** Minimal .env parser. Does not override variables already set in the environment. */
+export function loadDotEnv(dir: string, env: NodeJS.ProcessEnv = process.env): string[] {
+  const loaded: string[] = [];
+  for (const [name, value] of Object.entries(parseDotEnv(dir))) {
+    if (env[name] === undefined) {
+      env[name] = value;
+      loaded.push(name);
+      if (env === process.env) dotEnvOrigin.set(name, join(resolve(dir), ".env"));
     }
   }
   return loaded;
+}
+
+/**
+ * Where the value of an API key variable comes from: the file it was loaded from (`project-env`, `home-env`)
+ * or the process environment (shell, or keys the desktop app passes from the keychain). Undefined when unset.
+ * Compares values only; never returns them. `file` is the .env path; a key loaded for another project
+ * stays in the environment of this process, so it can differ from the asked project's .env.
+ */
+export function keySource(
+  name: string,
+  projectPath: string,
+  env: NodeJS.ProcessEnv = process.env,
+): { source: KeySource; file?: string } | undefined {
+  const value = env[name];
+  if (!value) return undefined;
+  const homeEnv = join(resolve(harnessHome()), ".env");
+  const projectEnv = join(resolve(projectPath), ".env");
+  const origin = env === process.env ? dotEnvOrigin.get(name) : undefined;
+  const file =
+    origin && parseDotEnv(dirname(origin))[name] === value
+      ? origin
+      : parseDotEnv(projectPath)[name] === value
+        ? projectEnv
+        : parseDotEnv(harnessHome())[name] === value
+          ? homeEnv
+          : undefined;
+  if (!file) return { source: "environment" };
+  return { source: file === homeEnv ? "home-env" : "project-env", file };
 }

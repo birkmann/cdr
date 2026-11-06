@@ -12,6 +12,11 @@ import { app, fs, git, on, type FsChange, type GitStatus, type Workspace } from 
 
 export type SideView = "files" | "search" | "git" | "agents" | "goals";
 export type BottomView = "terminal" | "problems" | "output";
+export type DockSide = "left" | "right";
+/** Editor groups are numbered from 0 (leftmost); splitting adds a group. */
+export type Group = number;
+/** The most editor groups shown side by side. */
+export const MAX_GROUPS = 4;
 
 export type Tab =
   | { key: string; kind: "welcome" }
@@ -20,9 +25,20 @@ export type Tab =
   | { key: string; kind: "commit"; id: string }
   | { key: string; kind: "history" }
   | { key: string; kind: "goal"; id: string }
-  | { key: string; kind: "conflict"; path: string };
+  | { key: string; kind: "conflict"; path: string }
+  | { key: string; kind: "preview"; sessionId: string }
+  /**
+   * An agent conversation in the editor. `sessionId` is null until the first message starts it;
+   * `draft` tells new-conversation tabs apart and `folder` is where a new one works by default.
+   */
+  | { key: string; kind: "chat"; sessionId: string | null; draft?: number; folder?: string };
 
-type TabInput = Tab extends infer T ? (T extends Tab ? Omit<T, "key"> : never) : never;
+export type TabInput = Tab extends infer T ? (T extends Tab ? Omit<T, "key"> : never) : never;
+
+/** Drag payload type for editor tabs (and tab-openers such as the chat's Preview button). */
+export const TAB_MIME = "application/x-cdr-tab";
+/** Drag payload type for dockable panels. */
+export const PANEL_MIME = "application/x-cdr-panel";
 
 export function tabKey(t: TabInput): string {
   switch (t.kind) {
@@ -36,6 +52,10 @@ export function tabKey(t: TabInput): string {
       return `goal:${t.id}`;
     case "conflict":
       return `conflict:${t.path}`;
+    case "preview":
+      return `preview:${t.sessionId}`;
+    case "chat":
+      return t.sessionId ? `chat:${t.sessionId}` : `chat:new:${t.draft ?? 0}`;
     default:
       return t.kind;
   }
@@ -62,11 +82,29 @@ interface Store {
   workspace: Workspace | null;
   openWorkspace(path: string): Promise<void>;
   closeWorkspace(): void;
+  /** All open tabs; their order is the order within each group. */
   tabs: Tab[];
+  /** Which group each tab is in (missing means group 0). */
+  tabGroup(key: string): Group;
+  /** Number of editor groups side by side (1 when not split). */
+  groupCount: number;
+  /** The group that receives newly opened tabs. */
+  focusedGroup: Group;
+  focusGroup(g: Group): void;
+  /** Active tab per group. */
+  activeIn: (string | null)[];
+  /** Active tab of the focused group. */
   active: string | null;
-  openTab(t: TabInput, opts?: { preview?: boolean }): void;
+  /** Open a tab; `group: groupCount` opens it in a new group on the right. */
+  openTab(t: TabInput, opts?: { group?: Group }): void;
   closeTab(key: string): void;
+  /** Swap a tab for another in the same place. */
+  replaceTab(key: string, t: TabInput): void;
+  /** Move a tab into a new group inserted at `at`. */
+  splitTab(key: string, at: Group): void;
   setActive(key: string): void;
+  /** Move a tab to a group, before another tab (or to the group's end). */
+  moveTab(key: string, group: Group, before?: string): void;
   buffers: Map<string, Buffer>;
   bufferVersion: number;
   loadBuffer(path: string): Promise<Buffer>;
@@ -83,6 +121,8 @@ interface Store {
   setBottom(v: BottomView | null): void;
   agentPanel: boolean;
   setAgentPanel(v: boolean): void;
+  agentDock: DockSide;
+  setAgentDock(v: DockSide): void;
   sessionId: string | null;
   setSessionId(id: string | null): void;
   toasts: Toast[];
@@ -98,23 +138,210 @@ interface Store {
 const Ctx = createContext<Store | null>(null);
 const LAYOUT_KEY = "cdr.studio.layout.v1";
 
-function readLayout(): { side: SideView | null; bottom: BottomView | null; agentPanel: boolean } {
+interface Layout {
+  side: SideView | null;
+  bottom: BottomView | null;
+  agentPanel: boolean;
+  agentDock: DockSide;
+}
+const DEFAULT_LAYOUT: Layout = { side: "files", bottom: null, agentPanel: true, agentDock: "right" };
+
+function readLayout(): Layout {
   try {
-    return {
-      side: "files",
-      bottom: null,
-      agentPanel: true,
-      ...JSON.parse(localStorage.getItem(LAYOUT_KEY) ?? "{}"),
-    };
+    return { ...DEFAULT_LAYOUT, ...JSON.parse(localStorage.getItem(LAYOUT_KEY) ?? "{}") };
   } catch {
-    return { side: "files", bottom: null, agentPanel: true };
+    return DEFAULT_LAYOUT;
   }
 }
 
+const WELCOME: Tab = { key: "welcome", kind: "welcome" };
+
+export interface Tabs {
+  tabs: Tab[];
+  /** Group of each tab (missing means group 0). */
+  groups: Record<string, Group>;
+  /** Active tab per group; its length is the number of groups. */
+  activeIn: (string | null)[];
+  focused: Group;
+}
+
+export const INITIAL_TABS: Tabs = { tabs: [WELCOME], groups: {}, activeIn: ["welcome"], focused: 0 };
+
+const groupOf = (s: Tabs, key: string): Group => s.groups[key] ?? 0;
+const inGroup = (s: Tabs, g: Group) => s.tabs.filter((t) => groupOf(s, t.key) === g);
+/** A group to put a tab in: an existing one, or one new group to the right while there is room. */
+const clampGroup = (s: Tabs, g: Group) => Math.max(0, Math.min(g, s.activeIn.length, MAX_GROUPS - 1));
+
+/**
+ * Keeps the invariants: groups are numbered 0..n-1 without gaps and none is empty (an emptied
+ * group closes and the groups right of it move left), each group's active tab is in it, and the
+ * focused group exists.
+ */
+function normalize(s: Tabs): Tabs {
+  const tabs = s.tabs.length ? s.tabs : [WELCOME];
+  const count = Math.max(s.activeIn.length, ...tabs.map((t) => groupOf(s, t.key) + 1));
+  const used = new Set(tabs.map((t) => groupOf(s, t.key)));
+  const remap: number[] = [];
+  let n = 0;
+  for (let g = 0; g < count; g++) remap[g] = used.has(g) ? n++ : -1;
+  const groups: Record<string, Group> = {};
+  for (const t of tabs) {
+    const g = remap[groupOf(s, t.key)];
+    if (g) groups[t.key] = g;
+  }
+  const activeIn: (string | null)[] = [];
+  for (let old = 0; old < count; old++) {
+    const g = remap[old];
+    if (g < 0) continue;
+    const members = tabs.filter((t) => (groups[t.key] ?? 0) === g);
+    const a = s.activeIn[old];
+    activeIn[g] = members.some((t) => t.key === a) ? (a ?? null) : (members.at(-1)?.key ?? null);
+  }
+  // A closed focused group passes focus to its left neighbour.
+  let focused = 0;
+  for (let old = Math.min(s.focused, count - 1); old >= 0; old--)
+    if (remap[old] >= 0) {
+      focused = remap[old];
+      break;
+    }
+  return { tabs, groups, activeIn, focused };
+}
+
+/** Pure tab-state transitions (exported for tests). */
+export const tabOps = {
+  /** Open (or show) a tab; `group` may be one past the last group to split it off to the right. */
+  open(s: Tabs, t: TabInput, group?: Group): Tabs {
+    const key = tabKey(t);
+    const next = { ...t, key } as Tab;
+    const i = s.tabs.findIndex((x) => x.key === key);
+    if (i >= 0 && group === undefined) {
+      const tabs = [...s.tabs];
+      tabs[i] = next;
+      const g = groupOf(s, key);
+      const activeIn = [...s.activeIn];
+      activeIn[g] = key;
+      return normalize({ ...s, tabs, activeIn, focused: g });
+    }
+    const g = clampGroup(s, group ?? s.focused);
+    const tabs = [...s.tabs.filter((x) => x.key !== key && x.kind !== "welcome"), next];
+    const groups = { ...s.groups, [key]: g };
+    const activeIn = [...s.activeIn];
+    activeIn[g] = key;
+    return normalize({ tabs, groups, activeIn, focused: g });
+  },
+  close(s: Tabs, key: string): Tabs {
+    const i = s.tabs.findIndex((t) => t.key === key);
+    if (i < 0) return s;
+    const g = groupOf(s, key);
+    const activeIn = [...s.activeIn];
+    if (activeIn[g] === key) {
+      // Activate the neighbour in the same group, as editors do.
+      const members = inGroup(s, g);
+      const j = members.findIndex((t) => t.key === key);
+      activeIn[g] = (members[j + 1] ?? members[j - 1])?.key ?? null;
+    }
+    const groups = { ...s.groups };
+    delete groups[key];
+    return normalize({ ...s, tabs: s.tabs.filter((t) => t.key !== key), groups, activeIn });
+  },
+  activate(s: Tabs, key: string): Tabs {
+    if (!s.tabs.some((t) => t.key === key)) return s;
+    const g = groupOf(s, key);
+    const activeIn = [...s.activeIn];
+    activeIn[g] = key;
+    return { ...s, activeIn, focused: g };
+  },
+  /**
+   * Swap a tab for another in the same place (a new-conversation tab becoming its conversation).
+   * If the other tab is already open, this tab closes and that one is shown.
+   */
+  replace(s: Tabs, oldKey: string, t: TabInput): Tabs {
+    const i = s.tabs.findIndex((x) => x.key === oldKey);
+    if (i < 0) return tabOps.open(s, t);
+    const key = tabKey(t);
+    const tabs = [...s.tabs];
+    if (key === oldKey) {
+      tabs[i] = { ...t, key } as Tab;
+      return { ...s, tabs };
+    }
+    if (s.tabs.some((x) => x.key === key)) return tabOps.activate(tabOps.close(s, oldKey), key);
+    tabs[i] = { ...t, key } as Tab;
+    const g = groupOf(s, oldKey);
+    const groups = { ...s.groups };
+    delete groups[oldKey];
+    if (g) groups[key] = g;
+    const activeIn = s.activeIn.map((a) => (a === oldKey ? key : a));
+    return normalize({ ...s, tabs, groups, activeIn });
+  },
+  /**
+   * Make previews follow the current conversation: each group showing another conversation's preview
+   * opens this conversation's preview right after it (the old one stays open beside it).
+   */
+  followPreview(s: Tabs, sessionId: string): Tabs {
+    const key = tabKey({ kind: "preview", sessionId });
+    let out = s;
+    for (let g = 0; g < out.activeIn.length; g++) {
+      const shown = out.tabs.find((t) => t.key === out.activeIn[g]);
+      if (shown?.kind !== "preview" || shown.sessionId === sessionId) continue;
+      const activeIn = [...out.activeIn];
+      if (out.tabs.some((t) => t.key === key)) {
+        activeIn[groupOf(out, key)] = key;
+        out = { ...out, activeIn };
+        continue;
+      }
+      const at = out.tabs.indexOf(shown) + 1;
+      const tabs = [
+        ...out.tabs.slice(0, at),
+        { kind: "preview", sessionId, key } as Tab,
+        ...out.tabs.slice(at),
+      ];
+      activeIn[g] = key;
+      out = normalize({ ...out, tabs, groups: { ...out.groups, [key]: g }, activeIn });
+    }
+    return out;
+  },
+  /** Move a tab into a group (one past the last group splits it off), before another tab or to the end. */
+  move(s: Tabs, key: string, group: Group, before?: string): Tabs {
+    const tab = s.tabs.find((t) => t.key === key);
+    if (!tab || before === key) return s;
+    group = clampGroup(s, group);
+    const from = groupOf(s, key);
+    const rest = s.tabs.filter((t) => t.key !== key);
+    let at = before ? rest.findIndex((t) => t.key === before) : -1;
+    if (at < 0) {
+      // End of the target group: after its last member.
+      const last = rest.reduce((n, t, i) => (groupOf(s, t.key) === group ? i : n), -1);
+      at = last < 0 ? rest.length : last + 1;
+    }
+    const tabs = [...rest.slice(0, at), tab, ...rest.slice(at)];
+    const groups = { ...s.groups, [key]: group };
+    const activeIn = [...s.activeIn];
+    if (from !== group && activeIn[from] === key) {
+      const members = inGroup({ ...s, tabs: rest }, from);
+      activeIn[from] = members.at(-1)?.key ?? null;
+    }
+    activeIn[group] = key;
+    return normalize({ tabs, groups, activeIn, focused: group });
+  },
+  /**
+   * Move a tab into a new group inserted at index `at` (groups from `at` on move right). With
+   * MAX_GROUPS open, the tab moves into the existing group nearest that place instead.
+   */
+  split(s: Tabs, key: string, at: Group): Tabs {
+    if (!s.tabs.some((t) => t.key === key)) return s;
+    at = Math.max(0, Math.min(at, s.activeIn.length));
+    if (s.activeIn.length >= MAX_GROUPS) return tabOps.move(s, key, Math.min(at, s.activeIn.length - 1));
+    const shift = (g: Group) => (g >= at ? g + 1 : g);
+    const groups: Record<string, Group> = {};
+    for (const t of s.tabs) groups[t.key] = shift(groupOf(s, t.key));
+    const activeIn = [...s.activeIn.slice(0, at), null, ...s.activeIn.slice(at)];
+    return tabOps.move({ tabs: s.tabs, groups, activeIn, focused: shift(s.focused) }, key, at);
+  },
+};
+
 export function StudioProvider({ children }: { children: ReactNode }) {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
-  const [tabs, setTabs] = useState<Tab[]>([{ key: "welcome", kind: "welcome" }]);
-  const [active, setActiveKey] = useState<string | null>("welcome");
+  const [tabState, setTabState] = useState<Tabs>(INITIAL_TABS);
   const buffers = useRef(new Map<string, Buffer>()).current;
   const [bufferVersion, setBufferVersion] = useState(0);
   const [status, setStatus] = useState<GitStatus | null>(null);
@@ -124,7 +351,12 @@ export function StudioProvider({ children }: { children: ReactNode }) {
   const [side, setSide] = useState<SideView | null>(layout.side);
   const [bottom, setBottom] = useState<BottomView | null>(layout.bottom);
   const [agentPanel, setAgentPanel] = useState(layout.agentPanel);
-  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [agentDock, setAgentDock] = useState<DockSide>(layout.agentDock === "left" ? "left" : "right");
+  const [sessionId, setSessionIdState] = useState<string | null>(null);
+  const setSessionId = useCallback((id: string | null) => {
+    setSessionIdState(id);
+    if (id) setTabState((s) => tabOps.followPreview(s, id));
+  }, []);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [agentDraft, setAgentDraft] = useState<Store["agentDraft"]>(null);
   const toastId = useRef(0);
@@ -133,11 +365,11 @@ export function StudioProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     try {
-      localStorage.setItem(LAYOUT_KEY, JSON.stringify({ side, bottom, agentPanel }));
+      localStorage.setItem(LAYOUT_KEY, JSON.stringify({ side, bottom, agentPanel, agentDock }));
     } catch {
       /* storage unavailable */
     }
-  }, [side, bottom, agentPanel]);
+  }, [side, bottom, agentPanel, agentDock]);
 
   const toast = useCallback((text: string, kind: Toast["kind"] = "info") => {
     const id = ++toastId.current;
@@ -178,8 +410,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
       if (prev && prev.root !== ws.root) void fs.unwatch(prev.root).catch(() => {});
       buffers.clear();
       setBufferVersion((v) => v + 1);
-      setTabs([{ key: "welcome", kind: "welcome" }]);
-      setActiveKey("welcome");
+      setTabState(INITIAL_TABS);
       setSessionId(null);
       wsRef.current = ws;
       setWorkspace(ws);
@@ -198,8 +429,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     setStatus(null);
     setIsRepo(false);
     buffers.clear();
-    setTabs([{ key: "welcome", kind: "welcome" }]);
-    setActiveKey("welcome");
+    setTabState(INITIAL_TABS);
     setSessionId(null);
   }, [buffers]);
 
@@ -236,30 +466,26 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     return () => clearInterval(t);
   }, [refreshGit]);
 
-  const openTab = useCallback((t: TabInput) => {
-    const key = tabKey(t);
-    setTabs((tabs) => {
-      const i = tabs.findIndex((x) => x.key === key);
-      const next = { ...t, key } as Tab;
-      if (i >= 0) {
-        const copy = [...tabs];
-        copy[i] = next;
-        return copy;
-      }
-      return [...tabs.filter((x) => x.kind !== "welcome"), next];
-    });
-    setActiveKey(key);
-  }, []);
-
-  const closeTab = useCallback((key: string) => {
-    setTabs((tabs) => {
-      const i = tabs.findIndex((t) => t.key === key);
-      if (i < 0) return tabs;
-      const next = tabs.filter((t) => t.key !== key);
-      setActiveKey((a) => (a === key ? (next[Math.min(i, next.length - 1)]?.key ?? null) : a));
-      return next.length ? next : [{ key: "welcome", kind: "welcome" }];
-    });
-  }, []);
+  const openTab = useCallback(
+    (t: TabInput, opts?: { group?: Group }) => setTabState((s) => tabOps.open(s, t, opts?.group)),
+    [],
+  );
+  const closeTab = useCallback((key: string) => setTabState((s) => tabOps.close(s, key)), []);
+  const setActive = useCallback((key: string) => setTabState((s) => tabOps.activate(s, key)), []);
+  const moveTab = useCallback(
+    (key: string, group: Group, before?: string) => setTabState((s) => tabOps.move(s, key, group, before)),
+    [],
+  );
+  const replaceTab = useCallback(
+    (key: string, t: TabInput) => setTabState((s) => tabOps.replace(s, key, t)),
+    [],
+  );
+  const splitTab = useCallback((key: string, at: Group) => setTabState((s) => tabOps.split(s, key, at)), []);
+  const focusGroup = useCallback(
+    (g: Group) => setTabState((s) => (s.focused === g || g >= s.activeIn.length ? s : { ...s, focused: g })),
+    [],
+  );
+  const tabGroup = useCallback((key: string) => groupOf(tabState, key), [tabState]);
 
   const loadBuffer = useCallback(
     async (path: string) => {
@@ -326,11 +552,19 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     workspace,
     openWorkspace,
     closeWorkspace,
-    tabs,
-    active,
+    tabs: tabState.tabs,
+    tabGroup,
+    groupCount: tabState.activeIn.length,
+    focusedGroup: tabState.focused,
+    focusGroup,
+    activeIn: tabState.activeIn,
+    active: tabState.activeIn[tabState.focused] ?? null,
     openTab,
     closeTab,
-    setActive: setActiveKey,
+    replaceTab,
+    splitTab,
+    setActive,
+    moveTab,
     buffers,
     bufferVersion,
     loadBuffer,
@@ -347,6 +581,8 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     setBottom,
     agentPanel,
     setAgentPanel,
+    agentDock,
+    setAgentDock,
     sessionId,
     setSessionId,
     toasts,

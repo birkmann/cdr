@@ -22,6 +22,8 @@ import { harnessHome } from "../config.js";
 import { isReadOnlyCommand } from "../permissions.js";
 import { searchUnsplashTool, useUnsplashPhotoTool } from "./unsplash.js";
 import { loadSkillTool } from "./skill.js";
+import { setLaunchTool } from "./launch.js";
+import { runAppTool, stopAppTool } from "./app.js";
 import { VIEWPORTS, formatPageReport, probePage } from "./browser.js";
 import { findChrome } from "@harness/capture";
 
@@ -382,7 +384,8 @@ export function bashTool(opts: { readOnlyMode?: boolean } = {}): Tool {
     description: opts.readOnlyMode
       ? "Run a READ-ONLY shell command in the project root (e.g. ls, cat, git status, git log, rg). Commands that modify files are rejected."
       : "Run a shell command (bash) in the project root. Use for builds, tests, git inspection, package managers. " +
-        "Output is truncated (head+tail). Do not start long-running servers or interactive programs. Default timeout 120 s.",
+        "Output is truncated (head+tail). Do not start servers or other long-running programs here: use `run_app`, " +
+        "which starts them in the background and returns their URL. No interactive programs. Default timeout 120 s.",
     parameters: {
       type: "object",
       properties: {
@@ -392,6 +395,7 @@ export function bashTool(opts: { readOnlyMode?: boolean } = {}): Tool {
       required: ["command"],
     },
     readOnly: !!opts.readOnlyMode,
+    shellCommand: (args: { command?: string }) => String(args?.command ?? ""),
     risk(args: { command: string }): Risk {
       return isReadOnlyCommand(args.command) ? "low" : "medium";
     },
@@ -739,6 +743,9 @@ export function builtinTools(): Tool[] {
     forgetTool,
     loadSkillTool,
     setPreviewTool,
+    setLaunchTool,
+    runAppTool,
+    stopAppTool,
     checkPreviewTool,
     searchUnsplashTool,
     useUnsplashPhotoTool,
@@ -746,3 +753,13 @@ export function builtinTools(): Tool[] {
 }
 
 export { ToolError, truncateMiddle };
+export { setLaunchTool, detectFramework } from "./launch.js";
+export {
+  runAppTool,
+  stopAppTool,
+  rememberedApps,
+  appAlive,
+  stopApp,
+  localUrls,
+  type AppRecord,
+} from "./app.js";

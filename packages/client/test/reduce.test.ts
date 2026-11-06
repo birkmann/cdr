@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { EventBody, HarnessEvent } from "@harness/protocol";
-import { initialSessionState, reduceSession } from "@harness/client";
+import { initialSessionState, reduceSession, settleRecreate } from "@harness/client";
 
 function play(bodies: EventBody[]) {
   let seq = 0;
@@ -197,5 +197,54 @@ describe("reduceSession: recreate shots", () => {
     ]);
     // the timeline stays unchanged: shots belong to the preview, not to the chat
     expect(s.timeline.filter((t) => t.kind === "event" && t.event.type === "recreate.shot")).toEqual([]);
+  });
+});
+
+describe("reduceSession: interrupted recreate runs", () => {
+  const started: EventBody = {
+    type: "recreate.started",
+    runId: "r1",
+    url: "https://acme.example/",
+    widths: [],
+    targets: ["static"],
+    dir: ".harness/recreate/r1",
+  };
+  const building: EventBody = { type: "recreate.stage", runId: "r1", stage: "build", status: "running" };
+
+  it("stops a run that never finished once the session no longer runs", () => {
+    const s = play([
+      { type: "status", status: "running" },
+      started,
+      building,
+      { type: "status", status: "idle" },
+    ]);
+    const run = s.recreate!.runs.r1;
+    expect(run.status).toBe("cancelled");
+    expect(run.stages.build).toMatchObject({ status: "failed", detail: "interrupted" });
+  });
+
+  it("keeps a run going while the session runs or waits for consent", () => {
+    const s = play([
+      { type: "status", status: "running" },
+      started,
+      building,
+      { type: "status", status: "waiting" },
+    ]);
+    expect(s.recreate!.runs.r1.status).toBe("running");
+  });
+
+  it("leaves finished runs alone", () => {
+    const s = play([
+      started,
+      { type: "recreate.finished", runId: "r1", status: "success", outputs: [] },
+      { type: "status", status: "idle" },
+    ]);
+    expect(s.recreate!.runs.r1.status).toBe("success");
+  });
+
+  it("settles a stale log by the snapshot's status", () => {
+    const s = play([{ type: "status", status: "running" }, started, building]);
+    expect(settleRecreate(s.recreate, "running")!.runs.r1.status).toBe("running");
+    expect(settleRecreate(s.recreate, "idle")!.runs.r1.status).toBe("cancelled");
   });
 });

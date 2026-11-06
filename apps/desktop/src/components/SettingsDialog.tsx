@@ -1,10 +1,13 @@
 import { useEffect, useState } from "react";
+import type { KeySource, ProviderListEntry } from "@harness/protocol";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { useApp } from "@web/app-state";
 import { useDialog } from "@web/components/CommandPalette";
+import { ModelPicker } from "@web/components/Pickers";
 import { THEMES } from "@web/themes";
 import { app, github, harness, keys, type AppInfo, type GithubUser, type HarnessStatus } from "../ipc";
+import { refreshGithubUser, setGithubUser, useGithubUser } from "../github-account";
 import { useStudio } from "../store";
 import { IFile, IX } from "./icons";
 import { fileIconName, iconUrl, setIconStyle, useIconStyle, type IconStyle } from "../fileIcons";
@@ -151,17 +154,61 @@ function IconStyleChoice() {
   );
 }
 
+const SOURCE_LABEL: Record<KeySource, string> = {
+  config: "config file",
+  "project-env": "project .env",
+  "home-env": "~/.harness/.env",
+  environment: "environment",
+};
+
 function Providers() {
   const st = useStudio();
+  const { client, sessions, settings, updateSettings, refreshSessions } = useApp();
   const [stored, setStored] = useState<{ name: string; backend: string }[]>([]);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [custom, setCustom] = useState("");
-  const load = () =>
+  const [providers, setProviders] = useState<ProviderListEntry[]>();
+  const [defaultModel, setDefaultModel] = useState<string>();
+  const current = sessions.find((x) => x.id === st.sessionId);
+  const projectPath = current?.projectPath ?? st.workspace?.root;
+  const activeModel = (current ? current.model : settings.model) || defaultModel;
+  const busy = current?.status === "running" || current?.status === "waiting";
+  /** The current chat's model when a chat is open (like the composer picker), else the default for new chats. */
+  const switchModel = async (ref: string) => {
+    if (!ref) return;
+    if (!current) return updateSettings({ model: ref, reasoningEffort: "auto" });
+    await st.attempt(async () => {
+      await client?.updateSettings(current.id, {
+        models: { executor: ref, planner: ref, reviewer: ref, summarizer: ref },
+        reasoningEffort: "auto",
+      });
+      void refreshSessions();
+    }, `Switched to ${ref}`);
+  };
+  const activeProvider = activeModel?.split("/")[0];
+  const load = () => {
     void keys
       .list()
       .then(setStored)
       .catch((e) => st.toast((e as Error).message, "error"));
-  useEffect(load, []);
+    void client
+      ?.models(projectPath)
+      .then((m) => {
+        setProviders(m.providers);
+        setDefaultModel(m.models.find((x) => x.role === "executor")?.id);
+      })
+      .catch(() => setProviders(undefined));
+  };
+  useEffect(load, [client, projectPath]);
+  /** Where a key the harness sees comes from; keychain keys reach it as environment variables. */
+  const sourceOf = (name: string) => {
+    const p = providers?.find((x) => x.keyEnv === name);
+    if (!p?.keySource) return undefined;
+    if (p.keySource === "environment" && stored.some((s) => s.name === name)) return "keychain";
+    return SOURCE_LABEL[p.keySource];
+  };
+  const active = providers?.find((p) => p.id === activeProvider);
+  const source = active?.keyEnv ? sourceOf(active.keyEnv) : undefined;
   const names = [
     ...PROVIDER_KEYS,
     ...stored
@@ -177,28 +224,69 @@ function Providers() {
   };
   return (
     <>
+      <h3>Active model</h3>
+      <div className="st-active-model">
+        <ModelPicker
+          value={current ? (current.model ?? "") : settings.model}
+          defaultLabel={current ? undefined : defaultModel}
+          projectPath={projectPath}
+          disabled={!client || busy}
+          onChange={(ref) => void switchModel(ref)}
+        />
+        {activeModel &&
+          (active?.configured ? (
+            <span className="badge" title={active.keyFile}>
+              connected{source ? ` · key from ${source}` : ""}
+            </span>
+          ) : providers ? (
+            <span className="badge warn">
+              not connected{active?.keyEnv ? ` · needs ${active.keyEnv}` : ""}
+            </span>
+          ) : null)}
+        <span className="muted small">
+          {!client
+            ? "Harness not running."
+            : current
+              ? busy
+                ? "for this chat · can change once it stops"
+                : "for this chat"
+              : "for new chats"}
+        </span>
+      </div>
       <h3>API keys</h3>
       <p className="muted small">
         Keys are stored in your system keychain{stored[0] ? ` (${stored[0].backend})` : ""} and passed only to
-        the local harness process. Keys in a project <code>.env</code> or <code>~/.harness/.env</code> keep
-        working and take precedence.
+        the local harness process. Keys can also come from a project <code>.env</code> or{" "}
+        <code>~/.harness/.env</code>; a key saved here takes precedence over both.
       </p>
       <div className="st-keys">
         {names.map((p) => {
           const has = stored.some((s) => s.name === p.name);
+          const source = sourceOf(p.name);
+          const isActive = !!active && active.keyEnv === p.name;
           return (
             <div key={p.name} className="st-key-row">
               <div>
-                <strong>{p.label}</strong>
+                <strong>{p.label}</strong> {isActive && <span className="badge">active</span>}
                 <div className="muted small">
-                  <code>{p.name}</code> {has && <span className="badge">stored</span>}
+                  <code>{p.name}</code>{" "}
+                  {source ? (
+                    <span
+                      className="badge"
+                      title={`The harness uses the key from ${providers?.find((x) => x.keyEnv === p.name)?.keyFile ?? source}`}
+                    >
+                      {source}
+                    </span>
+                  ) : (
+                    has && <span className="badge">stored</span>
+                  )}
                 </div>
               </div>
               <input
                 className="st-input"
                 type="password"
                 autoComplete="off"
-                placeholder={has ? "Replace key…" : "Paste key…"}
+                placeholder={has || source ? "Replace key…" : "Paste key…"}
                 value={drafts[p.name] ?? ""}
                 onChange={(e) => setDrafts((d) => ({ ...d, [p.name]: e.target.value }))}
                 onKeyDown={(e) => e.key === "Enter" && void save(p.name)}
@@ -249,15 +337,13 @@ function Providers() {
 
 function Github() {
   const st = useStudio();
-  const [user, setUser] = useState<GithubUser | null | undefined>(undefined);
+  const user = useGithubUser();
+  const setUser = setGithubUser;
   const [token, setToken] = useState("");
   const [info, setInfo] = useState<AppInfo>();
   const [device, setDevice] = useState<{ userCode: string; verificationUri: string } | null>(null);
   useEffect(() => {
-    void github
-      .status()
-      .then(setUser)
-      .catch(() => setUser(null));
+    void refreshGithubUser();
     void app.info().then(setInfo);
   }, []);
   const deviceLogin = async () => {

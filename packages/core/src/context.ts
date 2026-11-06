@@ -85,6 +85,7 @@ const TOOL_ETIQUETTE = `## How to work
 - Use \`grep\`/\`glob\` to find code instead of guessing paths.
 - When building a page that benefits from photography, use \`search_unsplash\` for suitable real images. Before embedding each selected photo, call \`use_unsplash_photo\` with its download_location. Hotlink the returned image_url unchanged and include visible photographer and Unsplash credit links from the result. Never expose credentials, invent image URLs, or use shell commands to read API keys. If search is unavailable, continue without photos and explain the limitation.
 - After making changes, run the relevant build/tests (\`run_verification\` or \`bash\`). Never claim success without evidence.
+- To run or start the project's app or dev server, use \`run_app\`, never \`bash\`: it starts the program in the background, waits until it answers and returns its URL. Call it without a command first (it restarts the command used before in this project); if none is known, find the start command quickly (README, package.json scripts, a start script, Makefile) and pass it. Once it reports a URL, give the user the URL and finish: do not re-check ports, processes or pages afterwards.
 - If a tool call fails, read the error and adjust; do not repeat the same failing call.
 - When finished, reply with a short summary of what you changed and how you verified it, and make no further tool calls.`;
 

@@ -32,13 +32,8 @@ export interface ProviderCapabilities {
   contextWindow: number;
 }
 
-/** Remaining provider account balance in one currency (e.g. DeepSeek `GET /user/balance`). */
-export interface ProviderBalance {
-  currency: string;
-  total: number;
-  granted?: number;
-  toppedUp?: number;
-}
+export type { ProviderBalance } from "@harness/protocol";
+import type { ProviderBalance } from "@harness/protocol";
 
 export interface Provider {
   id: string;

@@ -18,7 +18,7 @@
 <h3 align="center"><a href="https://github.com/birkmann/cdr/releases"><ins>Download CDR</ins></a></h3>
 
 <p align="center">
-  <img src="docs/images/desktop-editor.png" alt="CDR Studio with the file tree, an open source file, and the agent answering a question about the code" width="960" />
+  <img src="docs/images/desktop-agents.png" alt="CDR Studio with three agent conversations side by side: two agents at work, each with a pasted screenshot and its steps, and a new conversation waiting for its first message" width="960" />
 </p>
 
 ## Features

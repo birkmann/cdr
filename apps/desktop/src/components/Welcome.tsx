@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
-import { openFile, openFolder } from "../file-actions";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import { useApp } from "@web/app-state";
+import { openFile, openFolder, openSessionFolder } from "../file-actions";
 import { CDRMark } from "@web/components/Brand";
 import { app, type RecentRepo } from "../ipc";
-import { timeAgo, useStudio } from "../store";
+import { basename, timeAgo, useStudio } from "../store";
 import { IFile, IFolder, IDown, IX } from "./icons";
 
 export function Welcome({ compact = false, onClone }: { compact?: boolean; onClone(): void }) {
@@ -20,7 +22,8 @@ export function Welcome({ compact = false, onClone }: { compact?: boolean; onClo
         <div className="st-panel-head">
           <span className="st-panel-title">Explorer</span>
         </div>
-        <div className="st-empty">
+        <ConversationFiles />
+        <div className="st-empty st-empty-actions">
           <p>No folder is open.</p>
           <button onClick={() => void openFolder(st)}>Open folder</button>
           <button className="ghost" onClick={onClone}>
@@ -108,5 +111,33 @@ export function Welcome({ compact = false, onClone }: { compact?: boolean; onClo
         </div>
       </div>
     </div>
+  );
+}
+
+/** With no folder open, point at the folder the selected conversation works in (usually its sandbox). */
+function ConversationFiles() {
+  const st = useStudio();
+  const { sessions } = useApp();
+  const session = st.sessionId ? sessions.find((s) => s.id === st.sessionId) : undefined;
+  if (!session || session.projectMissing) return null;
+  const path = session.projectPath;
+  return (
+    <section className="st-convo-files" aria-label="This conversation's files">
+      <div className="st-menu-label">This conversation's files</div>
+      <div className="st-convo-files-name">
+        <IFolder size={14} />
+        {session.sandbox && <span className="st-sw-badge">sandbox</span>}
+        <span className="st-ellipsis">{basename(path)}</span>
+      </div>
+      <div className="muted small st-ellipsis" title={path}>
+        {path}
+      </div>
+      <div className="st-convo-files-actions">
+        <button onClick={() => void openSessionFolder(st, session.id, path)}>Browse files</button>
+        <button className="ghost" onClick={() => void st.attempt(() => revealItemInDir(path))}>
+          Show in file manager
+        </button>
+      </div>
+    </section>
   );
 }

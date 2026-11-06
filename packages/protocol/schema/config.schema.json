@@ -9,6 +9,10 @@
           "additionalProperties": false,
           "description": "Subagent limits (spawn_agent).",
           "properties": {
+            "maxActive": {
+              "description": "Running agents (conversations and subagents) in one harness process above which spawn_agent refuses to start another (default 8). Conversations you start yourself are never refused.",
+              "type": "number"
+            },
             "maxConcurrent": {
               "description": "Concurrently running subagents per parent session (default 3).",
               "type": "number"

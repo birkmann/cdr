@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   initialSessionState,
   reduceSession,
+  settleRecreate,
   type HarnessClient,
   type HarnessEvent,
   type PermissionDecision,
@@ -84,6 +85,7 @@ export function useSession(client: HarnessClient | null, sessionId: string | nul
           ...current,
           status: snapshot.status,
           externalRun: snapshot.externalRun,
+          interrupted: snapshot.interrupted,
           lastSeq: snapshot.lastSeq,
           projectPath: snapshot.projectPath,
           title: snapshot.title,
@@ -92,6 +94,8 @@ export function useSession(client: HarnessClient | null, sessionId: string | nul
           reasoningEffort: snapshot.reasoningEffort,
           sandbox: snapshot.sandbox,
         };
+        // a process that died mid-run leaves "running" in the log; the snapshot's status says it no longer runs
+        current.recreate = settleRecreate(current.recreate, current.externalRun ? "running" : current.status);
         publish();
         // Subscribe after the snapshot watermark; events created during the HTTP request
         // are replayed by the server, without losing or double-counting them.

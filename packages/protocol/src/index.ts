@@ -71,6 +71,26 @@ export interface AttachmentInfo {
 }
 
 /** Event bodies (without envelope). */
+/** Language or framework of a launchable program (chooses the launch button's icon). */
+export type LaunchFramework =
+  | "rust"
+  | "tauri"
+  | "go"
+  | "python"
+  | "node"
+  | "deno"
+  | "bun"
+  | "swift"
+  | "dotnet"
+  | "java"
+  | "kotlin"
+  | "c"
+  | "cpp"
+  | "zig"
+  | "dart"
+  | "godot"
+  | "other";
+
 export type EventBody =
   | {
       type: "session.created";
@@ -86,6 +106,8 @@ export type EventBody =
       parentSessionId?: string;
       /** Set when this session runs an autonomous goal. */
       goalId?: string;
+      /** Which app or tool started the conversation (top-level sessions). */
+      origin?: SessionOrigin;
     }
   | {
       type: "session.settings";
@@ -147,6 +169,39 @@ export type EventBody =
   | { type: "usage"; inputTokens: number; outputTokens: number; cost?: number; model?: string }
   | { type: "context.append"; agent: string; message: ChatMessage }
   | { type: "context.replace"; agent: string; messages: ChatMessage[]; reason: string }
+  /**
+   * The user deleted messages: they leave the transcript and the model's context (followed by a
+   * context.replace per changed agent). Deleting a user message removes its whole exchange.
+   */
+  | {
+      type: "messages.deleted";
+      /** Removed message ids (message.start ids). */
+      ids: string[];
+      /** Removed tool calls (tool.call ids). */
+      toolCallIds: string[];
+      /** Inclusive seq ranges of this log that were removed (other timeline events in them are hidden too). */
+      ranges: [number, number][];
+    }
+  /** This session was copied from another one (a duplicate, or a branch up to one of its messages). */
+  | {
+      type: "session.forked";
+      fromSessionId: string;
+      /** Last event of the source copied into this session. */
+      fromSeq: number;
+      /** The message the branch was cut at (absent for a full duplicate). */
+      messageId?: string;
+    }
+  /** Messages of a branch were brought back into this session (they follow this event). */
+  | {
+      type: "branch.merged";
+      branchSessionId: string;
+      branchTitle?: string;
+      /** Branch log range copied (exclusive start, inclusive end); a later merge continues after `toSeq`. */
+      fromSeq: number;
+      toSeq: number;
+      /** Messages with text brought over (tool-calling turns without text are not counted). */
+      messages: number;
+    }
   /** An agent's working context was shrunk (old tool output trimmed, or history condensed into a brief). */
   | {
       type: "context.compacted";
@@ -180,6 +235,11 @@ export type EventBody =
     }
   /** The agent declared a file to preview (an HTML entry point), relative to the project root. */
   | { type: "preview.ready"; path: string; title?: string }
+  /**
+   * The agent declared how to start a native program it built (a desktop app, game or CLI) –
+   * the UI shows a launch button. `cwd` is relative to the project root; `framework` picks the icon.
+   */
+  | { type: "launch.ready"; command: string; cwd?: string; title?: string; framework?: LaunchFramework }
   | { type: "status"; status: SessionStatus }
   | { type: "log"; level: "debug" | "info" | "warn"; message: string }
   | { type: "error"; message: string; recoverable: boolean }
@@ -498,6 +558,20 @@ export interface AvailableModels {
   error?: string;
 }
 
+/** Remaining provider account balance in one currency (e.g. DeepSeek `GET /user/balance`). */
+export interface ProviderBalance {
+  currency: string;
+  total: number;
+  granted?: number;
+  toppedUp?: number;
+}
+
+/** `GET /models/balance`: `items` is null when the provider has no balance API or is not configured. */
+export interface BalanceResponse {
+  provider: string;
+  items: ProviderBalance[] | null;
+}
+
 export type ModelRole = "executor" | "planner" | "reviewer" | "summarizer";
 
 export interface VerifyConfig {
@@ -613,6 +687,11 @@ export interface HarnessConfig {
     maxConcurrent?: number;
     /** Maximum nesting depth; a session at this depth cannot spawn (default 2). */
     maxDepth?: number;
+    /**
+     * Running agents (conversations and subagents) in one harness process above which spawn_agent refuses
+     * to start another (default 8). Conversations you start yourself are never refused.
+     */
+    maxActive?: number;
   };
 }
 
@@ -634,6 +713,48 @@ export interface CreateSessionRequest {
   models?: Partial<Record<ModelRole, string>>;
   permissionMode?: "ask" | "auto" | "yolo";
   title?: string;
+  /** Which app or tool is creating the conversation (shown as its origin). */
+  origin?: SessionOrigin;
+}
+
+/** Where a top-level conversation was started. Subagents and goals are recognised by `parentSessionId` / `goalId`. */
+export type SessionOrigin = "desktop" | "web" | "cli" | "api";
+
+/** Tokens and cost a conversation has used over all its runs. */
+export interface SessionUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cost?: number;
+}
+
+/** The process that owns a session's run when it is not this server (another window or a terminal). */
+export interface SessionRunner {
+  pid: number;
+  /** When it took the run. */
+  since: string;
+}
+
+/** DELETE /sessions/:id: what was removed with the conversation. */
+export interface DeleteSessionResponse {
+  ok: true;
+  /** Deleted conversation ids: the conversation and its subagents. */
+  sessions: string[];
+  /** Subagent worktrees removed. */
+  worktrees: string[];
+  /** Subagent branches deleted (only branches already merged; unmerged ones are kept). */
+  branches: string[];
+  /** The sandbox folder and its checkpoints, when `folder=true` was asked and no other conversation uses it. */
+  folder?: string;
+  /** Things that could not be removed, with the reason. */
+  kept: string[];
+}
+
+/** POST /sessions/cancel-all */
+export interface CancelAllResponse {
+  /** Runs that were asked to stop. */
+  cancelled: string[];
+  /** Runs owned by another process; stop them where they run. */
+  external: string[];
 }
 
 export interface SessionInfo {
@@ -658,6 +779,31 @@ export interface SessionInfo {
   parentSessionId?: string;
   /** Goal this session runs. */
   goalId?: string;
+  /** The conversation this one was duplicated or branched from. */
+  forkedFrom?: { sessionId: string; seq: number; messageId?: string };
+  /** Which app or tool started it (top-level conversations created after this field existed). */
+  origin?: SessionOrigin;
+  /** Tokens and cost of this conversation's own model calls over all its runs (subagents report their own). */
+  usage?: SessionUsage;
+  /** Start of the current run, while running or waiting. */
+  runStartedAt?: string;
+  /** Owner of the run when another process runs it (`externalRun`). */
+  runner?: SessionRunner;
+  /** The last run never finished: its process exited (crash or quit) while it was running. */
+  interrupted?: boolean;
+}
+
+/** POST /sessions/:id/fork */
+export interface ForkSessionRequest {
+  /** Branch up to this message (its whole exchange for a user message); omit to duplicate everything. */
+  messageId?: string;
+  title?: string;
+}
+
+/** POST /sessions/:id/merge: the branch's new messages were added to `targetId`. */
+export interface MergeBranchResponse {
+  targetId: string;
+  messages: number;
 }
 
 /** GET /sessions/:id/tree */
@@ -804,6 +950,19 @@ export interface PlanAnswer {
   decision: PlanDecision;
   markdown?: string;
   feedback?: string;
+}
+
+/** Where a provider's API key comes from (see `GET /models`). */
+export type KeySource = "config" | "project-env" | "home-env" | "environment";
+
+/** A provider in `GET /models`: whether it has a key, the variable it reads and where that key comes from. */
+export interface ProviderListEntry {
+  id: string;
+  configured: boolean;
+  keyEnv?: string;
+  keySource?: KeySource;
+  /** The .env file the key was loaded from (`project-env` / `home-env`). */
+  keyFile?: string;
 }
 
 export interface ModelListEntry {

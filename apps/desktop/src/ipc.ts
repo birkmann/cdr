@@ -103,6 +103,8 @@ export interface FsChange {
 
 export const fs = {
   read: (root: string, path: string) => call<FileContent>("fs_read", { root, path }),
+  /** An image inside the workspace as a `data:` URL (for rendered Markdown). */
+  readImage: (root: string, path: string) => call<string>("fs_read_image", { root, path }),
   write: (root: string, path: string, content: string) => call<number>("fs_write", { root, path, content }),
   create: (root: string, path: string, dir = false) => call<void>("fs_create", { root, path, dir }),
   rename: (root: string, from: string, to: string) => call<void>("fs_rename", { root, from, to }),
@@ -402,6 +404,8 @@ export const github = {
   logout: () => call<void>("github_logout"),
   repos: (page = 1) => call<GithubRepo[]>("github_repos", { page }),
   search: (query: string) => call<GithubRepo[]>("github_search", { query }),
+  createRepo: (o: { name: string; description?: string; private: boolean }) =>
+    call<GithubRepo>("github_create_repo", o),
   pulls: (root: string) => call<PullRequest[]>("github_pulls", { root }),
   createPr: (root: string, o: { head: string; base: string; title: string; body: string; draft: boolean }) =>
     call<PullRequest>("github_create_pr", { root, ...o }),

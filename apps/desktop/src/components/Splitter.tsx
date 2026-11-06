@@ -60,6 +60,7 @@ export function Splitter({
         onPointerDown={(e) => {
           if (e.button !== 0) return;
           e.preventDefault();
+          e.currentTarget.focus();
           e.currentTarget.setPointerCapture(e.pointerId);
           start.current = { pos: horizontal ? e.clientY : e.clientX, size };
           setDragging(true);
@@ -74,6 +75,10 @@ export function Splitter({
           setDragging(false);
         }}
         onPointerCancel={() => {
+          start.current = null;
+          setDragging(false);
+        }}
+        onLostPointerCapture={() => {
           start.current = null;
           setDragging(false);
         }}

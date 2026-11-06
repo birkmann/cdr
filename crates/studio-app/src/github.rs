@@ -266,6 +266,31 @@ impl Github {
         })
     }
 
+    /// Create an empty repository on the signed-in account (no README, so a local branch pushes cleanly).
+    pub async fn create_repo(
+        &self,
+        token: &str,
+        name: &str,
+        description: &str,
+        private: bool,
+    ) -> Result<GithubRepo, GithubError> {
+        let res = self
+            .http
+            .post(format!("{}/user/repos", self.api))
+            .bearer_auth(token)
+            .header("accept", "application/vnd.github+json")
+            .header("x-github-api-version", "2022-11-28")
+            .json(&json!({
+                "name": name,
+                "description": description,
+                "private": private,
+                "auto_init": false,
+            }))
+            .send()
+            .await?;
+        Ok(repo_from(&Self::json(res).await?))
+    }
+
     /// OAuth device flow (needs an OAuth app client id: CDR_GITHUB_CLIENT_ID).
     pub async fn device_start(&self, client_id: &str) -> Result<DeviceCode, GithubError> {
         let res = self
@@ -429,5 +454,31 @@ mod tests {
         let api = serve_once(401, r#"{"message":"Bad credentials"}"#).await;
         let e = Github::new(&api).user("t").await.unwrap_err();
         assert!(e.to_string().contains("401") && e.to_string().contains("Bad credentials"));
+    }
+
+    #[tokio::test]
+    async fn creates_repositories_and_reports_name_clashes() {
+        let api = serve_once(
+            201,
+            r#"{"full_name":"octo/snake","private":true,"clone_url":"https://github.com/octo/snake.git","ssh_url":"git@github.com:octo/snake.git","default_branch":"main","updated_at":"2026-11-06T12:00:00Z","stargazers_count":0,"fork":false}"#,
+        )
+        .await;
+        let r = Github::new(&api)
+            .create_repo("t", "snake", "", true)
+            .await
+            .unwrap();
+        assert_eq!(r.full_name, "octo/snake");
+        assert!(r.private);
+        assert_eq!(r.clone_url, "https://github.com/octo/snake.git");
+        let api = serve_once(
+            422,
+            r#"{"message":"Repository creation failed.","errors":[{"message":"name already exists on this account"}]}"#,
+        )
+        .await;
+        let e = Github::new(&api)
+            .create_repo("t", "snake", "", true)
+            .await
+            .unwrap_err();
+        assert!(e.to_string().contains("name already exists"));
     }
 }

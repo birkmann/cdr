@@ -195,6 +195,11 @@ export class Renderer {
       case "preview.ready":
         this.line(c.green(`  ▶ preview: ${e.path}`) + c.dim("  (open the chat in the web app to see it)"));
         break;
+      case "launch.ready":
+        this.line(
+          c.green(`  ▶ run ${e.title ? `${e.title}: ` : ""}`) + (e.cwd ? `cd ${e.cwd} && ` : "") + e.command,
+        );
+        break;
       case "checkpoint.created":
         break;
       case "checkpoint.restored":
@@ -206,6 +211,19 @@ export class Renderer {
         break;
       case "checkpoint.failed":
         this.line(c.dim(`  checkpoint not saved: ${e.message}`));
+        break;
+      case "messages.deleted":
+        this.line(c.dim(`  ✕ deleted ${e.ids.length} message${e.ids.length === 1 ? "" : "s"}`));
+        break;
+      case "session.forked":
+        this.line(c.dim(`  ⑂ ${e.messageId ? "branched" : "duplicated"} from ${e.fromSessionId}`));
+        break;
+      case "branch.merged":
+        this.line(
+          c.yellow(
+            `  ⑂ merged ${e.messages} message${e.messages === 1 ? "" : "s"} from branch ${e.branchTitle ?? e.branchSessionId}`,
+          ),
+        );
         break;
       case "skill.activated":
         this.line(

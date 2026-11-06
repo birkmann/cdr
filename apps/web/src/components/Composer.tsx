@@ -432,6 +432,7 @@ function SkillPicker({
   const list = query ? matchSkills(skills, query) : skills;
   return (
     <Popover
+      className="pick-skills"
       title="Give the agent a skill for this message (or type /)"
       label={
         <>

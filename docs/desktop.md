@@ -55,17 +55,20 @@ Rust (crates/studio-app)                ▼
 
 ## Using the app
 
+<img src="images/desktop-editor.png" alt="CDR Studio with the file tree, an open source file, and the agent answering a question about the code" width="960" />
+
 | Area | What you can do |
 |---|---|
 | **Explorer** (Ctrl+Shift+E) | Browse files with Git decorations. Create, rename and delete files and folders, and send a file to the agent. |
-| **Editor** | Tabs and syntax highlighting for common languages. Save with Ctrl+S; find and replace with Ctrl+F. The gutter marks changed lines. Diagnostics come from language servers, and files reload when the agent changes them on disk. |
+| **Editor** | Tabs and syntax highlighting for common languages. Split into up to four groups side by side with Ctrl+\\, the split button, or by dragging a tab to the left or right edge of an editor; a group closes when its last tab does. Save with Ctrl+S; find and replace with Ctrl+F. The gutter marks changed lines. Diagnostics come from language servers, and files reload when the agent changes them on disk. |
 | **Search** (Ctrl+Shift+F) | Search the project with regex, case and whole-word options and include globs, then replace all matches. |
 | **Source control** (Ctrl+Shift+G) | Stage, unstage and discard files or single hunks, then commit or amend. Abort or continue a merge or rebase, and resolve conflicts in a three-way view. Manage branches (checkout, merge, rebase, rename, delete), stashes, pull requests and agent worktrees. The sparkle button in the message box writes a commit message from the staged changes, or from all changes when nothing is staged, with the model chosen in the agent panel. |
 | **History** | View the commit graph across all branches, search it and inspect commits file by file. Cherry-pick, create a branch from a commit, or check one out. |
 | **Title bar** | Switch repositories, open a folder, or clone. Switch or create branches. A single sync button publishes, pulls, pushes or fetches, depending on the branch state. |
 | **Clone** | Paste a URL or pick one of your GitHub repositories. Progress is shown while cloning and can be cancelled. |
-| **Agent panel** (Ctrl+L) | The same conversation view as the web app, with modes, models, thinking effort, permissions, approvals, plans, previews and Continue job. "@ Context" attaches the current file, the uncommitted diff or the Problems list. |
-| **Agents** (Ctrl+Shift+A) | See the tree of conversations and their subagents, with status, worktree and stop buttons. The approvals inbox answers permission requests from every agent; you get an OS notification when the window is in the background. |
+| **Agent panel** (Ctrl+L) | The same conversation view as the web app, with modes, models, thinking effort, permissions, approvals, plans, previews and Continue job. "@ Context" attaches the current file, the uncommitted diff or the Problems list. The conversation name at the top of the panel opens your history: every conversation, newest first, with the open folder's conversations on top and a search box. With no folder open, a conversation works in a sandbox under `~/.harness/sandboxes/`. Click its name in the conversation header to open it in the Explorer, or click the arrow next to it to show it in the system file manager. |
+| **Conversations in tabs** | Run and watch several conversations at once. Each conversation has one header row: its title, then the code panel, history, split and + buttons. In the agent panel, the arrow button moves the conversation into an editor tab (or drag it beside an editor to split). In a conversation tab, the split button starts another conversation to the side and + starts a new one in place. In narrow groups the header and message box drop the folder, token count and picker labels so everything stays on one line. In the Agents view, Ctrl+click, middle-click or drag a conversation to open it in a tab. The palette has **Agent: New conversation in editor tab** and **Agent: New conversation to the side**. With two permission prompts on screen, Y and N answer only the conversation you clicked into. |
+| **Agents** (Ctrl+Shift+A) | **Running** lists every running or waiting agent in any folder, with where it came from, elapsed time, model and tokens, a stop button per agent and **Stop all**. **All** adds the conversations of the open folder (or the sandboxes) with a delete button. The approvals inbox answers permission requests from every agent; you get an OS notification when the window is in the background. See [agent-control.md](agent-control.md). |
 | **Goals** (Ctrl+Shift+J) | Define a goal with acceptance criteria, a budget, permissions, models and an optional schedule, then run it unattended. Review its checkpoints and criteria. Merge the result, open a pull request, request changes or discard it. |
 | **Panel** (Ctrl+J) | Terminals, Problems with "Ask agent to fix errors", and the harness log. |
 | **Open file** (Ctrl+O) | Choose a file in the native file dialog. Files in the current folder open in an editor tab. For a file outside it, Studio offers to switch to the containing folder; save modified files first. With no folder open, Studio opens the file's containing folder. |
@@ -90,7 +93,8 @@ During a task the agent can call `spawn_agent`.
 - **Read-only helpers** share the checkout.
 - **Writing helpers** get a worktree under `.harness/worktrees/` on a `cdr/<parent>/<task>` branch. Their work is committed there, and the parent merges it.
 - **Watching them.** Each helper appears under its parent in the Agents view and has its own log and approvals.
-- **Limits.** By default at most three helpers run at once per agent, with a maximum depth of two. Change this with `agents.maxConcurrent` and `agents.maxDepth` in `cdr.config.json`.
+- **Limits.** By default at most three helpers run at once per agent, with a maximum depth of two. No new helper starts while eight agents already run in the window. Change this with `agents.maxConcurrent`, `agents.maxDepth` and `agents.maxActive` in `cdr.config.json`.
+- **Keeping them under control.** [agent-control.md](agent-control.md) explains where every agent comes from, what it costs, how to stop and clean it up, and how to run many at once.
 
 ### Goals
 

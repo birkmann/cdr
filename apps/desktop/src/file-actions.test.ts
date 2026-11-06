@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { posix, win32 } from "node:path";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { confirmDialog } from "./components/dialogs";
-import { openFile, openFolder } from "./file-actions";
+import { openFile, openFolder, openSessionFolder } from "./file-actions";
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
 vi.mock("./components/dialogs", () => ({ confirmDialog: vi.fn() }));
@@ -99,5 +99,47 @@ describe("opening files and folders", () => {
     await openFile(st);
     expect(st.openTab).not.toHaveBeenCalled();
     expect(st.errors).toEqual(["Folder unavailable"]);
+  });
+});
+
+describe("opening a conversation's folder", () => {
+  function sessionStore(root: string | null, dirty = false, previewOpen = true) {
+    return {
+      ...store(root, dirty),
+      tabs: previewOpen ? [{ key: "preview:s1", kind: "preview" as const, sessionId: "s1" }] : [],
+      setSessionId: vi.fn(),
+      setSide: vi.fn(),
+    };
+  }
+
+  it("opens the folder and keeps the conversation and its preview", async () => {
+    const st = sessionStore(null);
+    await openSessionFolder(st, "s1", "/sandboxes/snake-1");
+    expect(st.openWorkspace).toHaveBeenCalledWith("/sandboxes/snake-1");
+    expect(st.setSessionId).toHaveBeenCalledWith("s1");
+    expect(st.openTab).toHaveBeenCalledWith({ kind: "preview", sessionId: "s1" });
+    expect(st.setSide).toHaveBeenCalledWith("files");
+  });
+
+  it("only shows the explorer when the folder is already open", async () => {
+    const st = sessionStore("/sandboxes/snake-1");
+    await openSessionFolder(st, "s1", "/sandboxes/snake-1");
+    expect(st.openWorkspace).not.toHaveBeenCalled();
+    expect(st.setSessionId).not.toHaveBeenCalled();
+    expect(st.setSide).toHaveBeenCalledWith("files");
+  });
+
+  it("does not reopen a preview that was not open", async () => {
+    const st = sessionStore(null, false, false);
+    await openSessionFolder(st, "s1", "/sandboxes/snake-1");
+    expect(st.openTab).not.toHaveBeenCalled();
+  });
+
+  it("protects unsaved changes", async () => {
+    const st = sessionStore("/project", true);
+    await openSessionFolder(st, "s1", "/sandboxes/snake-1");
+    expect(st.openWorkspace).not.toHaveBeenCalled();
+    expect(st.setSide).not.toHaveBeenCalled();
+    expect(st.errors).toEqual(["Save or close your modified files before switching folders."]);
   });
 });

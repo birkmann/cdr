@@ -49,12 +49,35 @@ export async function openFile(st: FileStore) {
   });
 }
 
+/** Switch the workspace to `path`, refusing while files have unsaved changes. Returns false if it did not switch. */
+async function switchFolder(st: FileStore, path: string): Promise<boolean> {
+  if (path === st.workspace?.root) return false;
+  requireSavedFiles(st);
+  await st.openWorkspace(path);
+  return true;
+}
+
 export async function openFolder(st: FileStore) {
   await st.attempt(async () => {
     const selected = await openDialog({ directory: true, multiple: false, title: "Open folder" });
     if (typeof selected !== "string") return;
-    if (selected === st.workspace?.root) return;
-    requireSavedFiles(st);
-    await st.openWorkspace(selected);
+    await switchFolder(st, selected);
+  });
+}
+
+type SessionStore = FileStore & Pick<ReturnType<typeof useStudio>, "tabs" | "setSessionId" | "setSide">;
+
+/**
+ * Open a conversation's folder (for example its sandbox) in the explorer.
+ * Opening a folder resets the conversation and tabs, so the conversation and its preview are restored.
+ */
+export async function openSessionFolder(st: SessionStore, sessionId: string, path: string) {
+  await st.attempt(async () => {
+    const preview = st.tabs.some((t) => t.kind === "preview" && t.sessionId === sessionId);
+    if (await switchFolder(st, path)) {
+      st.setSessionId(sessionId);
+      if (preview) st.openTab({ kind: "preview", sessionId });
+    }
+    st.setSide("files");
   });
 }

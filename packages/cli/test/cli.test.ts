@@ -352,7 +352,18 @@ describe("CLI and server produce identical event logs (M3)", () => {
       const norm = (events: { type: string; seq: number }[], root: string) =>
         events.map((e) =>
           JSON.stringify(e, (k, v) =>
-            ["ts", "sessionId", "id", "reportPath", "runId", "toolCallId", "commit", "messageId"].includes(k)
+            // origin names the client ("cli" / "api"), which differs by design.
+            [
+              "ts",
+              "sessionId",
+              "id",
+              "reportPath",
+              "runId",
+              "toolCallId",
+              "commit",
+              "messageId",
+              "origin",
+            ].includes(k)
               ? undefined
               : v,
           )

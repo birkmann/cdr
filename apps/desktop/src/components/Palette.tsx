@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { openFile, openFolder } from "../file-actions";
+import { openFile, openFolder, openSessionFolder } from "../file-actions";
 import { useApp } from "@web/app-state";
 import { THEMES } from "@web/themes";
 import { fs, git, harness } from "../ipc";
@@ -32,7 +32,8 @@ export function Palette({
   onDialog(d: Dialog): void;
 }) {
   const st = useStudio();
-  const { updateSettings } = useApp();
+  const { updateSettings, sessions } = useApp();
+  const sessionPath = st.sessionId ? sessions.find((x) => x.id === st.sessionId)?.projectPath : undefined;
   const [query, setQuery] = useState(initial === "commands" ? ">" : "");
   const [files, setFiles] = useState<string[]>([]);
   const [index, setIndex] = useState(0);
@@ -70,6 +71,29 @@ export function Palette({
         run: () => (st.setSessionId(null), st.setAgentPanel(true)),
       },
       {
+        id: "newchattab",
+        label: "Agent: New conversation in editor tab",
+        run: () => st.openTab({ kind: "chat", sessionId: null, draft: Date.now() }),
+      },
+      {
+        id: "newchatside",
+        label: "Agent: New conversation to the side",
+        run: () => st.openTab({ kind: "chat", sessionId: null, draft: Date.now() }, { group: st.groupCount }),
+      },
+      {
+        id: "chattab",
+        label: "Agent: Move conversation to editor tab",
+        when: !!st.sessionId,
+        run: () => (st.openTab({ kind: "chat", sessionId: st.sessionId }), st.setSessionId(null)),
+      },
+      {
+        id: "split",
+        label: "View: Split editor right",
+        hint: "Ctrl+\\",
+        when: !!st.active && st.active !== "welcome",
+        run: () => st.splitTab(st.active!, st.focusedGroup + 1),
+      },
+      {
         id: "agentpanel",
         label: "View: Toggle agent panel",
         hint: "Ctrl+L",
@@ -94,6 +118,23 @@ export function Palette({
       },
       { id: "newterm", label: "Terminal: New terminal", when: ws, run: () => runInTerminal("") },
       { id: "problems", label: "View: Problems", run: () => st.setBottom("problems") },
+      {
+        id: "dockagent",
+        label: `View: Move agent panel ${st.agentDock === "right" ? "left" : "right"}`,
+        run: () => (st.setAgentPanel(true), st.setAgentDock(st.agentDock === "right" ? "left" : "right")),
+      },
+      {
+        id: "preview",
+        label: "View: Open preview in editor",
+        when: !!st.sessionId,
+        run: () => st.openTab({ kind: "preview", sessionId: st.sessionId! }),
+      },
+      {
+        id: "sessionfolder",
+        label: "Agent: Open conversation folder",
+        when: !!sessionPath && sessionPath !== root,
+        run: () => openSessionFolder(st, st.sessionId!, sessionPath!),
+      },
       { id: "log", label: "View: Harness log", run: () => st.setBottom("output") },
       { id: "history", label: "Git: Show history", when: repo, run: () => st.openTab({ kind: "history" }) },
       {
@@ -185,7 +226,7 @@ export function Palette({
       ...scripts.map((s) => ({ id: `run-${s}`, label: `Run: ${s}`, run: () => runInTerminal(s) })),
     ];
     return c.filter((x) => x.when !== false);
-  }, [root, st, scripts, onDialog, updateSettings]);
+  }, [root, st, scripts, onDialog, updateSettings, sessionPath]);
 
   const items = isCommands
     ? fuzzyFilter(commands, query.slice(1), (c) => c.label).map((c) => ({

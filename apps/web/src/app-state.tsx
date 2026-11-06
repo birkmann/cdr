@@ -1,5 +1,11 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { createClient, type HarnessClient, type SessionInfo, type ReasoningEffort } from "@harness/client";
+import {
+  createClient,
+  type HarnessClient,
+  type SessionInfo,
+  type ReasoningEffort,
+  type SessionOrigin,
+} from "@harness/client";
 import { isTheme, type Theme } from "./themes";
 
 export type PermissionMode = "ask" | "auto" | "yolo";
@@ -115,7 +121,14 @@ interface AppState {
 
 const Ctx = createContext<AppState | null>(null);
 
-export function AppProvider({ children }: { children: ReactNode }) {
+export function AppProvider({
+  children,
+  origin = "web",
+}: {
+  children: ReactNode;
+  /** Recorded on conversations this app creates. */
+  origin?: SessionOrigin;
+}) {
   const [settings, setSettings] = useState<Settings>(() => {
     const s = consumeHashLogin(loadSettings());
     saveSettings(s);
@@ -137,9 +150,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const client = useMemo(
     () =>
       settings.token
-        ? createClient({ baseUrl: settings.server.replace(/\/$/, ""), token: settings.token })
+        ? createClient({ baseUrl: settings.server.replace(/\/$/, ""), token: settings.token, origin })
         : null,
-    [settings.server, settings.token],
+    [settings.server, settings.token, origin],
   );
 
   const refreshSessions = useCallback(async () => {

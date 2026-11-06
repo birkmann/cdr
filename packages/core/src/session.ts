@@ -1,7 +1,10 @@
-import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import type {
+  CancelAllResponse,
+  DeleteSessionResponse,
   Attachment,
   AttachmentInfo,
   ChatMessage,
@@ -17,6 +20,7 @@ import type {
   PlanDecision,
   Risk,
   SessionInfo,
+  SessionOrigin,
   SessionStatus,
   SessionTreeNode,
   TodoItem,
@@ -31,11 +35,19 @@ import {
   resolveModelRef,
 } from "./config.js";
 import { processAttachments } from "./attachments.js";
-import { SANDBOX_PROMPT, bwrapAvailable, createSandboxDir, isWorkspaceContainer } from "./sandbox.js";
+import {
+  SANDBOX_PROMPT,
+  bwrapAvailable,
+  createSandboxDir,
+  isWorkspaceContainer,
+  sandboxesDir,
+} from "./sandbox.js";
+import { branchExists, git, repoRoot } from "./git.js";
 import { ProviderRegistry, modelConnectionProblem, type Provider } from "./providers/index.js";
 import { collect } from "./providers/types.js";
 import { recreateTools } from "./recreate/tools.js";
 import { SessionStore, rebuildMessages, summarize } from "./session-store.js";
+import { branchCut, branchEventsToMerge, planDeletion } from "./conversation.js";
 import { Budget, runAgent, type AgentHooks, type AgentHost, type AgentResult } from "./loop.js";
 import { PermissionPolicy } from "./permissions.js";
 import { VerifyRunner } from "./verify.js";
@@ -56,10 +68,10 @@ import { resolveInProject } from "./tools/paths.js";
 import { UNSPLASH_SECRET_ENV } from "./tools/unsplash.js";
 import { configHooks } from "./hooks.js";
 import { connectMcpServers, type McpClient } from "./mcp.js";
-import { acquireProjectLock, sessionHasProjectLock } from "./lock.js";
+import { acquireProjectLock, projectLockOwner, sessionHasProjectLock } from "./lock.js";
 import { CheckpointStore, type CheckpointChange } from "./checkpoints.js";
 import { runWorkflow, type RunOptions, type RunResult } from "./workflow.js";
-import { AgentManager, maxAgentDepth, type SessionFactory } from "./agents.js";
+import { AgentManager, maxAgentDepth, setActiveRunCounter, type SessionFactory } from "./agents.js";
 import { spawnAgentTool, waitAgentsTool } from "./tools/agents.js";
 import {
   abortError,
@@ -124,8 +136,19 @@ You are a subagent: another agent delegated the task below to you. You do not se
 
 const READ_ONLY_SUBAGENT_PROMPT = `You run read-only in a checkout shared with other agents: you can read, search and run read-only commands, but you cannot edit files.`;
 
+/** Runs (conversations and subagents) in progress in this process. */
+let activeRuns = 0;
+
+/** Number of agent runs in progress in this process, across every Harness. */
+export function activeRunCount(): number {
+  return activeRuns;
+}
+setActiveRunCounter(activeRunCount);
+
 export class Session {
   readonly id: string;
+  /** Last time this session was created, loaded, asked for or wrote an event (ms since epoch). */
+  lastUsedAt = Date.now();
   readonly projectRoot: string;
   readonly config: HarnessConfig;
   workflow: string;
@@ -268,15 +291,31 @@ export class Session {
   }
 
   info(): SessionInfo {
-    const s = summarize(this.id, this.events);
+    const { runStartedAt, interrupted: _i, ...s } = summarize(this.id, this.events, true);
+    const runner = this.running ? undefined : projectLockOwner(this.projectRoot, this.id);
+    const active = this.status === "running" || this.status === "waiting";
     return {
       ...s,
       status: this.status,
       model: this.config.models.executor,
       reasoningEffort: this.config.reasoningEffort ?? "auto",
       permissionMode: this.policy.mode,
-      externalRun: this.isExternalRun,
+      externalRun: !!runner,
+      ...(runner ? { runner } : {}),
+      ...(active && runStartedAt ? { runStartedAt } : {}),
+      ...(this.wasInterrupted ? { interrupted: true } : {}),
     };
+  }
+
+  /** The log ends in an active run that no live process owns: it was cut off by a crash or quit. */
+  get wasInterrupted(): boolean {
+    if (this.running) return false;
+    const last = [...this.events].reverse().find((e) => e.type === "status");
+    return (
+      last?.type === "status" &&
+      (last.status === "running" || last.status === "waiting") &&
+      !this.isExternalRun
+    );
   }
 
   // ------------------------------------------------------------------ events
@@ -295,6 +334,7 @@ export class Session {
       ...body,
     }) as HarnessEvent;
     this.events.push(event);
+    this.lastUsedAt = Date.now();
     if (this.persist) this.store.append(event);
     for (const l of [...this.listeners]) {
       try {
@@ -307,6 +347,16 @@ export class Session {
   }
 
   /** Subscribe to events. Replays stored events with seq > afterSeq first (for SSE reconnects). */
+  /** Live subscribers (open event streams, terminals). */
+  get listenerCount(): number {
+    return this.listeners.size;
+  }
+
+  /** Whether this process runs the session right now (not another process). */
+  get isRunningHere(): boolean {
+    return this.running;
+  }
+
   subscribe(listener: Listener, afterSeq?: number): () => void {
     this.syncFromStore();
     if (afterSeq !== undefined) for (const e of this.events) if (e.seq > afterSeq) listener(e);
@@ -534,6 +584,57 @@ export class Session {
     }
   }
 
+  // ------------------------------------------------------------------ editing the conversation
+
+  /**
+   * Delete a message from the transcript and from every agent's context. A user message takes its whole
+   * exchange with it; an assistant reply takes its tool calls and their results.
+   */
+  deleteMessage(messageId: string): { ids: string[] } {
+    this.syncFromStore();
+    if (this.isRunning) throw new Error("Stop the session before deleting messages");
+    const plan = planDeletion(this.events, messageId);
+    this.emit(plan.deleted);
+    for (const [agent, messages] of Object.entries(plan.contexts))
+      this.emit({ type: "context.replace", agent, messages, reason: "messages deleted" });
+    // The failed or stopped run is gone, so there is nothing left to continue.
+    if (plan.removesLastDone && (this.status === "failed" || this.status === "cancelled"))
+      this.setStatus("idle");
+    return { ids: plan.deleted.ids };
+  }
+
+  /** Append the messages a branch added since it was cut (or last merged) to this conversation. */
+  mergeBranch(branch: Session): { messages: number } {
+    this.syncFromStore();
+    branch.syncFromStore();
+    if (this.isRunning) throw new Error("Stop this conversation before merging into it");
+    if (branch.isRunning) throw new Error("Stop the branch before merging it");
+    const forked = [...branch.events].reverse().find((e) => e.type === "session.forked");
+    if (forked?.type !== "session.forked" || forked.fromSessionId !== this.id)
+      throw new Error("That conversation is not a branch of this one");
+    const lastMerge = [...this.events]
+      .reverse()
+      .find((e) => e.type === "branch.merged" && e.branchSessionId === branch.id);
+    const afterSeq = Math.max(
+      // The branch's own events start right after its session.forked marker.
+      forked.seq,
+      lastMerge?.type === "branch.merged" ? lastMerge.toSeq : 0,
+    );
+    const title = branch.info().title;
+    const merge = branchEventsToMerge(branch.events, afterSeq, title ? `"${title}"` : branch.id);
+    if (!merge.messages) throw new Error("The branch has no new messages to merge");
+    this.emit({
+      type: "branch.merged",
+      branchSessionId: branch.id,
+      ...(title ? { branchTitle: title } : {}),
+      fromSeq: afterSeq,
+      toSeq: merge.toSeq,
+      messages: merge.messages,
+    });
+    for (const body of merge.bodies) this.emit(body);
+    return { messages: merge.messages };
+  }
+
   /** Context for the model after the user restored a checkpoint since the last message. */
   private restoreNote(): string {
     let restored: Extract<HarnessEvent, { type: "checkpoint.restored" }> | undefined;
@@ -571,6 +672,7 @@ export class Session {
     if (this.isRunning) throw new Error("Session is already running");
     if (this.checkpointBusy) throw new Error("A checkpoint operation is in progress");
     this.running = true;
+    activeRuns++;
     this.abort = new AbortController();
     this.budget = new Budget(this.config.limits);
     let release: (() => void) | undefined;
@@ -584,6 +686,7 @@ export class Session {
       await this.agentManager?.shutdown().catch(() => undefined);
       release?.();
       this.running = false;
+      activeRuns--;
       for (const p of this.pending.values())
         p.resolve(p.kind === "permission" ? "deny" : p.kind === "plan" ? { decision: "reject" } : "");
       this.pending.clear();
@@ -645,7 +748,10 @@ export class Session {
     const base =
       this.config.outputDir === false ? undefined : (outputBaseDir(this.config) ?? this.defaultOutputDir);
     if (!base) return undefined;
-    return join(base, `${(this.outputSlug ??= this.firstMessageSlug()) ?? "chat"}-${this.id.slice(-6)}`);
+    // Duplicates and branches keep writing to the folder of the conversation they came from.
+    const origin = this.events.find((e) => e.type === "session.forked");
+    const id = origin?.type === "session.forked" ? origin.fromSessionId : this.id;
+    return join(base, `${(this.outputSlug ??= this.firstMessageSlug()) ?? "chat"}-${id.slice(-6)}`);
   }
 
   private outputSlug?: string;
@@ -1070,8 +1176,8 @@ export class Session {
   /** Run a task through a workflow (plan → execute → verify → review → finish by default). */
   continueJob(): Promise<RunResult | ChatResult> {
     if (this.running) throw new Error("Session is already running");
-    if (this.status !== "failed" && this.status !== "cancelled")
-      throw new Error("There is no failed or stopped job to continue");
+    if (this.status !== "failed" && this.status !== "cancelled" && !this.wasInterrupted)
+      throw new Error("There is no failed, stopped or interrupted job to continue");
     const latestUser = [...this.events]
       .reverse()
       .find((e) => e.type === "message.start" && e.role === "user");
@@ -1216,6 +1322,8 @@ export interface CreateSessionOptions {
   depth?: number;
   /** Extra config overrides (limits, permissions.bash, …) applied on top of the project config. */
   configOverrides?: Partial<HarnessConfig>;
+  /** Which app or tool started the conversation (recorded on session.created). */
+  origin?: SessionOrigin;
 }
 
 function sandboxOverrides(): Partial<HarnessConfig> {
@@ -1310,6 +1418,7 @@ export class Harness {
       ...(sandbox ? { sandbox: true } : {}),
       ...(o.parentSessionId ? { parentSessionId: o.parentSessionId } : {}),
       ...(o.goalId ? { goalId: o.goalId } : {}),
+      ...(o.origin && !o.parentSessionId && !o.goalId ? { origin: o.origin } : {}),
     });
     this.live.set(id, session);
     return session;
@@ -1322,6 +1431,7 @@ export class Harness {
   ): Session {
     const live = this.live.get(id);
     if (live) {
+      live.lastUsedAt = Date.now();
       live.syncFromStore();
       return live;
     }
@@ -1368,19 +1478,159 @@ export class Harness {
     return session;
   }
 
-  /** Delete a session's log (refuses while it is running). */
-  deleteSession(id: string): void {
-    const live = this.live.get(id);
-    if (live?.isRunning) throw new Error("Session is running; cancel it first");
-    live?.close();
-    this.live.delete(id);
-    this.store.delete(id);
+  /**
+   * Delete a conversation with its subagents: their logs, the subagents' worktrees, and their branches once
+   * merged (unmerged branches and worktrees with uncommitted changes are kept and reported). With
+   * `folder`, also remove the sandbox folder and its checkpoints when no other conversation uses it.
+   * Refuses while the conversation or one of its subagents is running.
+   */
+  deleteSession(id: string, o: { folder?: boolean } = {}): DeleteSessionResponse {
+    const all = this.store.list();
+    const byId = new Map(all.map((s) => [s.id, s]));
+    const ids = [id];
+    for (let i = 0; i < ids.length; i++)
+      for (const s of all) if (s.parentSessionId === ids[i] && !ids.includes(s.id)) ids.push(s.id);
+    for (const sid of ids) {
+      const running = this.live.get(sid)?.isRunning || byId.get(sid)?.externalRun;
+      if (running)
+        throw new Error(
+          sid === id
+            ? "Session is running; cancel it first"
+            : "A subagent of this session is running; cancel it first",
+        );
+    }
+    const out: DeleteSessionResponse = { ok: true, sessions: [], worktrees: [], branches: [], kept: [] };
+
+    // Worktrees and branches recorded by the subagents these sessions spawned (deepest first, so a
+    // worktree is still there while the subagents it spawned are cleaned up).
+    for (const sid of [...ids].reverse()) {
+      let events: HarnessEvent[] = [];
+      try {
+        events = this.store.read(sid);
+      } catch {
+        continue;
+      }
+      const from = byId.get(sid)?.projectPath;
+      const repo = from && existsSync(from) ? repoRoot(from) : null;
+      for (const e of events) {
+        if (e.type !== "agent.spawned" || !e.worktree) continue;
+        if (!repo) {
+          out.kept.push(`${e.worktree} (repository not found)`);
+          continue;
+        }
+        if (existsSync(e.worktree)) {
+          // Not forced: a worktree with uncommitted changes is kept.
+          const r = git(repo, ["worktree", "remove", e.worktree]);
+          if (r.ok) out.worktrees.push(e.worktree);
+          else out.kept.push(`${e.worktree} (${(r.err || r.out).trim() || "could not remove"})`);
+        }
+        git(repo, ["worktree", "prune"]);
+        if (e.branch && branchExists(repo, e.branch)) {
+          // `-d` refuses a branch whose commits are not merged into HEAD.
+          const d = git(repo, ["branch", "-d", e.branch]);
+          if (d.ok) out.branches.push(e.branch);
+          else out.kept.push(`branch ${e.branch} (not merged)`);
+        }
+      }
+    }
+
+    const info = byId.get(id);
+    if (o.folder && info?.sandbox && info.projectPath) {
+      const folder = info.projectPath;
+      const base = realpathOr(sandboxesDir());
+      const real = realpathOr(folder);
+      const inside = real.startsWith(base + sep) && real !== base;
+      const shared = all.some(
+        (s) => !ids.includes(s.id) && (s.projectPath === folder || s.projectPath.startsWith(folder + sep)),
+      );
+      if (!inside) out.kept.push(`${folder} (not a sandbox folder)`);
+      else if (shared) out.kept.push(`${folder} (another conversation uses it)`);
+      else {
+        rmSync(real, { recursive: true, force: true });
+        const key = createHash("sha1").update(resolve(folder)).digest("hex").slice(0, 16);
+        rmSync(join(dirname(this.store.dir), "checkpoints", key), { recursive: true, force: true });
+        out.folder = folder;
+      }
+    }
+
+    for (const sid of [...ids].reverse()) {
+      const live = this.live.get(sid);
+      live?.close();
+      this.live.delete(sid);
+      this.store.delete(sid);
+      out.sessions.push(sid);
+    }
+    return out;
   }
 
-  forkSession(id: string): Session {
+  /** Stop every run this process owns. Runs owned by another process are listed, not stopped. */
+  cancelAll(): CancelAllResponse {
+    const cancelled: string[] = [];
+    for (const s of this.live.values())
+      if (s.isRunningHere) {
+        s.cancel();
+        cancelled.push(s.id);
+      }
+    const external = this.store
+      .list()
+      .filter((s) => s.externalRun && !cancelled.includes(s.id))
+      .map((s) => s.id);
+    return { cancelled, external };
+  }
+
+  /**
+   * Release conversations nobody is using: not running, no open event stream, untouched for `idleMs`.
+   * Their events leave memory and their MCP servers are closed; the next request loads them again.
+   */
+  unloadIdle(idleMs: number, keep: (s: Session) => boolean = () => false): string[] {
+    const now = Date.now();
+    const unloaded: string[] = [];
+    for (const [id, s] of this.live) {
+      if (s.isRunningHere || s.listenerCount > 0 || now - s.lastUsedAt < idleMs || keep(s)) continue;
+      s.close();
+      this.live.delete(id);
+      unloaded.push(id);
+    }
+    return unloaded;
+  }
+
+  /**
+   * Copy a conversation into a new session: all of it (a duplicate), or up to a message (a branch, which
+   * keeps that message's exchange). Both share the project folder; the copy records where it came from.
+   */
+  forkSession(id: string, o: { messageId?: string; title?: string } = {}): Session {
+    const source = this.getSession(id);
+    if (source.isRunning) throw new Error("Stop the session before duplicating or branching it");
+    const events = source.events;
+    const uptoSeq = o.messageId ? branchCut(events, o.messageId) : events[events.length - 1]?.seq;
+    if (uptoSeq === undefined) throw new Error("The conversation is empty");
+    const base = source.info().title ?? "Conversation";
     const newId = makeSessionId();
-    this.store.fork(id, newId);
-    return this.getSession(newId);
+    this.store.fork(id, newId, uptoSeq);
+    const copy = this.getSession(newId);
+    copy.emit({
+      type: "session.forked",
+      fromSessionId: id,
+      fromSeq: uptoSeq,
+      ...(o.messageId ? { messageId: o.messageId } : {}),
+    });
+    copy.updateSettings({ title: o.title?.trim() || `${base} (${o.messageId ? "branch" : "copy"})` });
+    // A branch cut mid-run must not look like it is still running.
+    const status = [...copy.events].reverse().find((e) => e.type === "status");
+    if (status?.type === "status" && (status.status === "running" || status.status === "waiting"))
+      copy.emit({ type: "status", status: "idle" });
+    return copy;
+  }
+
+  /** Merge a branch back into the conversation it came from; returns that conversation. */
+  mergeBranch(branchId: string): { target: Session; messages: number } {
+    const branch = this.getSession(branchId);
+    const forked = [...branch.events].reverse().find((e) => e.type === "session.forked");
+    if (forked?.type !== "session.forked") throw new Error("This conversation is not a branch");
+    if (!this.store.exists(forked.fromSessionId))
+      throw new Error("The conversation this branch came from was deleted");
+    const target = this.getSession(forked.fromSessionId);
+    return { target, ...target.mergeBranch(branch) };
   }
 
   listSessions(filter: { parent?: string; goalId?: string } = {}): SessionInfo[] {
@@ -1489,4 +1739,13 @@ function validateModelEffort(
     throw new Error(
       `Thinking effort "${effort}" is not supported by ${ref}. Choose Default or a supported level.`,
     );
+}
+
+/** The canonical path when it exists, else the resolved one. */
+function realpathOr(p: string): string {
+  try {
+    return realpathSync(p);
+  } catch {
+    return resolve(p);
+  }
 }

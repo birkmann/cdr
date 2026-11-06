@@ -6,17 +6,31 @@ import { IWarn } from "./icons";
  * Tauri's webviews and cannot be automated; these are styled, keyboard-friendly and async.
  */
 type Request =
-  | { kind: "confirm"; message: string; danger: boolean; ok: string; resolve(v: boolean): void }
+  | {
+      kind: "confirm";
+      message: string;
+      danger: boolean;
+      ok: string;
+      cancel: string;
+      resolve(v: boolean): void;
+    }
   | { kind: "prompt"; message: string; initial: string; resolve(v: string | null): void };
 
 let enqueue: ((r: Request) => void) | null = null;
 
 export function confirmDialog(
   message: string,
-  opts: { danger?: boolean; ok?: string } = {},
+  opts: { danger?: boolean; ok?: string; cancel?: string } = {},
 ): Promise<boolean> {
   return new Promise((resolve) => {
-    const req: Request = { kind: "confirm", message, danger: !!opts.danger, ok: opts.ok ?? "OK", resolve };
+    const req: Request = {
+      kind: "confirm",
+      message,
+      danger: !!opts.danger,
+      ok: opts.ok ?? "OK",
+      cancel: opts.cancel ?? "Cancel",
+      resolve,
+    };
     if (enqueue) enqueue(req);
     else resolve(window.confirm(message));
   });
@@ -86,7 +100,7 @@ export function DialogHost() {
         )}
         <div className="st-row end">
           <button className="secondary" onClick={() => finish(false)}>
-            Cancel
+            {cur.kind === "confirm" ? cur.cancel : "Cancel"}
           </button>
           <button
             ref={okBtn}

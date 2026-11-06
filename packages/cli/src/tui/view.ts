@@ -208,6 +208,15 @@ export function transcript(
             }),
           );
           break;
+        case "launch.ready":
+          bullet(`${e.title || "Ready to run"} · ${e.cwd ? `cd ${e.cwd} && ` : ""}${e.command}`, t.green);
+          break;
+        case "branch.merged":
+          bullet(
+            `Merged ${e.messages} message${e.messages === 1 ? "" : "s"} from branch ${e.branchTitle ?? e.branchSessionId}`,
+            t.muted,
+          );
+          break;
         case "preview.ready":
           bullet(`Preview ready · ${e.title || e.path}`, t.green);
           result(["Open this conversation in CDR web to view it."], { fg: t.muted });

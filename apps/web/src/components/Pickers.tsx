@@ -281,6 +281,7 @@ export function ModelPicker({
   const shown = value || defaultLabel || configuredDefault || "Choose model";
   return (
     <Popover
+      className="pick-model"
       align="right"
       disabled={disabled}
       title={`Model: ${shown}`}
@@ -353,10 +354,16 @@ export function EffortPicker({
   const selected = !options || value === "auto" || options.includes(value) ? value : "auto";
   return (
     <Popover
+      className="pick-effort"
       align="right"
       disabled={disabled}
       title="Thinking effort"
-      label={<span className="pill-text">Thinking: {EFFORT_LABELS[selected]}</span>}
+      label={
+        <span className="pill-text">
+          <span className="effort-prefix">Thinking: </span>
+          {EFFORT_LABELS[selected]}
+        </span>
+      }
     >
       {(close) => (
         <div className="picker">
@@ -628,6 +635,7 @@ export function ModePicker({
   const cur = MODES.find((m) => m.id === value)!;
   return (
     <Popover
+      className="pick-mode"
       label={<span className="pill-text">{cur.title}</span>}
       title="How the agent works"
       disabled={disabled}
@@ -666,6 +674,7 @@ export function PermissionPicker({
   const cur = PERMS.find((p) => p.id === value) ?? PERMS[0];
   return (
     <Popover
+      className="pick-perm"
       align="right"
       label={<span className={`pill-text perm-${value}`}>{cur.title}</span>}
       title="Permissions"

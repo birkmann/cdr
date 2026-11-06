@@ -7,6 +7,7 @@ export * from "./permissions.js";
 export * from "./context.js";
 export * from "./reasoning-summary.js";
 export * from "./session-store.js";
+export * from "./conversation.js";
 export * from "./loop.js";
 export * from "./hooks.js";
 export * from "./mcp.js";

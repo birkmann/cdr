@@ -49,7 +49,7 @@ The README images are generated from the real apps with a scripted demo model, s
 
 ```bash
 pnpm build && cargo build -p studio-app --features tauri/custom-protocol
-pnpm screenshots            # or name targets: node scripts/screenshots/capture.mjs web terminal terminal-classic terminal-approval desktop
+pnpm screenshots            # or name targets: node scripts/screenshots/capture.mjs web terminal terminal-classic terminal-approval desktop desktop-agents
 ```
 
 ## Releasing

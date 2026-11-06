@@ -15,7 +15,7 @@ import {
 import { join } from "node:path";
 import type { ChatMessage, HarnessEvent, SessionInfo, SessionStatus } from "@harness/protocol";
 import { harnessHome } from "./config.js";
-import { sessionHasProjectLock } from "./lock.js";
+import { projectLockOwner } from "./lock.js";
 
 /** Append-only JSONL event log, one file per session. */
 export class SessionStore {
@@ -92,11 +92,16 @@ export class SessionStore {
     const info =
       c && c.mtime === st.mtimeMs && c.size === st.size ? c.info : summarize(id, this.read(id), true);
     this.infoCache.set(id, { mtime: st.mtimeMs, size: st.size, info });
-    const externalRun = sessionHasProjectLock(info.projectPath, id);
+    const runner = projectLockOwner(info.projectPath, id);
+    const active = ["running", "waiting"].includes(info.status);
+    if (runner) return { ...info, externalRun: true, runner };
+    // Not owned by a live process: a run the log still shows as active was interrupted.
+    const { runStartedAt: _started, ...rest } = info;
     return {
-      ...info,
-      externalRun,
-      status: !externalRun && ["running", "waiting"].includes(info.status) ? "idle" : info.status,
+      ...rest,
+      externalRun: false,
+      status: active ? "idle" : info.status,
+      ...(active ? { interrupted: true } : {}),
     };
   }
 
@@ -135,14 +140,19 @@ export function summarize(id: string, events: HarnessEvent[], preserveRunning = 
   let projectPath = "";
   let workflow = "default";
   let title: string | undefined;
-  let firstUser: string | undefined;
   let model: string | undefined;
   let permissionMode: SessionInfo["permissionMode"];
   let reasoningEffort: SessionInfo["reasoningEffort"];
   let sandbox = false;
   let parentSessionId: string | undefined;
   let goalId: string | undefined;
+  let forkedFrom: SessionInfo["forkedFrom"];
+  let origin: SessionInfo["origin"];
+  let runStartedAt: string | undefined;
+  const usage = { inputTokens: 0, outputTokens: 0, cost: 0 };
   const userMsgs = new Set<string>();
+  const userTexts: { id: string; text: string }[] = [];
+  const deleted = new Set<string>();
   for (const e of events) {
     switch (e.type) {
       case "session.created":
@@ -155,6 +165,7 @@ export function summarize(id: string, events: HarnessEvent[], preserveRunning = 
         sandbox = !!e.sandbox;
         parentSessionId = e.parentSessionId;
         goalId = e.goalId;
+        origin = e.origin;
         break;
       case "session.settings":
         if (e.title) title = e.title;
@@ -163,18 +174,37 @@ export function summarize(id: string, events: HarnessEvent[], preserveRunning = 
         reasoningEffort = e.reasoningEffort ?? reasoningEffort;
         break;
       case "status":
+        if (e.status === "running" && status !== "running" && status !== "waiting") runStartedAt = e.ts;
         status = e.status;
+        break;
+      case "usage":
+        usage.inputTokens += e.inputTokens;
+        usage.outputTokens += e.outputTokens;
+        usage.cost += e.cost ?? 0;
         break;
       case "message.start":
         if (e.role === "user") userMsgs.add(e.id);
         break;
       case "message.end":
-        if (firstUser === undefined && userMsgs.has(e.id)) firstUser = e.text;
+        if (userMsgs.has(e.id)) userTexts.push({ id: e.id, text: e.text });
+        break;
+      case "messages.deleted":
+        for (const id of e.ids) deleted.add(id);
+        break;
+      case "session.forked":
+        forkedFrom = {
+          sessionId: e.fromSessionId,
+          seq: e.fromSeq,
+          ...(e.messageId ? { messageId: e.messageId } : {}),
+        };
         break;
     }
   }
   // A session whose process died mid-run is not running any more.
-  if (!preserveRunning && (status === "running" || status === "waiting")) status = "idle";
+  const active = status === "running" || status === "waiting";
+  const interrupted = !preserveRunning && active;
+  if (interrupted) status = "idle";
+  const firstUser = userTexts.find((m) => !deleted.has(m.id))?.text;
   const derived = firstUser?.replace(/\s+/g, " ").trim();
   return {
     id,
@@ -191,6 +221,19 @@ export function summarize(id: string, events: HarnessEvent[], preserveRunning = 
     ...(sandbox ? { sandbox } : {}),
     ...(parentSessionId ? { parentSessionId } : {}),
     ...(goalId ? { goalId } : {}),
+    ...(forkedFrom ? { forkedFrom } : {}),
+    ...(origin ? { origin } : {}),
+    ...(usage.inputTokens || usage.outputTokens || usage.cost
+      ? {
+          usage: {
+            inputTokens: usage.inputTokens,
+            outputTokens: usage.outputTokens,
+            ...(usage.cost ? { cost: usage.cost } : {}),
+          },
+        }
+      : {}),
+    ...(active && !interrupted && runStartedAt ? { runStartedAt } : {}),
+    ...(interrupted ? { interrupted: true } : {}),
   };
 }
 

@@ -61,6 +61,45 @@ pub fn read(root: &Path, rel: &str) -> Result<FileContent, PathError> {
     })
 }
 
+const MAX_IMAGE: u64 = 16 * 1024 * 1024;
+
+/// Read an image inside the workspace as a `data:` URL, for rendered Markdown previews.
+/// Only known image types are served, so this cannot be used to read arbitrary files.
+pub fn read_image(root: &Path, rel: &str) -> Result<String, PathError> {
+    use base64::Engine;
+    let ext = Path::new(rel)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let mime = match ext.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "svg" => "image/svg+xml",
+        "avif" => "image/avif",
+        "bmp" => "image/bmp",
+        "ico" => "image/x-icon",
+        _ => {
+            return Err(
+                std::io::Error::new(std::io::ErrorKind::InvalidInput, "not an image").into(),
+            )
+        }
+    };
+    let p = resolve(root, rel)?;
+    if std::fs::metadata(&p)?.len() > MAX_IMAGE {
+        return Err(
+            std::io::Error::new(std::io::ErrorKind::InvalidInput, "image too large").into(),
+        );
+    }
+    let bytes = std::fs::read(&p)?;
+    Ok(format!(
+        "data:{mime};base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(bytes)
+    ))
+}
+
 /// Write a file; returns the new modification time.
 pub fn write(root: &Path, rel: &str, content: &str) -> Result<u64, PathError> {
     let p = resolve(root, rel)?;
@@ -326,6 +365,19 @@ mod tests {
         // The ignore crate honours .gitignore only inside a git repository unless require_git is off.
         std::fs::create_dir_all(d.path().join(".git")).unwrap();
         d
+    }
+
+    #[test]
+    fn read_image_serves_only_images_inside_the_root() {
+        let d = tree();
+        std::fs::write(d.path().join("logo.png"), [0x89, b'P', b'N', b'G']).unwrap();
+        assert_eq!(
+            read_image(d.path(), "logo.png").unwrap(),
+            "data:image/png;base64,iVBORw=="
+        );
+        assert!(read_image(d.path(), "src/a.ts").is_err());
+        assert!(read_image(d.path(), "../x.png").is_err());
+        assert!(read_image(d.path(), "missing.png").is_err());
     }
 
     #[test]

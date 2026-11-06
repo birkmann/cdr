@@ -20,6 +20,7 @@ import { CloneDialog } from "./CloneDialog";
 import { Toasts } from "./Toasts";
 import { useApprovals } from "./approvals";
 import { DialogHost } from "./dialogs";
+import { dragKind, useActiveDrag } from "./dnd";
 
 const VIEWS: { id: SideView; label: string; icon: ReactNode; key: string }[] = [
   { id: "files", label: "Explorer", icon: <IFiles size={22} />, key: "Ctrl+Shift+E" },
@@ -36,6 +37,14 @@ export function Shell({ harnessStatus }: { harnessStatus: HarnessStatus }) {
   const [palette, setPalette] = useState<PaletteMode | null>(null);
   const [dialog, setDialog] = useState<Dialog>(null);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>();
+  // A command for the terminal (task, palette, chat launch button) opens the panel, which then starts it.
+  useEffect(() => {
+    const h = () => {
+      if (st.bottom !== "terminal") st.setBottom("terminal");
+    };
+    window.addEventListener("studio:run-in-terminal", h);
+    return () => window.removeEventListener("studio:run-in-terminal", h);
+  });
   useEffect(() => {
     const open = (e: Event) => {
       setSettingsSection((e as CustomEvent<SettingsSection | undefined>).detail);
@@ -49,6 +58,8 @@ export function Shell({ harnessStatus }: { harnessStatus: HarnessStatus }) {
   const bottomSize = usePanelSize("cdr.studio.bottom", 260, 120, 700);
   const approvals = useApprovals();
   const chordUntil = useRef(0);
+  const drag = useActiveDrag();
+  const [dockOver, setDockOver] = useState<"left" | "right" | null>(null);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -97,11 +108,19 @@ export function Shell({ harnessStatus }: { harnessStatus: HarnessStatus }) {
         return;
       }
       if (!e.shiftKey && k === ",") return void (e.preventDefault(), setDialog("settings"));
+      if (!e.shiftKey && k === "\\" && st.active && st.active !== "welcome")
+        return void (e.preventDefault(), st.splitTab(st.active, st.focusedGroup + 1));
       if (!e.shiftKey && k === "w" && st.active) return void (e.preventDefault(), st.closeTab(st.active));
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [st]);
+
+  const agent = (
+    <aside className={`st-agent dock-${st.agentDock}`} style={{ width: agentSize.size }}>
+      <AgentPanel />
+    </aside>
+  );
 
   useEffect(() => {
     document.title = st.workspace ? `${st.workspace.name} — CDR Studio` : "CDR Studio";
@@ -164,6 +183,18 @@ export function Shell({ harnessStatus }: { harnessStatus: HarnessStatus }) {
             />
           </>
         )}
+        {st.agentPanel && st.agentDock === "left" && (
+          <>
+            {agent}
+            <Splitter
+              direction="vertical"
+              size={agentSize.size}
+              onChange={agentSize.set}
+              onReset={agentSize.reset}
+              label="Resize agent panel"
+            />
+          </>
+        )}
         <main className="st-center">
           <div className="st-editor-wrap">
             <EditorArea onClone={() => setDialog("clone")} onPalette={() => setPalette("files")} />
@@ -184,7 +215,7 @@ export function Shell({ harnessStatus }: { harnessStatus: HarnessStatus }) {
             </>
           )}
         </main>
-        {st.agentPanel && (
+        {st.agentPanel && st.agentDock === "right" && (
           <>
             <Splitter
               direction="vertical"
@@ -194,11 +225,30 @@ export function Shell({ harnessStatus }: { harnessStatus: HarnessStatus }) {
               invert
               label="Resize agent panel"
             />
-            <aside className="st-agent" style={{ width: agentSize.size }}>
-              <AgentPanel />
-            </aside>
+            {agent}
           </>
         )}
+        {drag === "panel" &&
+          (["left", "right"] as const).map((side) => (
+            <div
+              key={side}
+              className={`st-dock-zone ${side} ${dockOver === side ? "over" : ""}`}
+              onDragOver={(e) => {
+                if (dragKind(e) !== "panel") return;
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "move";
+                setDockOver(side);
+              }}
+              onDragLeave={() => setDockOver(null)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDockOver(null);
+                st.setAgentDock(side);
+              }}
+            >
+              <span>Dock agent panel {side}</span>
+            </div>
+          ))}
       </div>
       <StatusBar harnessStatus={harnessStatus} onSettings={() => setDialog("settings")} />
       {palette && (

@@ -5,6 +5,16 @@ All notable changes are listed here. The project follows [Semantic Versioning](h
 ## Unreleased
 
 - Page capture and `check_preview` try once more when headless Chrome is slow to start on a busy machine.
+- The desktop Agents view lists every running agent in any folder, with where it came from, elapsed time, model and tokens, and has **Stop all**. Conversations can be deleted from it, including ones whose folder is gone.
+- Deleting a conversation also deletes its subagents, their worktrees and their merged branches, and can remove its sandbox folder.
+- Runs cut off by a crash or quit are marked interrupted and can be continued.
+- Subagents running at the same time share the parent's remaining budget instead of each getting all of it, and no new subagent starts while eight agents already run (`agents.maxActive`).
+- Idle conversations are released from the server's memory after ten minutes, closing their MCP servers.
+- See [docs/agent-control.md](docs/agent-control.md).
+- Desktop: the status bar and Agents view update as soon as a run starts or ends, instead of on the next five-second refresh.
+- Desktop: a finished run no longer looks busy for up to 15 seconds. The server now sends a short comment line after each batch of events, because the desktop webview could hold the last one until the next keep-alive.
+- Desktop: a new conversation opens on a centered welcome with the folder picker and a tip. While the editor is split, the tip explains that agents running in parallel each need their own folder or checkout.
+- Desktop: the editor splits into up to four groups (Ctrl+\\, the split button, or dragging a tab to an editor's left or right edge), and agent conversations open in editor tabs, so several run side by side. Move the panel's conversation into a tab, start one "to the side", or open one from the Agents view with Ctrl+click, middle-click or drag.
 
 ## 0.1.0 (2026-11-06)
 

@@ -94,6 +94,11 @@ export interface Tool {
   selfGated?: boolean;
   /** Optional per-call risk assessment (defaults: readOnly → low, otherwise medium). */
   risk?(args: any, ctx: ToolContext): Risk;
+  /**
+   * The shell command this call would run, for tools that execute one (`bash`, `run_app`). The permission
+   * policy applies its shell rules (built-in deny list, `permissions.bash`, risky commands) to it.
+   */
+  shellCommand?(args: any, ctx?: ToolContext): string | undefined;
   execute(args: any, ctx: ToolContext): Promise<ToolResult>;
 }
 

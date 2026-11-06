@@ -12,6 +12,8 @@ const MODELS = {
   models: { executor: "mock/m", planner: "mock/m", reviewer: "mock/m", summarizer: "mock/m" },
 } as never;
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 let srv: StartedServer;
 let project: string;
 const mock = new MockProvider({
@@ -115,6 +117,49 @@ describe("server + client", () => {
     await expect(c.sessionLog("nope")).rejects.toMatchObject({ status: 404 });
   });
 
+  it("deletes messages, branches a conversation and merges the branch back", async () => {
+    const c = createClient({ baseUrl: srv.url, token: "test-token" });
+    const info = await c.createSession({ projectPath: project, permissionMode: "yolo" });
+    const turn = async (id: string, text: string) => {
+      const done = (async () => {
+        for await (const _ of c.events(id, {
+          untilDone: true,
+          after: (await c.getSession(id, { events: false })).lastSeq,
+        }))
+          void _;
+      })();
+      await c.send(id, text, { mode: "chat" });
+      await done;
+    };
+    await turn(info.id, "one");
+    await turn(info.id, "two");
+    const userIds = async (id: string) =>
+      ((await c.getSession(id)).events ?? []).flatMap((e) =>
+        e.type === "message.start" && e.role === "user" ? [e.id] : [],
+      );
+    const [one, two] = await userIds(info.id);
+
+    const branch = await c.forkSession(info.id, { messageId: one });
+    expect(branch).toMatchObject({
+      title: "one (branch)",
+      forkedFrom: { sessionId: info.id, messageId: one },
+    });
+    expect(await userIds(branch.id)).toEqual([one]);
+    await turn(branch.id, "three");
+    expect(await c.mergeBranch(branch.id)).toEqual({ targetId: info.id, messages: 2 });
+    await expect(c.mergeBranch(branch.id)).rejects.toMatchObject({ status: 409 });
+
+    expect((await c.deleteMessage(info.id, two)).ids).toContain(two);
+    const state = ((await c.getSession(info.id)).events ?? []).reduce(reduceSession, initialSessionState());
+    const users = state.timeline.flatMap((i) =>
+      i.kind === "message" && state.messages[i.id].role === "user" ? [state.messages[i.id].text] : [],
+    );
+    expect(users).toEqual(["one", "three"]);
+    await expect(c.deleteMessage(info.id, two)).rejects.toMatchObject({ status: 409 });
+    expect((await c.forkSession(info.id)).title).toBe("one (copy)");
+    await expect(c.forkSession("nope")).rejects.toMatchObject({ status: 404 });
+  });
+
   it("runs a full task with plan approval and permissions via HTTP + SSE", async () => {
     const c = createClient({ baseUrl: srv.url, token: "test-token" });
     const info = await c.createSession({ projectPath: project, permissionMode: "ask" });
@@ -163,6 +208,41 @@ describe("server + client", () => {
     // the event log on disk is identical to what a CLI-driven session records (same core)
     const disk = srv.harness.store.read(info.id);
     expect(disk.map((e) => e.seq)).toEqual(details.events!.map((e) => e.seq));
+  });
+
+  it("follows each batch of events with a comment line, without waiting for the keep-alive", async () => {
+    // WebKit can hold the last packet of a stream until another arrives; the comment releases it.
+    const quiet = await startServer({
+      harness: srv.harness,
+      port: 0,
+      token: "test-token",
+      keepAliveMs: 60_000,
+    });
+    try {
+      const c = createClient({ baseUrl: quiet.url, token: "test-token" });
+      const info = await c.createSession({ projectPath: project, permissionMode: "auto" });
+      await c.send(info.id, "hello", { mode: "chat" });
+      for await (const _ of c.events(info.id, { untilDone: true })) void _;
+      const ctrl = new AbortController();
+      const res = await fetch(`${quiet.url}/sessions/${info.id}/events?after=0`, {
+        headers: { authorization: "Bearer test-token" },
+        signal: ctrl.signal,
+      });
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let text = "";
+      const deadline = Date.now() + 2000;
+      while (!text.includes(": ping") && Date.now() < deadline) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        text += decoder.decode(value, { stream: true });
+      }
+      ctrl.abort();
+      expect(text).toContain("event: done");
+      expect(text.indexOf(": ping")).toBeGreaterThan(text.indexOf("event: done"));
+    } finally {
+      await quiet.close();
+    }
   });
 
   it("chat mode, cancel and validation errors", async () => {
@@ -267,6 +347,41 @@ describe("server + client", () => {
     }
   });
 
+  it("reports the executor provider's account balance, and null where it has none", async () => {
+    const c = createClient({ baseUrl: srv.url, token: "test-token" });
+    expect(await c.balance({ projectPath: project })).toEqual({ provider: "mock", items: null });
+    const provider = new MockProvider({ replies: [{ text: "ok" }] });
+    let fail = false;
+    Object.assign(provider, {
+      getBalance: async () => {
+        if (fail) throw new Error("balance request failed (500)");
+        return [{ currency: "USD", total: 12.34, granted: 0, toppedUp: 12.34 }];
+      },
+    });
+    const h = new Harness({
+      providers: { mock: provider },
+      skipGlobalConfig: true,
+      loadEnv: false,
+      configOverrides: MODELS,
+    });
+    const server = await startServer({ harness: h, port: 0, token: "balance-test" });
+    try {
+      const b = createClient({ baseUrl: server.url, token: "balance-test" });
+      expect(await b.balance({ projectPath: project, model: "mock/m" })).toEqual({
+        provider: "mock",
+        items: [{ currency: "USD", total: 12.34, granted: 0, toppedUp: 12.34 }],
+      });
+      expect(await b.balance({ projectPath: project, provider: "nope" })).toEqual({
+        provider: "nope",
+        items: null,
+      });
+      fail = true;
+      await expect(b.balance({ projectPath: project })).rejects.toMatchObject({ status: 502 });
+    } finally {
+      await server.close();
+    }
+  });
+
   it("mirrors an independently running terminal session, then allows web continuation", async () => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {
@@ -345,6 +460,8 @@ describe("server + client", () => {
     const m = await c.models(project);
     expect(m.models.find((x) => x.role === "executor")).toMatchObject({ id: "mock/m", configured: true });
     expect(m.workflows).toContain("quick-fix");
+    // the mock provider needs no key, so there is no key variable or source to report
+    expect(m.providers).toContainEqual({ id: "mock", configured: true });
   });
   it("continues a stopped job through the client, preserving the session and enforcing state checks", async () => {
     const c = createClient({ baseUrl: srv.url, token: "test-token" });
@@ -442,6 +559,65 @@ describe("server: web app support", () => {
       expect((await c.listSessions()).some((x) => x.id === info.id)).toBe(false);
       await expect(c.deleteSession(info.id)).rejects.toMatchObject({ status: 404 });
     } finally {
+      await s2.close();
+    }
+  });
+});
+
+describe("server: agent control", () => {
+  it("records the origin, stops all runs, deletes with cleanup and unloads idle sessions", async () => {
+    const proj = mkdtempSync(join(tmpdir(), "srv-control-"));
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const harness = new Harness({
+      providers: {
+        mock: new MockProvider({
+          handler: async (req) => {
+            if (req.messages.at(-1)!.content === "hold") await Promise.race([gate, sleep(5_000)]);
+            return { text: "ok" };
+          },
+        }),
+      },
+      skipGlobalConfig: true,
+      loadEnv: false,
+      configOverrides: MODELS,
+    });
+    const s2 = await startServer({ harness, port: 0, token: "tk", unloadIdleMs: 50 });
+    try {
+      const c = createClient({ baseUrl: s2.url, token: "tk", origin: "desktop" });
+      const info = await c.createSession({ projectPath: proj });
+      expect(info.origin).toBe("desktop");
+      expect((await c.createSession({ projectPath: proj, origin: "web" })).origin).toBe("web");
+      await expect(c.createSession({ projectPath: proj, origin: "x" as never })).rejects.toMatchObject({
+        status: 400,
+      });
+
+      await c.send(info.id, "hold");
+      await vi.waitFor(async () =>
+        expect((await c.getSession(info.id, { events: false })).status).toBe("running"),
+      );
+      const running = (await c.listSessions()).find((x) => x.id === info.id)!;
+      expect(running.runStartedAt).toBeTruthy();
+      await expect(c.deleteSession(info.id)).rejects.toMatchObject({ status: 409 });
+      const stopped = await c.cancelAll();
+      expect(stopped.cancelled).toEqual([info.id]);
+      await vi.waitFor(async () =>
+        expect((await c.getSession(info.id, { events: false })).status).toBe("cancelled"),
+      );
+      release();
+
+      // Idle and unwatched: released from memory, then loaded again on request.
+      await vi.waitFor(() => expect(harness.liveSessions().map((x) => x.id)).not.toContain(info.id), {
+        timeout: 2_000,
+      });
+      expect((await c.getSession(info.id, { events: false })).id).toBe(info.id);
+
+      const removed = await c.deleteSession(info.id);
+      expect(removed.sessions).toEqual([info.id]);
+      expect(removed.folder).toBeUndefined();
+      expect(existsSync(proj)).toBe(true);
+    } finally {
+      release();
       await s2.close();
     }
   });

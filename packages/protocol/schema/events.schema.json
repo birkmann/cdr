@@ -232,6 +232,10 @@
               },
               "type": "object"
             },
+            "origin": {
+              "$ref": "#/definitions/SessionOrigin",
+              "description": "Which app or tool started the conversation (top-level sessions)."
+            },
             "parentSessionId": {
               "description": "Set when this session is a subagent spawned by another session.",
               "type": "string"
@@ -1321,6 +1325,162 @@
         {
           "additionalProperties": false,
           "properties": {
+            "ids": {
+              "description": "Removed message ids (message.start ids).",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "ranges": {
+              "description": "Inclusive seq ranges of this log that were removed (other timeline events in them are hidden too).",
+              "items": {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 2,
+                "minItems": 2,
+                "type": "array"
+              },
+              "type": "array"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "toolCallIds": {
+              "description": "Removed tool calls (tool.call ids).",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "messages.deleted",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "ids",
+            "ranges",
+            "seq",
+            "sessionId",
+            "toolCallIds",
+            "ts",
+            "type",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "fromSeq": {
+              "description": "Last event of the source copied into this session.",
+              "type": "number"
+            },
+            "fromSessionId": {
+              "type": "string"
+            },
+            "messageId": {
+              "description": "The message the branch was cut at (absent for a full duplicate).",
+              "type": "string"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "session.forked",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "fromSeq",
+            "fromSessionId",
+            "seq",
+            "sessionId",
+            "ts",
+            "type",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "branchSessionId": {
+              "type": "string"
+            },
+            "branchTitle": {
+              "type": "string"
+            },
+            "fromSeq": {
+              "description": "Branch log range copied (exclusive start, inclusive end); a later merge continues after `toSeq`.",
+              "type": "number"
+            },
+            "messages": {
+              "description": "Messages with text brought over (tool-calling turns without text are not counted).",
+              "type": "number"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "toSeq": {
+              "type": "number"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "branch.merged",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "branchSessionId",
+            "fromSeq",
+            "messages",
+            "seq",
+            "sessionId",
+            "toSeq",
+            "ts",
+            "type",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
             "agent": {
               "type": "string"
             },
@@ -1576,6 +1736,50 @@
           },
           "required": [
             "path",
+            "seq",
+            "sessionId",
+            "ts",
+            "type",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "command": {
+              "type": "string"
+            },
+            "cwd": {
+              "type": "string"
+            },
+            "framework": {
+              "$ref": "#/definitions/LaunchFramework"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "launch.ready",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "command",
             "seq",
             "sessionId",
             "ts",
@@ -2817,6 +3021,29 @@
       ],
       "type": "object"
     },
+    "LaunchFramework": {
+      "description": "Language or framework of a launchable program (chooses the launch button's icon).",
+      "enum": [
+        "rust",
+        "tauri",
+        "go",
+        "python",
+        "node",
+        "deno",
+        "bun",
+        "swift",
+        "dotnet",
+        "java",
+        "kotlin",
+        "c",
+        "cpp",
+        "zig",
+        "dart",
+        "godot",
+        "other"
+      ],
+      "type": "string"
+    },
     "PermissionDecision": {
       "enum": [
         "allow",
@@ -3014,6 +3241,16 @@
         "success",
         "failed",
         "cancelled"
+      ],
+      "type": "string"
+    },
+    "SessionOrigin": {
+      "description": "Where a top-level conversation was started. Subagents and goals are recognised by `parentSessionId` / `goalId`.",
+      "enum": [
+        "desktop",
+        "web",
+        "cli",
+        "api"
       ],
       "type": "string"
     },

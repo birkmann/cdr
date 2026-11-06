@@ -171,6 +171,13 @@ export const IPanelRight = (p: P) => (
     <path d="M15 4v16" />
   </svg>
 );
+/** Split editor: two side-by-side columns. */
+export const ISplit = (p: P) => (
+  <svg {...base(p)}>
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <path d="M12 4v16" />
+  </svg>
+);
 export const IPanelLeft = (p: P) => (
   <svg {...base(p)}>
     <rect x="3" y="4" width="18" height="16" rx="2" />
@@ -195,6 +202,24 @@ export const ICloud = (p: P) => (
     <path d="M7 18a4.5 4.5 0 0 1-.6-9A6 6 0 0 1 18 8.5a4.8 4.8 0 0 1-.5 9.5z" />
   </svg>
 );
+/** Simple outline of the GitHub cat mark (stroke style, like the other icons). */
+export const IGithub = (p: P) => (
+  <svg {...base(p)}>
+    <path d="M9 19c-4.3 1.4-4.3-2.5-6-3m12 5v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 0 0-1.3-3.2 4.2 4.2 0 0 0-.1-3.2s-1.1-.3-3.5 1.3a12.3 12.3 0 0 0-6.2 0C6.5 2.8 5.4 3.1 5.4 3.1a4.2 4.2 0 0 0-.1 3.2A4.6 4.6 0 0 0 4 9.5c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21" />
+  </svg>
+);
+export const ILock = (p: P) => (
+  <svg {...base(p)}>
+    <rect x="5" y="11" width="14" height="10" rx="2" />
+    <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+  </svg>
+);
+export const IGlobe = (p: P) => (
+  <svg {...base(p)}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18" />
+  </svg>
+);
 export const IWarn = (p: P) => (
   <svg {...base(p)}>
     <path d="M12 3 2 20h20zM12 10v4M12 17h.01" />
@@ -209,5 +234,16 @@ export const ISparkle = (p: P) => (
   <svg {...base(p)}>
     <path d="M12 3.5 13.7 9a2 2 0 0 0 1.3 1.3l5.5 1.7-5.5 1.7a2 2 0 0 0-1.3 1.3L12 20.5 10.3 15A2 2 0 0 0 9 13.7L3.5 12 9 10.3A2 2 0 0 0 10.3 9z" />
     <path d="M19 3v4M17 5h4" />
+  </svg>
+);
+export const IEye = (p: P) => (
+  <svg {...base(p)}>
+    <path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z" />
+    <circle cx="12" cy="12" r="2.8" />
+  </svg>
+);
+export const ICode = (p: P) => (
+  <svg {...base(p)}>
+    <path d="m8.5 7-5 5 5 5M15.5 7l5 5-5 5" />
   </svg>
 );

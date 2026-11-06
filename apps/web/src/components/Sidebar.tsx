@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import type { SessionInfo } from "@harness/client";
 import { basename, useApp } from "../app-state";
 import { CDRMark } from "./Brand";
+import { groupByDate } from "../session-groups";
 import { alertDialog, confirmDialog } from "./Dialogs";
 import {
   IconPlus,
@@ -13,30 +14,6 @@ import {
   IconPanel,
   IconTerminal,
 } from "./icons";
-
-function group(sessions: SessionInfo[]): [string, SessionInfo[]][] {
-  const now = new Date();
-  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const groups: Record<string, SessionInfo[]> = {
-    Today: [],
-    Yesterday: [],
-    "Previous 7 days": [],
-    Older: [],
-  };
-  for (const s of sessions) {
-    const t = new Date(s.updatedAt || s.createdAt).getTime();
-    const key =
-      t >= startOfDay
-        ? "Today"
-        : t >= startOfDay - 86_400_000
-          ? "Yesterday"
-          : t >= startOfDay - 7 * 86_400_000
-            ? "Previous 7 days"
-            : "Older";
-    groups[key].push(s);
-  }
-  return Object.entries(groups).filter(([, v]) => v.length);
-}
 
 export function Sidebar({
   onSettings,
@@ -59,11 +36,14 @@ export function Sidebar({
     [sessions, q],
   );
   const del = async (s: SessionInfo) => {
-    const ok = await confirmDialog("The chat history is removed. Files in the project are not touched.", {
-      title: `Delete “${s.title ?? s.id}”?`,
-      ok: "Delete chat",
-      danger: true,
-    });
+    const ok = await confirmDialog(
+      "The chat history is removed with its subagents and their finished worktrees. Files in the project are not touched.",
+      {
+        title: `Delete “${s.title ?? s.id}”?`,
+        ok: "Delete chat",
+        danger: true,
+      },
+    );
     if (!ok) return;
     try {
       await client?.deleteSession(s.id);
@@ -144,7 +124,7 @@ export function Sidebar({
         {sorted.length === 0 && (
           <div className="muted small pad">{q ? "No matches." : "Your chats appear here."}</div>
         )}
-        {group(sorted).map(([label, items]) => (
+        {groupByDate(sorted).map(([label, items]) => (
           <div key={label}>
             <div className="history-group">{label}</div>
             {items.map((s) => (

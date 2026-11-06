@@ -106,8 +106,13 @@ export function runShell(command: string, opts: ShellOptions): Promise<ShellResu
     child.on("error", (e) => {
       output += `\n${e.message}`;
     });
-    child.on("close", (code, sig) => {
+    let done = false;
+    let drain: ReturnType<typeof setTimeout> | undefined;
+    const finish = (code: number | null, sig: NodeJS.Signals | null, detached = false) => {
+      if (done) return;
+      done = true;
       if (timer) clearTimeout(timer);
+      if (drain) clearTimeout(drain);
       opts.signal?.removeEventListener("abort", onAbort);
       let exitCode = code ?? (sig ? 128 : 1);
       if (timedOut) {
@@ -115,7 +120,26 @@ export function runShell(command: string, opts: ShellOptions): Promise<ShellResu
         exitCode = 124;
       }
       if (aborted) output += `\n[harness] command aborted`;
+      if (detached && !timedOut && !aborted)
+        output += `\n[harness] the command left a background process running; its later output is not captured`;
       resolve({ exitCode, output, timedOut, aborted });
+    };
+    // A job the command left in the background (`server &`) keeps the output pipes open long after the shell
+    // itself is done. Do not wait for it: return once the shell has exited and its own output is read.
+    child.on("exit", (code, sig) => {
+      drain = setTimeout(() => {
+        for (const stream of [child.stdout, child.stderr]) {
+          stream.off("data", onData);
+          // keep reading (and dropping) so the background job never writes into a closed pipe
+          stream.resume();
+          (stream as unknown as { unref?(): void }).unref?.();
+        }
+        finish(code, sig, true);
+      }, EXIT_DRAIN_MS);
     });
+    child.on("close", (code, sig) => finish(code, sig));
   });
 }
+
+/** How long the output pipes may stay open after the shell exited before the command counts as finished. */
+const EXIT_DRAIN_MS = 250;

@@ -9,6 +9,14 @@ import { newId, slugify } from "./util.js";
 
 export const DEFAULT_MAX_CONCURRENT_AGENTS = 3;
 export const DEFAULT_MAX_AGENT_DEPTH = 2;
+/** Running agents in one process above which spawn_agent refuses (`agents.maxActive`). */
+export const DEFAULT_MAX_ACTIVE_AGENTS = 8;
+
+/** Number of agent runs in progress in this process (set by session.ts, which owns the counter). */
+let countActiveRuns: () => number = () => 0;
+export function setActiveRunCounter(fn: () => number): void {
+  countActiveRuns = fn;
+}
 
 /** Factory the Harness gives each Session so it can create child sessions. */
 export type SessionFactory = (o: CreateSessionOptions) => Session;
@@ -54,13 +62,30 @@ export class AgentManager implements AgentSpawner {
     }
   }
 
-  /** Child limits: requested values capped by what the parent has left. Throws when nothing is left. */
-  private childLimits(req: SpawnAgentRequest["budget"] = {}): NonNullable<HarnessConfig["limits"]> {
+  /**
+   * Child limits: requested values capped by what the parent has left. Tokens and cost already promised
+   * to running children are reserved, so children running at once can never spend more than the parent
+   * has left; a child that asks for no token or cost limit gets an equal share of the free slots.
+   * Throws when nothing is left.
+   */
+  private childLimits(
+    req: SpawnAgentRequest["budget"] = {},
+    maxConcurrent = DEFAULT_MAX_CONCURRENT_AGENTS,
+  ): NonNullable<HarnessConfig["limits"]> {
     const pb = this.parent.budget;
     const pl = pb.limits ?? {};
+    let reservedTokens = 0;
+    let reservedCost = 0;
+    for (const c of this.children.values()) {
+      if (!c.running) continue;
+      reservedTokens += c.session.config.limits?.maxTokens ?? 0;
+      reservedCost += c.session.config.limits?.maxCost ?? 0;
+    }
     const remaining = {
-      maxTokens: pl.maxTokens ? pl.maxTokens - (pb.inputTokens + pb.outputTokens) : undefined,
-      maxCost: pl.maxCost ? pl.maxCost - pb.cost : undefined,
+      maxTokens: pl.maxTokens
+        ? pl.maxTokens - (pb.inputTokens + pb.outputTokens) - reservedTokens
+        : undefined,
+      maxCost: pl.maxCost ? pl.maxCost - pb.cost - reservedCost : undefined,
       timeoutMs: pl.timeoutMs ? pl.timeoutMs - pb.activeElapsedMs : undefined,
     };
     for (const [k, v] of Object.entries(remaining))
@@ -70,9 +95,11 @@ export class AgentManager implements AgentSpawner {
     const out: NonNullable<HarnessConfig["limits"]> = {};
     const maxTurns = req.maxTurns && req.maxTurns > 0 ? req.maxTurns : pl.maxTurns;
     if (maxTurns) out.maxTurns = maxTurns;
-    const maxTokens = cap(req.maxTokens, remaining.maxTokens);
+    const slots = Math.max(1, maxConcurrent - this.runningCount);
+    const share = (v: number | undefined) => (v === undefined ? undefined : v / slots);
+    const maxTokens = cap(req.maxTokens, req.maxTokens ? remaining.maxTokens : share(remaining.maxTokens));
     if (maxTokens) out.maxTokens = Math.floor(maxTokens);
-    const maxCost = cap(req.maxCost, remaining.maxCost);
+    const maxCost = cap(req.maxCost, req.maxCost ? remaining.maxCost : share(remaining.maxCost));
     if (maxCost) out.maxCost = maxCost;
     const timeoutMs = cap(req.timeoutMs, remaining.timeoutMs);
     if (timeoutMs) out.timeoutMs = Math.floor(timeoutMs);
@@ -118,6 +145,11 @@ export class AgentManager implements AgentSpawner {
       throw new Error(
         `at most ${maxConcurrent} subagents may run at once; collect one with wait_agents first`,
       );
+    const maxActive = parent.config.agents?.maxActive ?? DEFAULT_MAX_ACTIVE_AGENTS;
+    if (maxActive > 0 && countActiveRuns() >= maxActive)
+      throw new Error(
+        `${countActiveRuns()} agents are already running on this machine (limit ${maxActive}); collect a subagent with wait_agents or wait for other runs to finish`,
+      );
     if (parent.signal.aborted) throw new Error("the parent run was cancelled");
     const task = req.task.trim();
     const isolation = req.isolation ?? "shared";
@@ -125,7 +157,7 @@ export class AgentManager implements AgentSpawner {
     const ref = resolveModelRef(parent.config, role);
     if (!parent.config.providers[parseModelRef(ref).provider])
       throw new Error(`unknown provider in model "${ref}"`);
-    const limits = this.childLimits(req.budget);
+    const limits = this.childLimits(req.budget, maxConcurrent);
 
     const wt = isolation === "worktree" ? this.prepareWorktree(task) : undefined;
     const child = this.factory({

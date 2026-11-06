@@ -131,6 +131,16 @@ pub async fn fs_read(
 }
 
 #[tauri::command]
+pub async fn fs_read_image(
+    root: String,
+    path: String,
+    state: State<'_, AppState>,
+) -> CmdResult<String> {
+    let root = state.root(&root)?;
+    blocking(move || files::read_image(&root, &path).map_err(err)).await
+}
+
+#[tauri::command]
 pub async fn fs_write(
     root: String,
     path: String,
@@ -292,6 +302,31 @@ pub async fn github_create_pr(
     state
         .github
         .create_pull(&t, &owner, &name, &head, &base, &title, &body, draft)
+        .await
+        .map_err(err)
+}
+
+/// Create a repository on the signed-in GitHub account. The caller adds it as a remote and pushes.
+#[tauri::command]
+pub async fn github_create_repo(
+    name: String,
+    description: Option<String>,
+    private: bool,
+    state: State<'_, AppState>,
+) -> CmdResult<GithubRepo> {
+    let t = require_token()?;
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("Enter a repository name.".into());
+    }
+    state
+        .github
+        .create_repo(
+            &t,
+            name,
+            description.as_deref().unwrap_or("").trim(),
+            private,
+        )
         .await
         .map_err(err)
 }

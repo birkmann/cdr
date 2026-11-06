@@ -1,4 +1,7 @@
 import type {
+  CancelAllResponse,
+  DeleteSessionResponse,
+  SessionOrigin,
   AttachmentInfo,
   ReasoningEffort,
   BrowseResponse,
@@ -14,7 +17,9 @@ import type {
   CreateSessionRequest,
   HarnessEvent,
   AvailableModels,
+  BalanceResponse,
   ModelListEntry,
+  ProviderListEntry,
   PermissionDecision,
   PlanDecision,
   SendMessageRequest,
@@ -24,6 +29,8 @@ import type {
   CheckpointChange,
   SessionLogResponse,
   StorageInfo,
+  ForkSessionRequest,
+  MergeBranchResponse,
 } from "@harness/protocol";
 
 export type * from "@harness/protocol";
@@ -32,6 +39,8 @@ export interface ClientOptions {
   baseUrl: string;
   token: string;
   fetch?: typeof fetch;
+  /** Recorded as the origin of conversations this client creates, unless a request names its own. */
+  origin?: SessionOrigin;
 }
 
 export interface SessionDetails extends SessionInfo {
@@ -74,7 +83,7 @@ export interface HarnessClient {
   ): Promise<{
     reasoningEfforts: Exclude<ReasoningEffort, "auto">[];
     models: ModelListEntry[];
-    providers: { id: string; configured: boolean }[];
+    providers: ProviderListEntry[];
     workflows: string[];
   }>;
   createSession(req: CreateSessionRequest): Promise<SessionInfo>;
@@ -131,9 +140,23 @@ export interface HarnessClient {
   sessionLog(id: string): Promise<SessionLogResponse>;
   diff(id: string): Promise<string>;
   updateSettings(id: string, settings: SessionSettingsRequest): Promise<SessionInfo>;
-  deleteSession(id: string): Promise<void>;
+  /**
+   * Delete a conversation with its subagents' logs, worktrees and merged branches. With `folder`, also
+   * remove its sandbox folder and checkpoints when no other conversation uses that folder.
+   */
+  deleteSession(id: string, opts?: { folder?: boolean }): Promise<DeleteSessionResponse>;
+  /** Stop every run the server owns. */
+  cancelAll(): Promise<CancelAllResponse>;
+  /** Delete a message (a user message takes its whole exchange) from the transcript and the model's context. */
+  deleteMessage(id: string, messageId: string): Promise<{ ids: string[] }>;
+  /** Copy a conversation into a new one: all of it, or (with `messageId`) a branch up to that message. */
+  forkSession(id: string, req?: ForkSessionRequest): Promise<SessionInfo>;
+  /** Bring a branch's new messages back into the conversation it came from. */
+  mergeBranch(id: string): Promise<MergeBranchResponse>;
   browse(path?: string, opts?: { hidden?: boolean }): Promise<BrowseResponse>;
   availableModels(projectPath?: string): Promise<Record<string, AvailableModels>>;
+  /** Account balance of the provider behind `model` (default: the configured executor). */
+  balance(opts?: { projectPath?: string; model?: string; provider?: string }): Promise<BalanceResponse>;
   /** Skills that can be selected for a message in this project (built-in and user skills without one). */
   skills(projectPath?: string): Promise<SkillInfo[]>;
   /** URL for raw file bytes in the session's project (usable as <img src>). */
@@ -176,7 +199,8 @@ export function createClient(opts: ClientOptions): HarnessClient {
       if (model) params.set("model", model);
       return call("GET", `/models?${params}`);
     },
-    createSession: (req) => call("POST", "/sessions", req),
+    createSession: (req) =>
+      call("POST", "/sessions", opts.origin && !req.origin ? { ...req, origin: opts.origin } : req),
     listSessions: async (o) =>
       (
         await call<{ sessions: SessionInfo[] }>(
@@ -236,11 +260,20 @@ export function createClient(opts: ClientOptions): HarnessClient {
     sessionLog: (id) => call("GET", `/sessions/${enc(id)}/log`),
     diff: async (id) => (await call<{ diff: string }>("GET", `/sessions/${enc(id)}/diff`)).diff,
     updateSettings: (id, settings) => call("POST", `/sessions/${enc(id)}/settings`, settings),
-    deleteSession: async (id) => {
-      await call("DELETE", `/sessions/${enc(id)}`);
-    },
+    deleteSession: (id, o) => call("DELETE", `/sessions/${enc(id)}${o?.folder ? "?folder=true" : ""}`),
+    cancelAll: () => call("POST", "/sessions/cancel-all", {}),
+    deleteMessage: (id, messageId) => call("DELETE", `/sessions/${enc(id)}/messages/${enc(messageId)}`),
+    forkSession: (id, req) => call("POST", `/sessions/${enc(id)}/fork`, req ?? {}),
+    mergeBranch: (id) => call("POST", `/sessions/${enc(id)}/merge`, {}),
     browse: (path, o) =>
       call("GET", `/browse?${path ? `path=${enc(path)}&` : ""}${o?.hidden ? "hidden=true" : ""}`),
+    balance: (o) => {
+      const params = new URLSearchParams();
+      if (o?.projectPath) params.set("projectPath", o.projectPath);
+      if (o?.model) params.set("model", o.model);
+      if (o?.provider) params.set("provider", o.provider);
+      return call("GET", `/models/balance?${params}`);
+    },
     availableModels: async (projectPath) =>
       (
         await call<{ available: Record<string, AvailableModels> }>(
@@ -453,6 +486,8 @@ export interface RecreateRunView {
 
 export interface SessionState {
   externalRun?: boolean;
+  /** The last run was cut off (its process exited mid-run); it can be continued. Cleared when a run starts. */
+  interrupted?: boolean;
   workflow?: string;
   reasoningEffort?: ReasoningEffort;
   status: SessionInfo["status"];
@@ -483,6 +518,8 @@ export interface SessionState {
   goal?: GoalView;
   parentSessionId?: string;
   goalId?: string;
+  /** The conversation this one was duplicated or branched from. */
+  forkedFrom?: { sessionId: string; seq: number; messageId?: string };
   /** Wall-clock timing of each turn, keyed by the id of the user message that started it (ISO timestamps). */
   turnTimes: Record<string, { start: string; end?: string }>;
   /** User message id of the latest turn. */
@@ -553,6 +590,7 @@ export function reduceSession(state: SessionState, e: HarnessEvent): SessionStat
       if (e.reasoningEffort !== undefined) s.reasoningEffort = e.reasoningEffort;
       break;
     case "status":
+      if (e.status === "running") s.interrupted = undefined;
       if (e.status === "running" && !["running", "waiting"].includes(s.status)) {
         s.done = undefined;
         s.workflow = undefined;
@@ -566,6 +604,7 @@ export function reduceSession(state: SessionState, e: HarnessEvent): SessionStat
         );
       }
       s.status = e.status;
+      s.recreate = settleRecreate(s.recreate, s.status);
       break;
     case "run.start":
       s.workflow = e.workflow;
@@ -658,6 +697,7 @@ export function reduceSession(state: SessionState, e: HarnessEvent): SessionStat
       s.phase = e.phase;
       s.timeline = [...s.timeline, { kind: "event", event: e }];
       break;
+    case "launch.ready":
     case "verify.result":
     case "review.findings":
     case "memory.saved":
@@ -806,8 +846,37 @@ export function reduceSession(state: SessionState, e: HarnessEvent): SessionStat
       break;
     case "checkpoint.restored":
     case "checkpoint.failed":
+    case "branch.merged":
       s.timeline = [...s.timeline, { kind: "event", event: e }];
       break;
+    case "session.forked":
+      s.forkedFrom = {
+        sessionId: e.fromSessionId,
+        seq: e.fromSeq,
+        ...(e.messageId ? { messageId: e.messageId } : {}),
+      };
+      break;
+    case "messages.deleted": {
+      const ids = new Set([...e.ids, ...e.toolCallIds]);
+      const removed = (seq: number) => e.ranges.some(([a, b]) => seq >= a && seq <= b);
+      s.timeline = s.timeline.filter((i) => (i.kind === "event" ? !removed(i.event.seq) : !ids.has(i.id)));
+      s.messages = Object.fromEntries(Object.entries(s.messages).filter(([id]) => !ids.has(id)));
+      s.tools = Object.fromEntries(Object.entries(s.tools).filter(([id]) => !ids.has(id)));
+      if (s.done && removed(s.done.seq)) {
+        s.done = undefined;
+        s.errors = [];
+      }
+      if (s.preview && removed(s.preview.seq)) {
+        const latest = [...s.timeline]
+          .reverse()
+          .find((i) => i.kind === "event" && i.event.type === "preview.ready");
+        s.preview =
+          latest?.kind === "event" && latest.event.type === "preview.ready"
+            ? { path: latest.event.path, title: latest.event.title, seq: latest.event.seq }
+            : undefined;
+      }
+      break;
+    }
     case "done":
       s.pendingCheckpoint = undefined;
       s.done = e;
@@ -821,6 +890,32 @@ export function reduceSession(state: SessionState, e: HarnessEvent): SessionStat
 }
 
 type RecreateEvent = Extract<HarnessEvent, { type: `recreate.${string}` }>;
+
+/**
+ * A run still "running" in a session that no longer runs was cut off (the process died or stopped before
+ * recreate.finished): it is shown as stopped, not as a run whose clock keeps counting.
+ */
+export function settleRecreate(
+  state: SessionState["recreate"],
+  status: SessionState["status"],
+): SessionState["recreate"] {
+  if (!state || status === "running" || status === "waiting") return state;
+  const stale = Object.values(state.runs).filter((r) => r.status === "running");
+  if (!stale.length) return state;
+  const runs = { ...state.runs };
+  for (const r of stale)
+    runs[r.runId] = {
+      ...r,
+      status: "cancelled",
+      stages: Object.fromEntries(
+        Object.entries(r.stages).map(([k, st]) => [
+          k,
+          st.status === "running" ? { ...st, status: "failed", detail: "interrupted" } : st,
+        ]),
+      ),
+    };
+  return { runs };
+}
 
 /** Recreate events → run views. A run spans several tool calls (each emits started / finished), merged by run id. */
 export function reduceRecreate(
@@ -902,3 +997,4 @@ export function reduceRecreate(
   runs[e.runId] = r;
   return { runs };
 }
+export { turnLaunches, type LaunchView } from "./launch.js";

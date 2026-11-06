@@ -212,6 +212,30 @@ try {
     await waitFor(() => readFileSync(join(repo, "app.js"), "utf8").includes("42"), "file saved to disk");
   });
 
+  await step("split the editor and drag a tab back", async () => {
+    // README.md and app.js are open; app.js is active.
+    await click('button[aria-label="Split editor right"]');
+    await waitFor(async () => (await js(`return document.querySelectorAll('.st-editor').length`)) === 2, "two groups");
+    // HTML5 drag and drop, dispatched as the browser would: app.js onto README.md in the left group.
+    await js(`
+      const tab = (g, name) => [...document.querySelectorAll('.st-editor')[g].querySelectorAll('.st-tab')]
+        .find((t) => t.textContent.includes(name));
+      const dt = new DataTransfer();
+      const fire = (el, type) => el.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: dt }));
+      const source = tab(1, 'app.js');
+      const target = tab(0, 'README.md');
+      fire(source, 'dragstart');
+      fire(target, 'dragover');
+      fire(target, 'drop');
+      fire(source, 'dragend');
+    `);
+    await waitFor(async () => (await js(`return document.querySelectorAll('.st-editor').length`)) === 1, "split closed");
+    const order = await js(`return [...document.querySelectorAll('.st-tab')].map((t) => t.textContent.trim())`);
+    if (!(order[0].includes("app.js") && order[1].includes("README.md")))
+      throw new Error(`tab order after drop: ${order.join(", ")}`);
+    if (await js(`return document.body.classList.contains('st-dragging')`)) throw new Error("drag state left behind");
+  });
+
   await step("source control shows the change and commits it", async () => {
     await click('.st-activity-btn[aria-label="Source control"]');
     await waitFor(async () => (await text(".st-change")).includes("app.js"), "app.js in changes");
@@ -280,6 +304,41 @@ try {
       `document.querySelector('.st-new-chat textarea').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))`,
     );
     await waitFor(async () => (await text(".st-agent-body")).includes("Done."), "mock reply", 30000);
+  });
+
+  await step("conversations in editor tabs, side by side", async () => {
+    const count = (css) => js(`return document.querySelectorAll(${JSON.stringify(css)}).length`);
+    const groups = await count(".st-editor");
+    // The panel's conversation moves into an editor tab; the panel is free for a new one.
+    await click('button[aria-label="Move conversation to an editor tab"]');
+    await waitFor(async () => (await text(".st-chat-tab")).includes("Done."), "conversation in a tab");
+    await waitFor(async () => (await count(".st-agent .st-new-chat")) === 1, "panel shows a new conversation");
+    // A second conversation opens in a new group beside it and runs on its own.
+    await click('.st-chat-tab button[aria-label="New conversation to the side"]');
+    await waitFor(async () => (await count(".st-editor")) === groups + 1, "new editor group");
+    await waitFor(async () => (await count(".st-chat-tab .st-new-chat textarea")) === 1, "second composer");
+    await setValue(".st-chat-tab .st-new-chat textarea", "Say hello again");
+    await js(
+      `document.querySelector('.st-chat-tab .st-new-chat textarea').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))`,
+    );
+    await waitFor(
+      async () =>
+        (await js(
+          `return [...document.querySelectorAll('.st-chat-tab')].filter((t) => t.textContent.includes('Done.')).length`,
+        )) === 2,
+      "two conversations side by side",
+      30000,
+    );
+    // Close both conversation tabs again.
+    await waitFor(
+      () =>
+        js(`
+          const ed = [...document.querySelectorAll('.st-editor')].find((e) => e.querySelector('.st-chat-tab'));
+          ed?.querySelector('.st-tab.on .st-tab-close')?.click();
+          return !document.querySelector('.st-chat-tab');
+        `),
+      "conversation tabs closed",
+    );
   });
 
   await step("goals: create a draft goal", async () => {

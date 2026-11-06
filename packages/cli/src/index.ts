@@ -617,6 +617,7 @@ function createSession(harness: Harness, cwd: string, f: Flags, workflow?: strin
     models: modelOverrides(f),
     permissionMode: permissionMode(f),
     autoApprove: f.yes ? { permissions: true, plan: true } : {},
+    origin: "cli",
   });
 }
 

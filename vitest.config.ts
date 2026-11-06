@@ -18,6 +18,7 @@ export default defineConfig({
       "@harness/codegen": src("codegen"),
       "@harness/measure": src("measure"),
       "@harness/recreate": src("recreate"),
+      "@web": fileURLToPath(new URL("./apps/web/src", import.meta.url)),
     },
   },
   test: {

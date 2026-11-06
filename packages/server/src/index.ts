@@ -25,10 +25,14 @@ import type {
   CreateGoalRequest,
   UpdateGoalRequest,
   SessionSettingsRequest,
+  ForkSessionRequest,
+  MergeBranchResponse,
   CreateSessionRequest,
   HarnessEvent,
   AvailableModels,
+  BalanceResponse,
   ModelListEntry,
+  ProviderListEntry,
   ModelRole,
   PermissionAnswer,
   PlanAnswer,
@@ -38,6 +42,9 @@ import type {
   SessionLogResponse,
   SkillInfo,
   StorageInfo,
+  CancelAllResponse,
+  DeleteSessionResponse,
+  SessionOrigin,
 } from "@harness/protocol";
 import { HARNESS_VERSION } from "@harness/protocol";
 import {
@@ -55,7 +62,9 @@ import {
   requestGoalChanges,
   startGoal,
   harnessHome,
+  isGoalRunning,
   parseModelRef,
+  keySource,
   recreateInSession,
   resolveInProject,
   workingTreeDiff,
@@ -77,7 +86,14 @@ export interface ServerOptions {
   staticDir?: string;
   /** Goal storage (default: per-repo files indexed in ~/.harness/goals-index.json). */
   goals?: GoalStore;
+  /**
+   * Release conversations from memory (and close their MCP servers) after this long without a run, an
+   * open event stream or a request. Default 10 minutes; 0 keeps them loaded. Used by startServer.
+   */
+  unloadIdleMs?: number;
 }
+
+const ORIGINS: SessionOrigin[] = ["desktop", "web", "cli", "api"];
 
 const API_PREFIXES = [
   "/health",
@@ -480,6 +496,22 @@ export function createApp(opts: ServerOptions = {}): { app: Hono; harness: Harne
     return c.json({ skills });
   });
 
+  // Account balance of one provider (default: the executor model's), e.g. DeepSeek; items null when unsupported.
+  app.get("/models/balance", async (c) => {
+    const projectPath = c.req.query("projectPath") || process.cwd();
+    const { config, registry } = harness.providerRegistry(projectPath);
+    const ref = c.req.query("model") || config.models.executor;
+    const provider = c.req.query("provider") || (ref ? parseModelRef(ref).provider : "");
+    if (!provider || !registry.isConfigured(provider))
+      return c.json({ provider, items: null } satisfies BalanceResponse);
+    try {
+      const items = (await registry.get(provider).getBalance?.(AbortSignal.timeout(6000))) ?? null;
+      return c.json({ provider, items } satisfies BalanceResponse);
+    } catch (e) {
+      return c.json({ error: (e as Error).message.slice(0, 200) }, 502);
+    }
+  });
+
   app.get("/models", async (c) => {
     const projectPath = c.req.query("projectPath") || process.cwd();
     const { config, registry } = harness.providerRegistry(projectPath);
@@ -520,7 +552,21 @@ export function createApp(opts: ServerOptions = {}): { app: Hono; harness: Harne
     return c.json({
       reasoningEfforts,
       models: out,
-      providers: Object.keys(config.providers).map((p) => ({ id: p, configured: registry.isConfigured(p) })),
+      providers: Object.entries(config.providers).map(([id, pc]): ProviderListEntry => {
+        const keyEnv = pc.apiKeyEnv;
+        const key = pc.apiKey
+          ? { source: "config" as const }
+          : keyEnv
+            ? keySource(keyEnv, projectPath)
+            : undefined;
+        return {
+          id,
+          configured: registry.isConfigured(id),
+          ...(keyEnv && { keyEnv }),
+          ...(key && { keySource: key.source }),
+          ...(key?.file && { keyFile: key.file }),
+        };
+      }),
       workflows: Object.keys({ ...WORKFLOW_PRESETS, ...(config.workflows ?? {}) }),
     });
   });
@@ -534,6 +580,8 @@ export function createApp(opts: ServerOptions = {}): { app: Hono; harness: Harne
       throw new HttpError(400, "invalid thinking effort");
     if (req.permissionMode && !["ask", "auto", "yolo"].includes(req.permissionMode))
       throw new HttpError(400, "invalid permissionMode");
+    if (req.origin !== undefined && !ORIGINS.includes(req.origin)) throw new HttpError(400, "invalid origin");
+    const origin: SessionOrigin = req.origin ?? "api";
     if (!req.projectPath || req.sandbox) {
       // New sandbox workspace under ~/.harness/sandboxes
       // Tell the user to connect a model now, instead of creating a chat whose first turn can only fail.
@@ -547,6 +595,7 @@ export function createApp(opts: ServerOptions = {}): { app: Hono; harness: Harne
           reasoningEffort: req.reasoningEffort,
           permissionMode: req.permissionMode,
           title: req.title,
+          origin,
         });
         return c.json(s.info(), 201);
       } catch (e) {
@@ -575,12 +624,16 @@ export function createApp(opts: ServerOptions = {}): { app: Hono; harness: Harne
         reasoningEffort: req.reasoningEffort,
         permissionMode: req.permissionMode,
         title: req.title,
+        origin,
       });
     } catch (e) {
       throw new HttpError(400, (e as Error).message);
     }
     return c.json(s.info(), 201);
   });
+
+  // Stop every run this server owns ("Stop all"). Runs owned by another process are reported, not stopped.
+  app.post("/sessions/cancel-all", (c) => c.json(harness.cancelAll() satisfies CancelAllResponse));
 
   app.get("/sessions", (c) => {
     const parent = c.req.query("parent");
@@ -679,8 +732,8 @@ export function createApp(opts: ServerOptions = {}): { app: Hono; harness: Harne
 
   app.post("/sessions/:id/continue", (c) => {
     const s = session(c);
-    if (s.isRunning || !["failed", "cancelled"].includes(s.status))
-      throw new HttpError(409, "Only a failed or stopped job can be continued");
+    if (s.isRunning || !(["failed", "cancelled"].includes(s.status) || s.wasInterrupted))
+      throw new HttpError(409, "Only a failed, stopped or interrupted job can be continued");
     const p = s.continueJob();
     p.catch((e) => s.emit({ type: "error", message: (e as Error).message, recoverable: true }));
     return c.json({ accepted: true }, 202);
@@ -706,12 +759,18 @@ export function createApp(opts: ServerOptions = {}): { app: Hono; harness: Harne
         closed = true;
         wake?.();
       });
-      const ping = setInterval(() => {
+      const pushPing = () => {
         queue.push({ type: "__ping" } as unknown as HarnessEvent);
         wake?.();
-      }, opts.keepAliveMs ?? 15_000);
+      };
+      const ping = setInterval(pushPing, opts.keepAliveMs ?? 15_000);
+      // WebKit (the desktop app's webview) can hold the last packet of a stream until another one
+      // arrives, which left a finished run looking busy until the next keep-alive. A comment line
+      // shortly after each batch of events releases it.
+      let nudge: ReturnType<typeof setTimeout> | undefined;
       try {
         while (!closed) {
+          let wrote = false;
           while (queue.length) {
             const e = queue.shift()!;
             if ((e as { type: string }).type === "__ping") {
@@ -720,12 +779,19 @@ export function createApp(opts: ServerOptions = {}): { app: Hono; harness: Harne
             }
             if (!includeInternal && (e.type === "context.append" || e.type === "context.replace")) continue;
             await stream.writeSSE({ id: String(e.seq), event: e.type, data: JSON.stringify(e) });
+            wrote = true;
           }
+          if (wrote && !nudge)
+            nudge = setTimeout(() => {
+              nudge = undefined;
+              pushPing();
+            }, 100);
           await new Promise<void>((r) => (wake = r));
           wake = undefined;
         }
       } finally {
         clearInterval(ping);
+        clearTimeout(nudge);
         unsubscribe();
       }
     });
@@ -780,6 +846,40 @@ export function createApp(opts: ServerOptions = {}): { app: Hono; harness: Harne
     try {
       const r = await s.restoreCheckpoint(c.req.param("cpId"));
       return c.json({ ok: true, backupId: r.backupId, changed: r.files.length });
+    } catch (e) {
+      throw new HttpError(409, (e as Error).message);
+    }
+  });
+
+  // Editing the conversation: delete messages, duplicate or branch it, merge a branch back.
+  app.delete("/sessions/:id/messages/:msgId", (c) => {
+    const s = session(c);
+    try {
+      return c.json({ ok: true, ...s.deleteMessage(c.req.param("msgId")) });
+    } catch (e) {
+      throw new HttpError(409, (e as Error).message);
+    }
+  });
+
+  app.post("/sessions/:id/fork", async (c) => {
+    session(c); // 404 for an unknown session
+    const req = await body<ForkSessionRequest>(c);
+    if (req.messageId !== undefined && typeof req.messageId !== "string")
+      throw new HttpError(400, "messageId must be a string");
+    if (req.title !== undefined && typeof req.title !== "string")
+      throw new HttpError(400, "title must be a string");
+    try {
+      return c.json(harness.forkSession(c.req.param("id"), req).info());
+    } catch (e) {
+      throw new HttpError(409, (e as Error).message);
+    }
+  });
+
+  app.post("/sessions/:id/merge", (c) => {
+    session(c);
+    try {
+      const r = harness.mergeBranch(c.req.param("id"));
+      return c.json({ targetId: r.target.id, messages: r.messages } satisfies MergeBranchResponse);
     } catch (e) {
       throw new HttpError(409, (e as Error).message);
     }
@@ -876,12 +976,13 @@ export function createApp(opts: ServerOptions = {}): { app: Hono; harness: Harne
   app.delete("/sessions/:id", (c) => {
     const id = c.req.param("id");
     if (!harness.store.exists(id)) throw new HttpError(404, "no such session");
+    let removed: DeleteSessionResponse;
     try {
-      harness.deleteSession(id);
+      removed = harness.deleteSession(id, { folder: c.req.query("folder") === "true" });
     } catch (e) {
       throw new HttpError(409, (e as Error).message);
     }
-    return c.json({ ok: true });
+    return c.json(removed);
   });
 
   // ---------------------------------------------------------------- goals
@@ -982,6 +1083,14 @@ export function startServer(
 ): Promise<StartedServer> {
   const { app, harness, token } = createApp(opts);
   const host = opts.host ?? "127.0.0.1";
+  const idleMs = opts.unloadIdleMs ?? 10 * 60_000;
+  const unload = idleMs
+    ? setInterval(
+        () => harness.unloadIdle(idleMs, (s) => !!s.goalId && isGoalRunning(s.goalId)),
+        Math.min(60_000, idleMs),
+      )
+    : undefined;
+  unload?.unref();
   return new Promise((resolvePromise) => {
     const server = serve({ fetch: app.fetch, port: opts.port ?? 8787, hostname: host }, (info) => {
       resolvePromise({
@@ -992,6 +1101,7 @@ export function startServer(
         harness,
         close: () =>
           new Promise<void>((r) => {
+            if (unload) clearInterval(unload);
             harness.closeAll();
             (server as unknown as { closeAllConnections?: () => void }).closeAllConnections?.();
             server.close(() => r());

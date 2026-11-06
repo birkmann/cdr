@@ -20,6 +20,8 @@ const APP_JS_ROUTE_REPLACE = `  "GET /users": () => ({ status: 200, body: [{ id:
 };`;
 
 function scenario(first) {
+  if (/crops the last card/i.test(first)) return "grid";
+  if (/conversation header one row/i.test(first)) return "header";
   if (/form|store|accessories|kiosk|coffee|landing page|ember/i.test(first)) return "store";
   if (/permission mode summary/i.test(first)) return "permission-summary";
   if (/permission/i.test(first)) return "explain";
@@ -38,6 +40,15 @@ function step(req) {
   return n;
 }
 
+/** A model call that stays busy until the run is stopped: the agent shows as working. */
+function keepWorking(req) {
+  return new Promise((_, reject) =>
+    req.signal?.addEventListener("abort", () => reject(Object.assign(new Error("Aborted"), { name: "AbortError" }))),
+  );
+}
+
+const FORM = "packages/core/skills/web-app/reference/form.html";
+
 export function demoHandler(req) {
   const users = req.messages.filter((m) => m.role === "user");
   const first = users.at(-1)?.content ?? "";
@@ -46,6 +57,63 @@ export function demoHandler(req) {
   if (sys.startsWith("You write git commit messages"))
     return { text: "Clarify permission modes and confirmation rules\n\nAdd structured mode summaries while preserving the string API.\nCover each mode and keep built-in restrictions visible." };
   switch (scenario(first)) {
+    // The two conversations of the split-view screenshot stop mid-run, so both show as working.
+    case "grid":
+      if (s === 0)
+        return {
+          reasoning: "Reproduce at 390px first: the grid template and the card's minimum width decide whether the last card fits.",
+          text: "I'll find the grid rules and reproduce the crop at phone width.",
+          toolCalls: [
+            { name: "grep", args: { pattern: "grid-template-columns", path: FORM } },
+            { name: "read_file", args: { path: FORM } },
+          ],
+        };
+      if (s === 1) return { toolCalls: [{ name: "check_preview", args: { path: FORM, viewports: ["phone"], interact: false } }] };
+      if (s === 2)
+        return {
+          text: "At 390px the cards keep their desktop minimum width, so the second column runs past the edge. I'll let the columns shrink and check phone and desktop again.",
+          toolCalls: [
+            {
+              name: "todo",
+              args: {
+                items: [
+                  { text: "Reproduce the crop at 390px", status: "done" },
+                  { text: "Let grid columns shrink below the card minimum", status: "in_progress" },
+                  { text: "Check phone and desktop widths", status: "pending" },
+                ],
+              },
+            },
+          ],
+        };
+      return keepWorking(req);
+    case "header":
+      if (s === 0)
+        return {
+          reasoning: "Compare with the screenshot: one header row with the title and icon actions, and a composer whose toolbar never wraps.",
+          text: "I'll compare the screenshot with the header and composer styles.",
+          toolCalls: [
+            { name: "grep", args: { pattern: "chat-head", path: "apps/web/src/components" } },
+            { name: "grep", args: { pattern: "composer-bar", path: "apps/web/src/styles.css" } },
+          ],
+        };
+      if (s === 1) return { toolCalls: [{ name: "read_file", args: { path: "apps/desktop/src/components/AgentPanel.tsx" } }] };
+      if (s === 2)
+        return {
+          text: "The header stacks the panel's own row above the conversation title, and the composer toolbar wraps below 400px. Plan:",
+          toolCalls: [
+            {
+              name: "todo",
+              args: {
+                items: [
+                  { text: "Merge the panel row into the conversation header", status: "in_progress" },
+                  { text: "Keep the composer toolbar on one line", status: "pending" },
+                  { text: "Check two and three columns side by side", status: "pending" },
+                ],
+              },
+            },
+          ],
+        };
+      return keepWorking(req);
     case "permission-summary":
       if (s === 0) return {
         text: "I'll read the staged helper and tests alongside the mode documentation.",

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { harness, lsp, on, type Diagnostic } from "../ipc";
 import { useStudio, type BottomView } from "../store";
 import { TerminalView } from "./Terminal";
@@ -8,19 +8,39 @@ interface Term {
   id: number;
   title: string;
   command?: string;
+  /** Folder inside the workspace to start in (default: the workspace root). */
+  cwd?: string;
   exited?: boolean;
 }
 
 let nextTerm = 1;
+/** Commands asked for while the panel was closed; it opens and starts them on mount. */
+let queued: RunRequest[] = [];
+
+function newTerm(command?: string, cwd?: string, title?: string): Term {
+  return {
+    id: nextTerm++,
+    title: title?.slice(0, 24) || (command ? command.split(" ")[0] : "shell"),
+    command,
+    cwd,
+  };
+}
 
 export function BottomPanel() {
   const st = useStudio();
-  const [terms, setTerms] = useState<Term[]>([]);
-  const [activeTerm, setActiveTerm] = useState<number | null>(null);
+  const [terms, setTerms] = useState<Term[]>(() => {
+    const start = queued.map((r) => newTerm(r.command, r.cwd, r.title));
+    queued = [];
+    return start;
+  });
+  const [activeTerm, setActiveTerm] = useState<number | null>(() => terms.at(-1)?.id ?? null);
   const root = st.workspace?.root;
   const view = st.bottom ?? "terminal";
 
+  const seenRoot = useRef(root);
   useEffect(() => {
+    if (seenRoot.current === root) return;
+    seenRoot.current = root;
     setTerms([]);
     setActiveTerm(null);
   }, [root]);
@@ -30,17 +50,16 @@ export function BottomPanel() {
   }, [view, root, terms.length]);
   // Other components can run a command in a new terminal.
   useEffect(() => {
-    const h = (e: Event) => {
-      const cmd = (e as CustomEvent<string>).detail;
+    const h = () => {
       st.setBottom("terminal");
-      addTerm(cmd);
+      for (const r of queued.splice(0)) addTerm(r.command, r.cwd, r.title);
     };
     window.addEventListener("studio:run-in-terminal", h);
     return () => window.removeEventListener("studio:run-in-terminal", h);
   });
 
-  function addTerm(command?: string) {
-    const t = { id: nextTerm++, title: command ? command.split(" ")[0] : "shell", command };
+  function addTerm(command?: string, cwd?: string, title?: string) {
+    const t = newTerm(command, cwd, title);
     setTerms((ts) => [...ts, t]);
     setActiveTerm(t.id);
   }
@@ -119,7 +138,7 @@ export function BottomPanel() {
             terms.map((t) => (
               <TerminalView
                 key={t.id}
-                root={root}
+                root={t.cwd ?? root}
                 command={t.command}
                 visible={t.id === activeTerm}
                 onExit={() => setTerms((ts) => ts.map((x) => (x.id === t.id ? { ...x, exited: true } : x)))}
@@ -226,7 +245,14 @@ function HarnessLog() {
   return <pre className="st-log">{lines.join("\n") || "No output yet."}</pre>;
 }
 
-/** Open a new terminal running a command (used by tasks and actions). */
-export function runInTerminal(command: string) {
-  window.dispatchEvent(new CustomEvent("studio:run-in-terminal", { detail: command }));
+interface RunRequest {
+  command: string;
+  cwd?: string;
+  title?: string;
+}
+
+/** Open a new terminal running a command (used by tasks, actions and the chat's launch buttons). */
+export function runInTerminal(command: string, opts?: { cwd?: string; title?: string }) {
+  queued.push({ command, ...opts });
+  window.dispatchEvent(new CustomEvent("studio:run-in-terminal"));
 }

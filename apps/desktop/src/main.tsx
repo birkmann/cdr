@@ -68,7 +68,7 @@ function Boot() {
     );
   // Remount everything when the server (and its token) changes after a restart.
   return (
-    <AppProvider key={status.token}>
+    <AppProvider key={status.token} origin="desktop">
       <StudioProvider>
         <Shell harnessStatus={status} />
       </StudioProvider>

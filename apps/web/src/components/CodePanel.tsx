@@ -59,6 +59,7 @@ export function CodePanel({
   setCompareRun,
   doc,
   closeDoc,
+  previewHost,
 }: {
   s: UseSessionResult;
   sessionId: string;
@@ -68,8 +69,10 @@ export function CodePanel({
   setCompareRun?(runId: string): void;
   doc?: OpenDocument;
   closeDoc?(): void;
+  /** When set, the preview opens elsewhere (e.g. an editor tab in the desktop app) instead of in this panel. */
+  previewHost?: PreviewHost;
 }) {
-  const editCount = useMemo(() => Object.values(s.tools).filter((t) => t.diff).length, [s.tools]);
+  const editCount = useEditCount(s);
   const runs = recreateRuns(s);
   return (
     <aside className="code-panel">
@@ -83,7 +86,13 @@ export function CodePanel({
             <span className="tab-doc-name">{doc.name}</span>
           </button>
         )}
-        <button className={tab === "preview" ? "active" : ""} onClick={() => setTab("preview")}>
+        <button
+          className={tab === "preview" && !previewHost ? "active" : ""}
+          onClick={() => (previewHost ? previewHost.open() : setTab("preview"))}
+          draggable={!!previewHost?.dragStart}
+          onDragStart={previewHost?.dragStart}
+          title={previewHost ? "Open the preview in the editor (or drag it where you want it)" : undefined}
+        >
           Preview{s.preview ? <span className="count live">●</span> : null}
         </button>
         <button className={tab === "changes" ? "active" : ""} onClick={() => setTab("changes")}>
@@ -116,7 +125,7 @@ export function CodePanel({
         {tab === "document" && doc && (
           <DocumentViewer key={doc.path} sessionId={sessionId} doc={doc} onClose={() => closeDoc?.()} />
         )}
-        {tab === "preview" && <Preview s={s} sessionId={sessionId} refreshKey={editCount} />}
+        {tab === "preview" && !previewHost && <Preview s={s} sessionId={sessionId} refreshKey={editCount} />}
         {tab === "changes" && <Changes s={s} sessionId={sessionId} refreshKey={`${editCount}-${s.status}`} />}
         {tab === "files" && (
           <Files sessionId={sessionId} refreshKey={`${editCount}-${s.status}-${s.preview?.seq ?? 0}`} />
@@ -138,10 +147,22 @@ export function CodePanel({
   );
 }
 
+/** Lets a host app show the preview outside the chat's side panel. */
+export interface PreviewHost {
+  open(): void;
+  /** Drag source for the Preview tab and preview cards, so the preview can be dropped where it should open. */
+  dragStart?(e: React.DragEvent): void;
+}
+
+/** Number of file edits in a session; the preview reloads when it changes. */
+export function useEditCount(s: UseSessionResult): number {
+  return useMemo(() => Object.values(s.tools).filter((t) => t.diff).length, [s.tools]);
+}
+
 /** Runs whose recreation has been placed over the screenshot (kept across tab switches: no second reveal). */
 const revealedRuns = new Set<string>();
 
-function Preview({
+export function Preview({
   s,
   sessionId,
   refreshKey,

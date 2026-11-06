@@ -12,6 +12,7 @@ import {
 } from "../ipc";
 import { basename, dirname, timeAgo, useStudio } from "../store";
 import { ContextMenu, type MenuItem } from "./ContextMenu";
+import { PublishDialog, PushTarget } from "./PublishDialog";
 import { confirmDialog, promptDialog } from "./dialogs";
 import { statusClass } from "./Explorer";
 import {
@@ -100,6 +101,7 @@ function RepoPanel({ root }: { root: string }) {
   const unstaged = files.filter((f) => !f.conflicted && f.worktree !== "unmodified");
   const [message, setMessage] = useState("");
   const [amend, setAmend] = useState(false);
+  const [publishing, setPublishing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
 
@@ -379,6 +381,8 @@ function RepoPanel({ root }: { root: string }) {
             <input type="checkbox" checked={amend} onChange={(e) => setAmend(e.target.checked)} /> Amend
             previous commit
           </label>
+          <PushTarget onPublish={() => setPublishing(true)} />
+          {publishing && <PublishDialog onClose={() => setPublishing(false)} />}
         </div>
         {conflicts.length > 0 && (
           <Section title="Merge conflicts" count={conflicts.length}>

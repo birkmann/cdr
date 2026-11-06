@@ -4,7 +4,19 @@ import { Popover } from "@web/components/Pickers";
 import { CDRMark } from "@web/components/Brand";
 import { app, git, type Branch, type RecentRepo } from "../ipc";
 import { useStudio } from "../store";
-import { IBranch, IDown, IPanelBottom, IPanelRight, ISearch, ISync, IUp, ICloud, IWarn } from "./icons";
+import { PublishDialog, useRemotes } from "./PublishDialog";
+import {
+  IBranch,
+  IDown,
+  IGithub,
+  IPanelBottom,
+  IPanelRight,
+  ISearch,
+  ISync,
+  IUp,
+  ICloud,
+  IWarn,
+} from "./icons";
 
 export function TitleBar({
   onPalette,
@@ -193,10 +205,26 @@ function BranchMenu() {
 function SyncButton() {
   const st = useStudio();
   const [busy, setBusy] = useState<string | null>(null);
+  const [publishing, setPublishing] = useState(false);
+  const remotes = useRemotes();
   const s = st.status;
   const root = st.workspace!.root;
   useEffect(() => setBusy(null), [root]);
   if (!s || s.detached) return null;
+  if (!s.upstream && remotes?.length === 0)
+    return (
+      <>
+        <button
+          className="st-title-btn"
+          title="This repository has no remote: commits stay on this computer. Create a GitHub repository and push."
+          onClick={() => setPublishing(true)}
+        >
+          <IGithub size={14} />
+          <span>Publish to GitHub</span>
+        </button>
+        {publishing && <PublishDialog onClose={() => setPublishing(false)} />}
+      </>
+    );
   const run = async (label: string, fn: () => Promise<unknown>, done: string) => {
     setBusy(label);
     await st.attempt(fn, done);
@@ -210,7 +238,7 @@ function SyncButton() {
       icon: <IUp size={14} />,
       fn: () => git.push(root, { setUpstream: true }),
       done: "Branch published",
-      title: "Push this branch and track it on origin",
+      title: `Push this branch and track it on ${remotes?.find((r) => r.name === "origin") ? "origin" : "its remote"}`,
     };
   else if (s.behind > 0)
     action = {

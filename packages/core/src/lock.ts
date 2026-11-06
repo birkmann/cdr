@@ -14,15 +14,24 @@ function pidAlive(pid: number): boolean {
   }
 }
 
-/** Whether a session's workspace is currently owned by a live runner. */
-export function sessionHasProjectLock(projectRoot: string, sessionId: string): boolean {
+/** The live process that holds a session's project lock, or undefined. */
+export function projectLockOwner(
+  projectRoot: string,
+  sessionId: string,
+): { pid: number; since: string } | undefined {
   const key = createHash("sha1").update(resolve(projectRoot)).digest("hex").slice(0, 16);
   try {
     const info = JSON.parse(readFileSync(join(harnessHome(), "locks", `${key}.lock`), "utf8"));
-    return info.sessionId === sessionId && Number.isInteger(info.pid) && pidAlive(info.pid);
+    if (info.sessionId !== sessionId || !Number.isInteger(info.pid) || !pidAlive(info.pid)) return undefined;
+    return { pid: info.pid, since: typeof info.at === "string" ? info.at : "" };
   } catch {
-    return false;
+    return undefined;
   }
+}
+
+/** Whether a session's workspace is currently owned by a live runner. */
+export function sessionHasProjectLock(projectRoot: string, sessionId: string): boolean {
+  return projectLockOwner(projectRoot, sessionId) !== undefined;
 }
 
 /** Per-project lock so two agents never edit the same tree concurrently (across processes too). */
