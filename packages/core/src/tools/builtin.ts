@@ -25,7 +25,7 @@ import { loadSkillTool } from "./skill.js";
 import { setLaunchTool } from "./launch.js";
 import { runAppTool, stopAppTool } from "./app.js";
 import { VIEWPORTS, formatPageReport, probePage } from "./browser.js";
-import { findChrome } from "@harness/capture";
+import { findChrome, sharedChromeEndpoint } from "@harness/capture";
 
 const MAX_READ_BYTES = 2_000_000;
 const DEFAULT_READ_LINES = 2000;
@@ -378,6 +378,36 @@ export const listDirTool: Tool = {
   },
 };
 
+const BROWSER_COMMAND = /CDR_CDP|chrom|puppeteer|playwright|devtools|remote-debugging/i;
+/** Commands that run a script, which may be one written earlier to use $CDR_CDP_URL. */
+const SCRIPT_COMMAND = /(^|[\s;&|(])(node|npx|tsx|ts-node|deno|bun|bunx|python3?|pnpm|npm|yarn)(\s|$)/;
+/** Projects whose commands have driven the shared browser. */
+const browserProjects = new Set<string>();
+
+/**
+ * DevTools endpoint of the long-lived shared Chrome for a command that drives a browser, and for script runs in
+ * a project that already used it (so scripts written earlier keep finding it). Never inside the sandbox: that
+ * Chrome runs outside it, with the user's file access, so handing it over would undo the sandbox's confinement.
+ */
+export async function browserEnv(
+  command: string,
+  projectRoot: string,
+  config: { sandbox?: string },
+): Promise<Record<string, string> | undefined> {
+  if (config.sandbox === "bwrap") return undefined;
+  if (!BROWSER_COMMAND.test(command) && !(browserProjects.has(projectRoot) && SCRIPT_COMMAND.test(command)))
+    return undefined;
+  const chrome = findChrome();
+  if (!chrome) return undefined;
+  try {
+    const e = await sharedChromeEndpoint(chrome);
+    browserProjects.add(projectRoot);
+    return { CDR_CDP_URL: e.wsUrl, CDR_CDP_PORT: String(e.port) };
+  } catch {
+    return undefined;
+  }
+}
+
 export function bashTool(opts: { readOnlyMode?: boolean } = {}): Tool {
   return {
     name: "bash",
@@ -385,7 +415,10 @@ export function bashTool(opts: { readOnlyMode?: boolean } = {}): Tool {
       ? "Run a READ-ONLY shell command in the project root (e.g. ls, cat, git status, git log, rg). Commands that modify files are rejected."
       : "Run a shell command (bash) in the project root. Use for builds, tests, git inspection, package managers. " +
         "Output is truncated (head+tail). Do not start servers or other long-running programs here: use `run_app`, " +
-        "which starts them in the background and returns their URL. No interactive programs. Default timeout 120 s.",
+        "which starts them in the background and returns their URL. No interactive programs. Default timeout 120 s. " +
+        "Outside the sandbox a headless Chrome stays running for browser scripts: commands that mention CDR_CDP_URL, chrome, puppeteer or playwright get " +
+        "$CDR_CDP_URL (browser WebSocket URL) and $CDR_CDP_PORT. When $CDR_CDP_URL is set, connect to it (puppeteer.connect({ browserWSEndpoint }), " +
+        "chromium.connectOverCDP, or a CDP WebSocket) and close only the tabs you open; never pkill or restart that Chrome. When it is not set, launch your own headless browser.",
     parameters: {
       type: "object",
       properties: {
@@ -407,7 +440,9 @@ export function bashTool(opts: { readOnlyMode?: boolean } = {}): Tool {
         };
       }
       const timeoutMs = Math.min(1800, Math.max(1, args.timeout ?? 120)) * 1000;
+      const env = await browserEnv(args.command, ctx.projectRoot, ctx.config);
       const r = await runShell(args.command, {
+        env,
         cwd: resolveInProject(ctx.projectRoot, "."),
         timeoutMs,
         signal: ctx.signal,

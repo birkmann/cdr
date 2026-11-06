@@ -53,10 +53,61 @@ function installPreviewStorage() {
   }
 }
 
-/** Serve compatibility code without modifying generated files or relaxing the sandbox. */
-export function preparePreviewHtml(html: string): string {
+/**
+ * Runs in a preview opened in a browser tab: polls the version of the page's folder and reloads once a change
+ * has settled (two equal polls in a row, so a burst of agent writes reloads once), keeping the scroll position.
+ */
+function installLiveReload(versionUrl: string) {
+  const key = `cdr-live-scroll:${location.pathname}`;
+  try {
+    const saved = sessionStorage.getItem(key);
+    if (saved) {
+      sessionStorage.removeItem(key);
+      const [x, y] = saved.split(",").map(Number);
+      addEventListener("load", () => setTimeout(() => scrollTo(x, y), 0));
+    }
+  } catch {
+    // storage unavailable: reload at the top
+  }
+  let current: string | undefined;
+  let seen: string | undefined;
+  const tick = async () => {
+    try {
+      const r = await fetch(versionUrl, { cache: "no-store" });
+      if (r.ok) {
+        const { version } = (await r.json()) as { version: string };
+        if (current === undefined) current = version;
+        else if (version !== current && version === seen) {
+          try {
+            sessionStorage.setItem(key, `${scrollX},${scrollY}`);
+          } catch {
+            // storage unavailable
+          }
+          location.reload();
+          return;
+        }
+        seen = version;
+      }
+    } catch {
+      // server restarting: keep polling
+    }
+    setTimeout(tick, 600);
+  };
+  void tick();
+}
+
+/** Name of the virtual file in a preview folder that reports that folder's version (for live reload). */
+export const LIVE_VERSION_FILE = ".cdr-live";
+
+/**
+ * Serve compatibility code without modifying generated files or relaxing the sandbox.
+ * `live` adds live reload for previews opened in a browser tab (not the app's own preview, which refreshes itself).
+ */
+export function preparePreviewHtml(html: string, options: { live?: boolean } = {}): string {
   // Preserve the doctype (including leading comments), so standards mode stays intact.
   const prefix = html.match(/^(?:\uFEFF)?(?:\s|<!--[\s\S]*?-->)*(?:<!doctype[^>]*>)?/i)?.[0] ?? "";
-  const bootstrap = `<script data-cdr-preview>(${installPreviewStorage.toString()})();</script>`;
+  let bootstrap = `<script data-cdr-preview>(${installPreviewStorage.toString()})();</script>`;
+  if (options.live)
+    bootstrap += `<script data-cdr-live>(${installLiveReload.toString()})(${JSON.stringify(LIVE_VERSION_FILE)});</script>`;
   return prefix + bootstrap + html.slice(prefix.length);
 }

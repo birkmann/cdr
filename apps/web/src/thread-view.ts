@@ -4,6 +4,8 @@ export interface ThreadView {
   tab?: "preview" | "changes" | "files" | "tasks" | "history" | "compare" | "document";
   panel?: boolean;
   activity?: string[];
+  /** turns whose run summary is open */
+  reports?: string[];
   /** the uploaded file shown in the document column (a path + name, never its content) */
   doc?: { path: string; name: string; mimeType: string };
 }
@@ -29,6 +31,9 @@ export function readThreadView(key: string): ThreadView {
           : undefined,
       activity: Array.isArray(value.activity)
         ? value.activity.filter((id: unknown) => typeof id === "string").slice(-100)
+        : undefined,
+      reports: Array.isArray(value.reports)
+        ? value.reports.filter((id: unknown) => typeof id === "string").slice(-100)
         : undefined,
     };
   } catch {

@@ -127,6 +127,43 @@ describe("agent loop via Session.chat", () => {
     expect(mock.calls[3].messages.at(-1)?.content).toContain("three times in a row");
   });
 
+  it("keeps going past a turn checkpoint while files change, and stops once they stop changing", async () => {
+    const root = tempProject({ "a.txt": "a" });
+    // turns 0-5 write a file each, then only reads
+    const mock = new MockProvider({
+      handler: (_req, i) =>
+        i < 6
+          ? { toolCalls: [{ name: "write_file", args: { path: `f${i}.txt`, content: String(i) } }] }
+          : { toolCalls: [{ name: "read_file", args: { path: "a.txt" } }] },
+    });
+    const s = harnessWith(mock, { limits: { maxTurns: 4 } }).createSession({
+      projectPath: root,
+      permissionMode: "auto",
+    });
+    const r = await s.chat("work");
+    expect(r.status).toBe("max_turns");
+    // checkpoint at 4 (progress) and at 8 (progress in turns 5-6), stop at 12 (no change in 9-12)
+    expect(mock.calls).toHaveLength(12);
+    expect(mock.calls[4].messages.at(-1)?.content).toContain("[harness] Checkpoint: 4 turns used");
+    const events = s.events.filter((e) => e.type === "error");
+    expect(events.at(-1)).toMatchObject({ message: expect.stringContaining("no files changed") });
+  });
+
+  it("treats the turn limit as a hard stop when continueAfterMaxTurns is false", async () => {
+    const root = tempProject({ "a.txt": "a" });
+    const mock = new MockProvider({
+      handler: (_req, i) => ({
+        toolCalls: [{ name: "write_file", args: { path: `f${i}.txt`, content: "x" } }],
+      }),
+    });
+    const s = harnessWith(mock, { limits: { maxTurns: 3, continueAfterMaxTurns: false } }).createSession({
+      projectPath: root,
+      permissionMode: "auto",
+    });
+    expect((await s.chat("work")).status).toBe("max_turns");
+    expect(mock.calls).toHaveLength(3);
+  });
+
   it("can be cancelled while waiting for permission", async () => {
     const root = tempProject();
     const mock = new MockProvider({

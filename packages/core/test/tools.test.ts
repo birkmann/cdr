@@ -11,6 +11,7 @@ import {
   grepTool,
   listDirTool,
   bashTool,
+  browserEnv,
   todoTool,
   rememberTool,
   forgetTool,
@@ -366,5 +367,16 @@ describe("permission policy", () => {
       "ask",
     );
     expect(p2.check(readFileTool, { path: "a" }).decision).toBe("ask");
+  });
+});
+
+describe("browserEnv", () => {
+  it("never hands the shared browser to sandboxed commands", async () => {
+    expect(await browserEnv("node shot.js $CDR_CDP_URL", "/p", { sandbox: "bwrap" })).toBeUndefined();
+  });
+
+  it("gives nothing to ordinary commands of a project that never used the browser", async () => {
+    expect(await browserEnv("ls -la", "/never-used", {})).toBeUndefined();
+    expect(await browserEnv("node build.js", "/never-used", {})).toBeUndefined();
   });
 });

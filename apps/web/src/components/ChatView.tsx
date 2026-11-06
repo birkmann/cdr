@@ -29,11 +29,13 @@ import { EffortPicker, ModelPicker, ModePicker, PermissionPicker, type Mode } fr
 import { CodePanel, type OpenDocument, type PreviewHost, type Tab } from "./CodePanel";
 import { DiffBlock } from "./Diff";
 import { RecreateCard } from "./RecreateCard";
+import { RunReport } from "./RunReport";
 import { frameworkIconUrl, frameworkName } from "./framework-icons";
-import { turnLaunches, type LaunchView } from "@harness/client";
+import { buildTurnReport, turnItems, turnLaunches, type LaunchView } from "@harness/client";
 import { useSessionLinks, useStartRecreate } from "../recreate";
 import {
   IconAlert,
+  IconChart,
   IconCheck,
   IconChevronRight,
   IconCopy,
@@ -556,6 +558,7 @@ function conversationTurns(blocks: Block[], s: UseSessionResult) {
 }
 
 function TurnActivity({
+  turnId,
   steps,
   s,
   sessionId,
@@ -563,10 +566,14 @@ function TurnActivity({
   times,
   open,
   onToggle,
+  reportOpen,
+  onToggleReport,
   onOpenPreview,
   onCompare,
   recreateAnchors,
 }: {
+  /** The user message that started the turn (absent for history before the first one). */
+  turnId?: string;
   steps: Block[];
   s: UseSessionResult;
   sessionId: string;
@@ -574,12 +581,15 @@ function TurnActivity({
   times?: { start: string; end?: string };
   open: boolean;
   onToggle(): void;
+  reportOpen: boolean;
+  onToggleReport(): void;
   onOpenPreview(): void;
   onCompare(runId: string): void;
   /** seq of the recreate.started event each run's card is anchored at */
   recreateAnchors: Map<number, string>;
 }) {
   const detailsId = useId();
+  const reportId = useId();
   const now = useNow(active && !!times);
   const startMs = times ? Date.parse(times.start) : NaN;
   const endMs = times?.end ? Date.parse(times.end) : active ? now : NaN;
@@ -613,6 +623,22 @@ function TurnActivity({
             ? 1
             : 0),
     0,
+  );
+  const canReport = !!turnId && !active && count > 0;
+  // Built only while the summary is open; it reads the turn's whole event history.
+  const report = useMemo(
+    () =>
+      canReport && reportOpen
+        ? buildTurnReport({
+            items: turnItems(s.timeline, s.messages, turnId!),
+            messages: s.messages,
+            tools: s.tools,
+            overhead: s.turnOverhead?.[turnId!],
+            agents: s.agents,
+            times,
+          })
+        : undefined,
+    [canReport, reportOpen, s.timeline, s.messages, s.tools, s.turnOverhead, s.agents, times, turnId],
   );
   // While working, keep the latest decisions from the model's thinking visible without opening the steps.
   const decisions = active
@@ -668,29 +694,43 @@ function TurnActivity({
     <>
       {(count > 0 || active) && (
         <section className={`turn-activity${active ? " active" : ""}`}>
-          <button
-            className="activity-toggle"
-            onClick={onToggle}
-            aria-expanded={open}
-            aria-controls={detailsId}
-            aria-label={`${open ? "Hide" : "Show"} all steps`}
-          >
-            {active && s.status !== "waiting" ? (
-              <span className="dots" aria-hidden="true">
-                <i />
-                <i />
-                <i />
-              </span>
-            ) : stopped || (active && s.status === "waiting") ? (
-              <IconAlert size={14} />
-            ) : (
-              <IconCheck size={14} />
+          <div className="activity-head">
+            <button
+              className="activity-toggle"
+              onClick={onToggle}
+              aria-expanded={open}
+              aria-controls={detailsId}
+              aria-label={`${open ? "Hide" : "Show"} all steps`}
+            >
+              {active && s.status !== "waiting" ? (
+                <span className="dots" aria-hidden="true">
+                  <i />
+                  <i />
+                  <i />
+                </span>
+              ) : stopped || (active && s.status === "waiting") ? (
+                <IconAlert size={14} />
+              ) : (
+                <IconCheck size={14} />
+              )}
+              <span className="activity-label">{label}</span>
+              {elapsed && <span className="activity-elapsed">{elapsed}</span>}
+              <span className="activity-action">{open ? "Hide steps" : "View steps"}</span>
+              <IconChevronRight size={13} className={`chev ${open ? "open" : ""}`} />
+            </button>
+            {canReport && (
+              <button
+                className={`report-toggle${reportOpen ? " on" : ""}`}
+                onClick={onToggleReport}
+                aria-expanded={reportOpen}
+                aria-controls={reportId}
+                title="A readable summary of how this result came about: stages, time, tokens and what to improve"
+              >
+                <IconChart size={13} /> Summary
+              </button>
             )}
-            <span className="activity-label">{label}</span>
-            {elapsed && <span className="activity-elapsed">{elapsed}</span>}
-            <span className="activity-action">{open ? "Hide steps" : "View steps"}</span>
-            <IconChevronRight size={13} className={`chev ${open ? "open" : ""}`} />
-          </button>
+          </div>
+          {report && <RunReport id={reportId} report={report} request={s.messages[turnId!]?.text} />}
           {!open && decisions.length > 0 && <Decisions items={decisions} live />}
           {open && (
             <div id={detailsId} className="activity-details" role="region" aria-label="All steps">
@@ -783,6 +823,7 @@ function Messages({
   const [pendingBelow, setPendingBelow] = useState(false);
   const saved = useRef(readThreadView(viewKey));
   const [opened, setOpened] = useState<string[]>(() => saved.current.activity ?? []);
+  const [reports, setReports] = useState<string[]>(() => saved.current.reports ?? []);
   const restored = useRef(false);
   const following = useRef(saved.current.following ?? true);
   const lastUser = useRef<string>();
@@ -889,6 +930,7 @@ function Messages({
                 <MessageRow s={s} id={turn.user.id} sessionId={sessionId} onOpenDocument={onOpenDocument} />
               )}
               <TurnActivity
+                turnId={turn.user?.id}
                 steps={turn.steps}
                 s={s}
                 sessionId={sessionId}
@@ -901,6 +943,14 @@ function Messages({
                     : [...opened, turn.id];
                   setOpened(next);
                   saveThreadView(viewKey, { activity: next });
+                }}
+                reportOpen={reports.includes(turn.id)}
+                onToggleReport={() => {
+                  const next = reports.includes(turn.id)
+                    ? reports.filter((id) => id !== turn.id)
+                    : [...reports, turn.id];
+                  setReports(next);
+                  saveThreadView(viewKey, { reports: next });
                 }}
                 onOpenPreview={onOpenPreview}
                 onCompare={onCompare}

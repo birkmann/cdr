@@ -1201,11 +1201,19 @@
             "inputTokens": {
               "type": "number"
             },
+            "messageId": {
+              "description": "The assistant message the call belongs to (\"reply\" and \"thinking\").",
+              "type": "string"
+            },
             "model": {
               "type": "string"
             },
             "outputTokens": {
               "type": "number"
+            },
+            "purpose": {
+              "$ref": "#/definitions/UsagePurpose",
+              "description": "What the tokens were spent on: \"reply\" (the agent's model call), \"thinking\" (summarising its reasoning into decision lines), \"compaction\" (shrinking its context) or \"other\". Older logs omit it."
             },
             "seq": {
               "description": "Monotonic per session, starting at 1. Used as SSE id.",
@@ -3311,6 +3319,16 @@
         "arguments"
       ],
       "type": "object"
+    },
+    "UsagePurpose": {
+      "description": "What a model call's tokens were spent on (see the `usage` event).",
+      "enum": [
+        "reply",
+        "thinking",
+        "compaction",
+        "other"
+      ],
+      "type": "string"
     }
   }
 }

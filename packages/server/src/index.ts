@@ -19,7 +19,7 @@ import { dirname, extname, isAbsolute, join, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { bodyLimit } from "hono/body-limit";
 import { sessionFileScope, sessionReferencedFiles } from "./session-files.js";
-import { preparePreviewHtml } from "./preview-document.js";
+import { LIVE_VERSION_FILE, preparePreviewHtml } from "./preview-document.js";
 import type {
   BrowseResponse,
   CreateGoalRequest,
@@ -155,6 +155,50 @@ export function loadOrCreateToken(): { token: string; created: boolean; path: st
   const token = randomBytes(24).toString("base64url");
   writeFileSync(path, token + "\n", { mode: 0o600 });
   return { token, created: true, path };
+}
+
+const folderVersions = new Map<string, { at: number; version: string }>();
+
+/**
+ * A fingerprint of the files under a preview folder (count, sizes, latest change), for live reload.
+ * Skips hidden folders and node_modules, stops after a bounded number of entries, and is cached briefly so
+ * several open tabs polling the same folder walk it once.
+ */
+function folderVersion(dir: string): string {
+  const cached = folderVersions.get(dir);
+  if (cached && Date.now() - cached.at < 300) return cached.version;
+  let count = 0;
+  let size = 0;
+  let latest = 0;
+  const stack = [dir];
+  while (stack.length && count < 20_000) {
+    const current = stack.pop()!;
+    let entries;
+    try {
+      entries = readdirSync(current, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (entry.name.startsWith(".") || entry.name === "node_modules") continue;
+      const path = join(current, entry.name);
+      if (entry.isDirectory()) stack.push(path);
+      else if (entry.isFile()) {
+        try {
+          const st = statSync(path);
+          count++;
+          size += st.size;
+          latest = Math.max(latest, st.mtimeMs);
+        } catch {
+          /* removed while walking */
+        }
+      }
+    }
+  }
+  const version = `${count}:${size}:${latest}`;
+  if (folderVersions.size > 256) folderVersions.clear();
+  folderVersions.set(dir, { at: Date.now(), version });
+  return version;
 }
 
 function safeEqual(a: string, b: string): boolean {
@@ -301,6 +345,15 @@ export function createApp(opts: ServerOptions = {}): { app: Hono; harness: Harne
     }
     const prefix = `/preview/${key}/`;
     const relPath = decodeURIComponent(c.req.path.slice(prefix.length)) || "index.html";
+    if (relPath === LIVE_VERSION_FILE || relPath.endsWith(`/${LIVE_VERSION_FILE}`)) {
+      let dir: string;
+      try {
+        dir = sessionFileScope(s).resolve(relPath.slice(0, -LIVE_VERSION_FILE.length) || ".");
+      } catch {
+        return c.text("forbidden", 403);
+      }
+      return c.json({ version: folderVersion(dir) }, 200, { "cache-control": "no-store" });
+    }
     // 1:1 recreation run folders (.harness/recreate/<runId>/…): read-only, only runs of this session, confined to
     // the run folder, so the compare page and the growing output work in the preview iframe.
     const run = /^\.harness\/recreate\/([^/]+)(?:\/(.*))?$/.exec(relPath);
@@ -319,7 +372,9 @@ export function createApp(opts: ServerOptions = {}): { app: Hono; harness: Harne
     const contents = readFileSync(abs);
     const body =
       extension === ".html" || extension === ".htm"
-        ? Buffer.from(preparePreviewHtml(contents.toString("utf8")))
+        ? Buffer.from(
+            preparePreviewHtml(contents.toString("utf8"), { live: c.req.query("live") !== undefined }),
+          )
         : contents;
     return c.body(body, 200, {
       "content-type": MIME[extension] ?? "application/octet-stream",
@@ -346,7 +401,9 @@ export function createApp(opts: ServerOptions = {}): { app: Hono; harness: Harne
     const contents = readFileSync(abs);
     const body =
       extension === ".html" || extension === ".htm"
-        ? Buffer.from(preparePreviewHtml(contents.toString("utf8")))
+        ? Buffer.from(
+            preparePreviewHtml(contents.toString("utf8"), { live: c.req.query("live") !== undefined }),
+          )
         : contents;
     return c.body(body, 200, {
       "content-type": MIME[extension] ?? "application/octet-stream",

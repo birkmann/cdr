@@ -377,6 +377,20 @@ export interface ToolCallView {
   status: "running" | "ok" | "error";
   output?: string;
   diff?: string;
+  /** The output was cut before reaching the model. */
+  truncated?: boolean;
+  /** When the call started and finished (event timestamps). */
+  startedAt?: string;
+  endedAt?: string;
+}
+
+/** Tokens and estimated cost of one or more model calls. */
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cost: number;
+  /** Model calls counted. */
+  calls: number;
 }
 
 export interface MessageView {
@@ -393,6 +407,13 @@ export interface MessageView {
   skills?: string[];
   /** Workspace checkpoint taken right before this user message's turn (restorable). */
   checkpoint?: string;
+  /** When the message started and finished streaming (event timestamps). */
+  startedAt?: string;
+  endedAt?: string;
+  /** The model call that wrote this assistant message. */
+  usage?: TokenUsage & { model?: string };
+  /** Calls that summarised this message's reasoning into decision lines. */
+  thinkingUsage?: TokenUsage;
 }
 
 export type TimelineItem =
@@ -522,6 +543,10 @@ export interface SessionState {
   forkedFrom?: { sessionId: string; seq: number; messageId?: string };
   /** Wall-clock timing of each turn, keyed by the id of the user message that started it (ISO timestamps). */
   turnTimes: Record<string, { start: string; end?: string }>;
+  /** Tokens per turn (user message id) not tied to one assistant message: context compaction and other calls. */
+  turnOverhead: Record<string, { compaction: TokenUsage; other: TokenUsage }>;
+  /** The assistant message that just ended; an untagged usage event right after it is its reply (older logs). */
+  replyPending?: string;
   /** User message id of the latest turn. */
   currentTurn?: string;
   /** 1:1 recreation runs by run id. */
@@ -543,6 +568,7 @@ export const initialSessionState = (): SessionState => ({
   errors: [],
   agents: {},
   turnTimes: {},
+  turnOverhead: {},
 });
 
 const kTokens = (n: number) => (n >= 1000 ? `${Math.round(n / 1000)}K` : String(n));
@@ -554,10 +580,55 @@ export function compactionLine(e: Extract<HarnessEvent, { type: "context.compact
 }
 
 /** Pure reducer that turns the event stream into UI state. Shared by all frontends. */
+function addUsage(
+  u: TokenUsage | undefined,
+  e: { inputTokens: number; outputTokens: number; cost?: number },
+) {
+  return {
+    inputTokens: (u?.inputTokens ?? 0) + e.inputTokens,
+    outputTokens: (u?.outputTokens ?? 0) + e.outputTokens,
+    cost: (u?.cost ?? 0) + (e.cost ?? 0),
+    calls: (u?.calls ?? 0) + 1,
+  };
+}
+
+/** Credit a usage event to the message or turn it was spent on (untagged events of older logs by position). */
+function attributeUsage(s: SessionState, e: Extract<HarnessEvent, { type: "usage" }>) {
+  // Only untagged events (older logs) need the streaming message to place them.
+  const streaming =
+    e.purpose || s.replyPending
+      ? undefined
+      : Object.values(s.messages).findLast((m) => m.role === "assistant" && m.streaming);
+  const purpose =
+    e.purpose ?? (s.replyPending ? "reply" : streaming ? "thinking" : s.currentTurn ? "compaction" : "other");
+  const id =
+    e.messageId ??
+    (purpose === "reply" ? s.replyPending : purpose === "thinking" ? streaming?.id : undefined);
+  if (purpose === "reply") s.replyPending = undefined;
+  const m = id ? s.messages[id] : undefined;
+  if (m && purpose === "reply") {
+    s.messages = {
+      ...s.messages,
+      [m.id]: { ...m, usage: { ...addUsage(m.usage, e), model: e.model ?? m.usage?.model } },
+    };
+    return;
+  }
+  if (m && purpose === "thinking") {
+    s.messages = { ...s.messages, [m.id]: { ...m, thinkingUsage: addUsage(m.thinkingUsage, e) } };
+    return;
+  }
+  if (!s.currentTurn) return;
+  const zero = { inputTokens: 0, outputTokens: 0, cost: 0, calls: 0 };
+  const o = s.turnOverhead?.[s.currentTurn] ?? { compaction: zero, other: zero };
+  const key = purpose === "compaction" ? "compaction" : "other";
+  s.turnOverhead = { ...s.turnOverhead, [s.currentTurn]: { ...o, [key]: addUsage(o[key], e) } };
+}
+
 export function reduceSession(state: SessionState, e: HarnessEvent): SessionState {
   if (e.seq <= state.lastSeq) return state;
   const s: SessionState = { ...state, lastSeq: e.seq };
   const turn = s.currentTurn ? s.turnTimes?.[s.currentTurn] : undefined;
+  if (e.type !== "usage") s.replyPending = undefined;
   if (e.type === "message.start" && e.role === "user") {
     s.currentTurn = e.id;
     s.turnTimes = { ...s.turnTimes, [e.id]: { start: e.ts } };
@@ -620,6 +691,7 @@ export function reduceSession(state: SessionState, e: HarnessEvent): SessionStat
           text: "",
           agent: e.agent,
           streaming: true,
+          startedAt: e.ts,
           ...(e.role === "user" && s.pendingCheckpoint ? { checkpoint: s.pendingCheckpoint } : {}),
         },
       };
@@ -643,6 +715,7 @@ export function reduceSession(state: SessionState, e: HarnessEvent): SessionStat
     }
     case "message.end": {
       const m = s.messages[e.id];
+      if (m?.role === "assistant") s.replyPending = e.id;
       if (m)
         s.messages = {
           ...s.messages,
@@ -650,6 +723,7 @@ export function reduceSession(state: SessionState, e: HarnessEvent): SessionStat
             ...m,
             text: e.text,
             streaming: false,
+            endedAt: e.ts,
             ...(e.attachments ? { attachments: e.attachments } : {}),
             ...(e.skills ? { skills: e.skills } : {}),
           },
@@ -657,14 +731,24 @@ export function reduceSession(state: SessionState, e: HarnessEvent): SessionStat
       break;
     }
     case "tool.call":
-      s.tools = { ...s.tools, [e.id]: { id: e.id, name: e.name, args: e.args, status: "running" } };
+      s.tools = {
+        ...s.tools,
+        [e.id]: { id: e.id, name: e.name, args: e.args, status: "running", startedAt: e.ts },
+      };
       s.timeline = [...s.timeline, { kind: "tool", id: e.id }];
       break;
     case "tool.result": {
       const t = s.tools[e.id] ?? { id: e.id, name: e.name, args: undefined, status: "running" as const };
       s.tools = {
         ...s.tools,
-        [e.id]: { ...t, status: e.ok ? "ok" : "error", output: e.output, diff: e.diff },
+        [e.id]: {
+          ...t,
+          status: e.ok ? "ok" : "error",
+          output: e.output,
+          diff: e.diff,
+          endedAt: e.ts,
+          ...(e.truncated ? { truncated: true } : {}),
+        },
       };
       break;
     }
@@ -722,6 +806,7 @@ export function reduceSession(state: SessionState, e: HarnessEvent): SessionStat
         outputTokens: s.usage.outputTokens + e.outputTokens,
         cost: s.usage.cost + (e.cost ?? 0),
       };
+      attributeUsage(s, e);
       break;
     case "error":
       s.errors = [...s.errors, e.message];
@@ -998,3 +1083,4 @@ export function reduceRecreate(
   return { runs };
 }
 export { turnLaunches, type LaunchView } from "./launch.js";
+export * from "./report.js";

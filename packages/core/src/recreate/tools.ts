@@ -89,7 +89,7 @@ export const recreateCaptureTool: Tool = {
   parameters: {
     type: "object",
     properties: {
-      url: { type: "string", description: "The page URL (https://…)." },
+      url: { type: "string", description: "The page URL, with or without https:// (nestle.com works)." },
       widths: {
         type: "array",
         items: { type: "integer" },

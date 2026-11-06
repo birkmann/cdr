@@ -318,7 +318,13 @@ export function Preview({
           <view.Icon size={15} /> {view.label}
         </button>
         {url && (
-          <a className="ghost-link" href={url} target="_blank" rel="noreferrer" title="Open in a new tab">
+          <a
+            className="ghost-link"
+            href={`${url}?live=1`}
+            target="_blank"
+            rel="noreferrer"
+            title="Open in a new tab (reloads live as files change)"
+          >
             <IconExternal size={15} />
           </a>
         )}

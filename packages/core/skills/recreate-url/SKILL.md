@@ -10,9 +10,11 @@ This skill rebuilds **that page**: measured from its live DOM, block by block, a
 
 ## When to use it (and when not)
 
-Use it only when the user's message asks for an exact copy of a URL in words that leave no doubt, for example *recreate exactly*, *1:1*, *pixel-perfect*, *clone this page*, *copy this site as it is*, together with a URL.
+Use it when the user's message asks for an exact copy of a URL in words that leave no doubt, for example *recreate exactly*, *1:1*, *pixel-perfect*, *clone this page*, *copy this site as it is*, together with a URL. If the user selected this skill themselves, that is the request: a URL or domain alone ("nestle.com") means recreate that page.
 
-Do **not** use it for a bare domain ("bvg.de"), "like bvg.de", "inspired by", "in the style of", "something similar to": those go to the `web-app` skill, which designs an original page. When in doubt, ask the user which they want.
+A URL works with or without a scheme: `nestle.com`, `www.nestle.com/brands` and `https://www.nestle.com` are all valid; pass it to `recreate_capture` as written, it adds `https://` itself.
+
+Do **not** use it (unless the user selected it) for "like bvg.de", "inspired by", "in the style of", "something similar to": those go to the `web-app` skill, which designs an original page. When in doubt, ask the user which they want.
 
 ## Stages
 
@@ -32,6 +34,8 @@ If `recreate_measure` still reports failing bands and the user wants them fixed:
 - Never change copy, never swap, add or remove photos, never add scripts.
 - At most two attempts per section, then measure again and report what is left.
 - See reference/repair-patterns.md for the usual causes (fluid CSS, sticky offsets, font fallback metrics).
+- Loop on `recreate_section` → patch → `recreate_measure`; these reuse a warm browser. For a check they do not cover (computed styles, font metrics), write one small script that connects to the running browser at `$CDR_CDP_URL` (mention `CDR_CDP_URL` in the command), reuse it, and never `pkill` or restart that Chrome. Inside the sandbox `$CDR_CDP_URL` is not set: start one headless browser in the script and close it when done.
+- Keep going until every width passes its gates or each failing section has had its two attempts; the run continues past turn checkpoints as long as you keep changing files.
 
 ## Summary for the user
 

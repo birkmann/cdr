@@ -1,7 +1,22 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useApp } from "@web/app-state";
 import { basename, MAX_GROUPS, tabKey, useStudio, type Group, type Tab } from "../store";
-import { IX, IFile, IHistory, ICommit, IGoal, IWarn, IPlay, ISplit, IEye, ICode, IChat } from "./icons";
+import {
+  IX,
+  IFile,
+  IHistory,
+  ICommit,
+  IGoal,
+  IWarn,
+  IPlay,
+  ISplit,
+  IEye,
+  ICode,
+  IChat,
+  IExternal,
+} from "./icons";
+import { isHtmlPath } from "../browser-preview";
+import { useOpenInBrowser } from "./open-in-browser";
 import { isMarkdownPath } from "../markdown-path";
 import { dragKind, readTabDrag, startTabDrag, useActiveDrag } from "./dnd";
 import { Welcome } from "./Welcome";
@@ -88,6 +103,8 @@ function EditorGroup({ group, dragging, onClone }: { group: Group; dragging: boo
   /** Markdown tabs currently shown rendered instead of as source. */
   const [rendered, setRendered] = useState<ReadonlySet<string>>(new Set());
   const markdown = active?.kind === "file" && isMarkdownPath(active.path);
+  const html = active?.kind === "file" && isHtmlPath(active.path) ? active.path : undefined;
+  const openInBrowser = useOpenInBrowser();
   const showRendered = markdown && rendered.has(active.key);
   const toggleRendered = () => {
     if (!active) return;
@@ -205,6 +222,16 @@ function EditorGroup({ group, dragging, onClone }: { group: Group; dragging: boo
             onClick={toggleRendered}
           >
             {showRendered ? <ICode size={15} /> : <IEye size={15} />}
+          </button>
+        )}
+        {html && (
+          <button
+            className="ghost icon tiny st-split-btn"
+            title="Open in browser (live preview: reloads as files change)"
+            aria-label="Open in browser"
+            onClick={() => void openInBrowser(html)}
+          >
+            <IExternal size={15} />
           </button>
         )}
         {canSplit && active && active.kind !== "welcome" && tabs.length > 1 && (

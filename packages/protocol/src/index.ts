@@ -70,6 +70,9 @@ export interface AttachmentInfo {
   kind: "image" | "text" | "binary";
 }
 
+/** What a model call's tokens were spent on (see the `usage` event). */
+export type UsagePurpose = "reply" | "thinking" | "compaction" | "other";
+
 /** Event bodies (without envelope). */
 /** Language or framework of a launchable program (chooses the launch button's icon). */
 export type LaunchFramework =
@@ -166,7 +169,20 @@ export type EventBody =
       attempt: number;
     }
   | { type: "review.findings"; findings: Finding[]; summary?: string }
-  | { type: "usage"; inputTokens: number; outputTokens: number; cost?: number; model?: string }
+  | {
+      type: "usage";
+      inputTokens: number;
+      outputTokens: number;
+      cost?: number;
+      model?: string;
+      /**
+       * What the tokens were spent on: "reply" (the agent's model call), "thinking" (summarising its
+       * reasoning into decision lines), "compaction" (shrinking its context) or "other". Older logs omit it.
+       */
+      purpose?: UsagePurpose;
+      /** The assistant message the call belongs to ("reply" and "thinking"). */
+      messageId?: string;
+    }
   | { type: "context.append"; agent: string; message: ChatMessage }
   | { type: "context.replace"; agent: string; messages: ChatMessage[]; reason: string }
   /**
@@ -630,7 +646,15 @@ export interface HarnessConfig {
   workflow?: string;
   workflows?: Record<string, WorkflowDef>;
   limits?: {
+    /**
+     * Model turns per checkpoint. At each checkpoint an agent that changed files since the last one keeps going
+     * (see `continueAfterMaxTurns`); one that changed nothing stops. Default 150.
+     */
     maxTurns?: number;
+    /** Keep going past `maxTurns` while the agent is making progress (default true). Time, token and cost limits still apply. */
+    continueAfterMaxTurns?: boolean;
+    /** Hard cap on turns across all checkpoints when continuing (default 1500; 0 = no cap). */
+    maxTotalTurns?: number;
     /** Optional local per-run total of input + output tokens across all calls. Omitted or 0 disables it; not a provider balance or context-window limit. */
     maxTokens?: number;
     /** Optional local per-run cost estimate using configured model prices. Omitted or 0 disables it; not the provider account balance. */

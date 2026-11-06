@@ -12,7 +12,10 @@ import {
   dataUrl,
   decodePng,
   encodePng,
+  drainChromePool,
   findChrome,
+  leaseChrome,
+  sharedChromeEndpoint,
   fontFaces,
   isBlockedIp,
   latinRange,
@@ -253,4 +256,44 @@ describe.skipIf(!chrome)("CDP capture driver (fixture site, headless Chrome)", (
       await site.close();
     }
   });
+});
+
+describe.skipIf(!chrome)("browser pool (headless Chrome)", () => {
+  it("reuses a returned browser with a fresh context, and gives concurrent leases separate browsers", async () => {
+    await drainChromePool(); // browsers parked by the capture tests above
+    const a = await leaseChrome(chrome!);
+    const { targetId } = await a.cdp.send("Target.createTarget", {
+      url: "about:blank",
+      browserContextId: a.contextId,
+    });
+    expect(targetId).toBeTruthy();
+    const cdpA = a.cdp;
+    const listeners = cdpA.listenerMark().size;
+    a.cdp.on(() => {});
+    await a.close();
+    expect(cdpA.listenerMark().size).toBe(listeners);
+    const b = await leaseChrome(chrome!);
+    const c = await leaseChrome(chrome!);
+    try {
+      expect(b.cdp).toBe(cdpA);
+      expect(b.contextId).not.toBe(a.contextId);
+      expect(c.cdp).not.toBe(cdpA);
+      // the first lease's tab went with its context
+      const { targetInfos } = await b.cdp.send("Target.getTargets");
+      expect(targetInfos.some((t: { targetId: string }) => t.targetId === targetId)).toBe(false);
+    } finally {
+      await b.close();
+      await c.close();
+      await drainChromePool();
+    }
+  }, 60_000);
+
+  it("keeps one shared browser with a DevTools port for scripts", async () => {
+    const e1 = await sharedChromeEndpoint(chrome!);
+    const e2 = await sharedChromeEndpoint(chrome!);
+    expect(e2).toEqual(e1);
+    expect(e1.wsUrl).toMatch(/^ws:\/\/127\.0\.0\.1:\d+\/devtools\/browser\//);
+    const v = await fetch(`http://127.0.0.1:${e1.port}/json/version`).then((r) => r.json());
+    expect(v.webSocketDebuggerUrl).toBe(e1.wsUrl);
+  }, 30_000);
 });

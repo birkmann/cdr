@@ -68,6 +68,10 @@
         "limits": {
           "additionalProperties": false,
           "properties": {
+            "continueAfterMaxTurns": {
+              "description": "Keep going past `maxTurns` while the agent is making progress (default true). Time, token and cost limits still apply.",
+              "type": "boolean"
+            },
             "maxCost": {
               "description": "Optional local per-run cost estimate using configured model prices. Omitted or 0 disables it; not the provider account balance.",
               "type": "number"
@@ -76,7 +80,12 @@
               "description": "Optional local per-run total of input + output tokens across all calls. Omitted or 0 disables it; not a provider balance or context-window limit.",
               "type": "number"
             },
+            "maxTotalTurns": {
+              "description": "Hard cap on turns across all checkpoints when continuing (default 1500; 0 = no cap).",
+              "type": "number"
+            },
             "maxTurns": {
+              "description": "Model turns per checkpoint. At each checkpoint an agent that changed files since the last one keeps going (see `continueAfterMaxTurns`); one that changed nothing stops. Default 150.",
               "type": "number"
             },
             "timeoutMs": {

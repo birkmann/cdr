@@ -438,7 +438,12 @@ export async function runEvals(o: {
               ...(o.harnessOptions?.configOverrides ?? {}),
               ...(t.config ?? {}),
               models: { executor: o.model, planner: o.model, reviewer: o.model, summarizer: o.model },
-              limits: { maxTurns: t.maxTurns ?? 40, timeoutMs: t.timeoutMs ?? 15 * 60_000 },
+              // The turn limit is the task's budget: a hard stop, not a checkpoint to continue past.
+              limits: {
+                maxTurns: t.maxTurns ?? 40,
+                continueAfterMaxTurns: false,
+                timeoutMs: t.timeoutMs ?? 15 * 60_000,
+              },
             },
           });
           const autoApprove = { permissions: true, plan: true, questions: "Use your best judgement." };

@@ -95,6 +95,8 @@ export class AgentManager implements AgentSpawner {
     const out: NonNullable<HarnessConfig["limits"]> = {};
     const maxTurns = req.maxTurns && req.maxTurns > 0 ? req.maxTurns : pl.maxTurns;
     if (maxTurns) out.maxTurns = maxTurns;
+    // a turn limit the caller asked for is a hard stop, not a checkpoint
+    if (req.maxTurns && req.maxTurns > 0) out.continueAfterMaxTurns = false;
     const slots = Math.max(1, maxConcurrent - this.runningCount);
     const share = (v: number | undefined) => (v === undefined ? undefined : v / slots);
     const maxTokens = cap(req.maxTokens, req.maxTokens ? remaining.maxTokens : share(remaining.maxTokens));

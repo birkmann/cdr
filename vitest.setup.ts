@@ -1,3 +1,4 @@
+import { afterAll } from "vitest";
 import { mkdtempSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,3 +13,10 @@ process.env.HARNESS_HOME = mkdtempSync(join(tmpdir(), "harness-home-"));
 
 // Chats put the files they create in ~/Documents/CDR by default; keep tests out of the real home.
 process.env.CDR_OUTPUT_DIR = mkdtempSync(join(tmpdir(), "harness-output-"));
+
+// Browsers returned to @harness/capture's pool wait for reuse; close them (and delete their profiles) before
+// the worker exits, which does not run process "exit" handlers.
+afterAll(async () => {
+  const { drainChromePool } = await import("@harness/capture");
+  await drainChromePool();
+});

@@ -11,6 +11,8 @@ import type { Dialog } from "./Shell";
 import { IFile } from "./icons";
 import { promptDialog } from "./dialogs";
 import { FileIcon } from "./FileIcon";
+import { isHtmlPath } from "../browser-preview";
+import { useOpenInBrowser } from "./open-in-browser";
 
 export type PaletteMode = "files" | "commands";
 
@@ -33,6 +35,9 @@ export function Palette({
 }) {
   const st = useStudio();
   const { updateSettings, sessions } = useApp();
+  const openInBrowser = useOpenInBrowser();
+  const activeTab = st.tabs.find((t) => t.key === st.active);
+  const activePath = activeTab?.kind === "file" ? activeTab.path : undefined;
   const sessionPath = st.sessionId ? sessions.find((x) => x.id === st.sessionId)?.projectPath : undefined;
   const [query, setQuery] = useState(initial === "commands" ? ">" : "");
   const [files, setFiles] = useState<string[]>([]);
@@ -122,6 +127,12 @@ export function Palette({
         id: "dockagent",
         label: `View: Move agent panel ${st.agentDock === "right" ? "left" : "right"}`,
         run: () => (st.setAgentPanel(true), st.setAgentDock(st.agentDock === "right" ? "left" : "right")),
+      },
+      {
+        id: "browserpreview",
+        label: "View: Open in browser (live preview)",
+        when: !!activePath && isHtmlPath(activePath),
+        run: () => void openInBrowser(activePath!),
       },
       {
         id: "preview",
@@ -226,7 +237,7 @@ export function Palette({
       ...scripts.map((s) => ({ id: `run-${s}`, label: `Run: ${s}`, run: () => runInTerminal(s) })),
     ];
     return c.filter((x) => x.when !== false);
-  }, [root, st, scripts, onDialog, updateSettings, sessionPath]);
+  }, [root, st, scripts, onDialog, updateSettings, sessionPath, activePath]);
 
   const items = isCommands
     ? fuzzyFilter(commands, query.slice(1), (c) => c.label).map((c) => ({

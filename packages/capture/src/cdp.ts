@@ -1,5 +1,5 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Readable, Writable } from "node:stream";
@@ -62,6 +62,16 @@ export class Cdp {
     this.closed = true;
     for (const w of this.waiting.values()) w.reject(e);
     this.waiting.clear();
+  }
+
+  /** The current listeners, for `restoreListeners` once a lease of a reused browser ends. */
+  listenerMark(): Set<(method: string, params: any, sessionId?: string) => void> {
+    return new Set(this.listeners);
+  }
+
+  /** Remove every listener added since `mark` was taken. */
+  restoreListeners(mark: Set<(method: string, params: any, sessionId?: string) => void>): void {
+    for (const l of [...this.listeners]) if (!mark.has(l)) this.listeners.delete(l);
   }
 
   /** Subscribe to protocol events; returns the unsubscribe. */
@@ -157,6 +167,12 @@ export function findChrome(): string | null {
 
 export interface Browser {
   cdp: Cdp;
+  /** The temporary profile folder (holds `DevToolsActivePort` when started with --remote-debugging-port). */
+  profile: string;
+  /** Whether the browser keeps Node's event loop alive (off while it waits idle in the pool). */
+  ref(on: boolean): void;
+  /** Kill at once and delete the profile synchronously (process exit). */
+  killSync(): void;
   /** Close Chrome (gracefully when possible), wait for it to exit and delete its profile. Never throws. */
   close(): Promise<void>;
 }
@@ -240,8 +256,24 @@ async function launchOnce(chrome: string, opts: { args?: string[]; signal?: Abor
     const cdp = new Cdp(child.stdio[3] as Writable, child.stdio[4] as Readable);
     // the pipe is up once the browser answers
     await Promise.race([cdp.send("Browser.getVersion"), spawnError]);
+    const streams = [child.stdio[3], child.stdio[4]] as unknown as { ref?(): void; unref?(): void }[];
     return {
       cdp,
+      profile,
+      ref: (on) => {
+        if (on) child?.ref();
+        else child?.unref();
+        for (const st of streams) (on ? st.ref : st.unref)?.call(st);
+      },
+      killSync: () => {
+        closed = true;
+        kill();
+        try {
+          rmSync(profile, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
+        } catch {
+          /* Chrome may still be writing; a leftover temp dir is harmless */
+        }
+      },
       close: async () => {
         const graceful =
           !cdp.closed &&
@@ -256,4 +288,217 @@ async function launchOnce(chrome: string, opts: { args?: string[]; signal?: Abor
     await close(false);
     throw e;
   }
+}
+
+/**
+ * A browser handed out by `leaseChrome`: exclusive until `close`, with its own browser context (fresh cookies,
+ * cache and storage, like a fresh profile). Create every target in `contextId`.
+ */
+export interface BrowserLease {
+  cdp: Cdp;
+  contextId: string;
+  /** Hand the browser back to the pool (its context disposed, listeners removed), or close it when broken. Never throws. */
+  close(): Promise<void>;
+}
+
+/** How long a returned browser waits for the next lease before it is closed (`HARNESS_CHROME_IDLE_MS`). */
+function poolIdleMs(): number {
+  const v = Number(process.env.HARNESS_CHROME_IDLE_MS);
+  return Number.isFinite(v) && v >= 0 ? v : 120_000;
+}
+const POOL_MAX_IDLE = 2;
+const pool = new Map<string, { browser: Browser; timer: ReturnType<typeof setTimeout> }[]>();
+const live = new Set<Browser>();
+let exitHook = false;
+
+function track(b: Browser) {
+  live.add(b);
+  if (exitHook) return;
+  exitHook = true;
+  process.once("exit", () => {
+    for (const x of live) x.killSync();
+  });
+}
+
+function park(key: string, browser: Browser) {
+  const list = pool.get(key) ?? [];
+  if (list.length >= POOL_MAX_IDLE) {
+    live.delete(browser);
+    void browser.close();
+    return;
+  }
+  browser.ref(false);
+  const entry = {
+    browser,
+    timer: setTimeout(() => {
+      const l = pool.get(key);
+      if (l)
+        pool.set(
+          key,
+          l.filter((x) => x !== entry),
+        );
+      live.delete(browser);
+      void browser.close();
+    }, poolIdleMs()),
+  };
+  entry.timer.unref?.();
+  list.push(entry);
+  pool.set(key, list);
+}
+
+/**
+ * Lease a headless Chrome from a per-process pool: a browser returned by an earlier lease is reused (each lease
+ * gets a new browser context), so back-to-back captures, shots and probes skip Chrome's start-up. Leases are
+ * exclusive: concurrent callers get separate browsers. An abort closes the leased browser.
+ */
+export async function leaseChrome(
+  chrome: string,
+  opts: { args?: string[]; signal?: AbortSignal } = {},
+): Promise<BrowserLease> {
+  if (opts.signal?.aborted) throw new Error("Cancelled.");
+  const key = JSON.stringify([chrome, opts.args ?? []]);
+  let browser: Browser | undefined;
+  for (let e = pool.get(key)?.pop(); e; e = pool.get(key)?.pop()) {
+    clearTimeout(e.timer);
+    if (!e.browser.cdp.closed) {
+      browser = e.browser;
+      break;
+    }
+    live.delete(e.browser);
+    void e.browser.close();
+  }
+  if (browser) browser.ref(true);
+  else {
+    // no signal: the browser outlives this lease; the lease's own abort handler closes it
+    browser = await launchChrome(chrome, { args: opts.args });
+    track(browser);
+  }
+  if (opts.signal?.aborted) {
+    park(key, browser);
+    throw new Error("Cancelled.");
+  }
+  const b = browser;
+  const { cdp } = b;
+  const mark = cdp.listenerMark();
+  let broken = false;
+  const abort = () => {
+    broken = true;
+    live.delete(b);
+    void b.close();
+  };
+  let contextId: string;
+  try {
+    contextId = (await cdp.send("Target.createBrowserContext", {}, null, 10_000)).browserContextId;
+  } catch (e) {
+    live.delete(b);
+    await b.close();
+    throw e;
+  }
+  opts.signal?.addEventListener("abort", abort, { once: true });
+  let done = false;
+  return {
+    cdp,
+    contextId,
+    close: async () => {
+      if (done) return;
+      done = true;
+      opts.signal?.removeEventListener("abort", abort);
+      cdp.restoreListeners(mark);
+      const reset =
+        !broken &&
+        !cdp.closed &&
+        (await Promise.all([
+          cdp.send(
+            "Target.setAutoAttach",
+            { autoAttach: false, waitForDebuggerOnStart: false, flatten: true },
+            null,
+            3000,
+          ),
+          cdp.send("Target.disposeBrowserContext", { browserContextId: contextId }, null, 5000),
+        ]).then(
+          () => true,
+          () => false,
+        ));
+      if (reset) park(key, b);
+      else {
+        live.delete(b);
+        await b.close();
+      }
+    },
+  };
+}
+
+/** Close every idle pooled browser and the shared script browser now (tests, shutdown). */
+export async function drainChromePool(): Promise<void> {
+  const all = [...pool.values()].flat();
+  pool.clear();
+  const shared = debugChrome;
+  debugChrome = undefined;
+  if (shared?.timer) clearTimeout(shared.timer);
+  if (shared) live.delete(shared.browser);
+  await Promise.all([
+    ...all.map((e) => {
+      clearTimeout(e.timer);
+      live.delete(e.browser);
+      return e.browser.close();
+    }),
+    ...(shared ? [shared.browser.close()] : []),
+  ]);
+}
+
+let debugChrome:
+  { browser: Browser; endpoint: Promise<ChromeEndpoint>; timer?: ReturnType<typeof setTimeout> } | undefined;
+
+export interface ChromeEndpoint {
+  /** Browser-level DevTools WebSocket URL (puppeteer.connect / playwright connectOverCDP). */
+  wsUrl: string;
+  port: number;
+}
+
+/**
+ * One long-lived headless Chrome per process with a DevTools port on 127.0.0.1, for the agent's own scripts:
+ * they connect to it instead of starting and killing a browser each time. Closed after `idleMs` without a call.
+ */
+export async function sharedChromeEndpoint(chrome: string, idleMs = 15 * 60_000): Promise<ChromeEndpoint> {
+  if (debugChrome && debugChrome.browser.cdp.closed) {
+    live.delete(debugChrome.browser);
+    debugChrome.browser.killSync();
+    debugChrome = undefined;
+  }
+  if (!debugChrome) {
+    const browser = await launchChrome(chrome, {
+      args: ["--remote-debugging-port=0", "--allow-file-access-from-files"],
+    });
+    track(browser);
+    browser.ref(false);
+    const endpoint = (async () => {
+      const file = join(browser.profile, "DevToolsActivePort");
+      for (let i = 0; i < 100; i++) {
+        try {
+          const [port, path] = readFileSync(file, "utf8").split("\n");
+          if (port && path) return { port: Number(port), wsUrl: `ws://127.0.0.1:${port}${path.trim()}` };
+        } catch {
+          /* not written yet */
+        }
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      throw new Error("Chrome did not report its DevTools port.");
+    })();
+    debugChrome = { browser, endpoint };
+    endpoint.catch(() => {
+      if (debugChrome?.browser === browser) debugChrome = undefined;
+      live.delete(browser);
+      void browser.close();
+    });
+  }
+  const d = debugChrome;
+  if (d.timer) clearTimeout(d.timer);
+  d.timer = setTimeout(() => {
+    if (debugChrome !== d) return;
+    debugChrome = undefined;
+    live.delete(d.browser);
+    void d.browser.close();
+  }, idleMs);
+  d.timer.unref?.();
+  return d.endpoint;
 }

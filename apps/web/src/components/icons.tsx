@@ -173,3 +173,8 @@ export const IconCopy = (p: P) => (
     <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" />
   </I>
 );
+export const IconChart = (p: P) => (
+  <I {...p}>
+    <path d="M4 20h16M7 16v-4M12 16V7M17 16v-7" />
+  </I>
+);

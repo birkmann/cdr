@@ -17,7 +17,7 @@ import {
   primaryLang,
 } from "./assets.js";
 import { cssFontWeight, retryWww, stripOnLoadOverlays, unifyAltImages, visit, wwwVariant } from "./assets.js";
-import { findChrome, launchChrome, type Cdp } from "./cdp.js";
+import { findChrome, leaseChrome, type Cdp } from "./cdp.js";
 import { DOM_CAPTURE_SOURCE, PERSONALIZATION_BLOCKLIST } from "./generated.js";
 import {
   fetchPublic,
@@ -574,7 +574,7 @@ async function peek(
   }
 }
 
-/** Launch Chrome, set up a guarded page emulating a visitor at `width`, load `url` (load + idle + consent). */
+/** Lease Chrome, set up a guarded page emulating a visitor at `width`, load `url` (load + idle + consent). */
 async function openPage(
   url: string,
   o: {
@@ -596,9 +596,10 @@ async function openPage(
       "browser_unavailable",
       "No Chrome / Chromium found. Install Google Chrome or set HARNESS_CHROME to a Chromium binary.",
     );
-  let browser: Awaited<ReturnType<typeof launchChrome>>;
+  let browser: Awaited<ReturnType<typeof leaseChrome>>;
   try {
-    browser = await launchChrome(bin, { signal: o.signal });
+    // a warm browser from the pool when one is free (each open gets its own browser context)
+    browser = await leaseChrome(bin, { signal: o.signal });
   } catch (e) {
     throw new CaptureError("browser_unavailable", `Chrome did not start: ${(e as Error).message}`);
   }
@@ -617,11 +618,13 @@ async function openPage(
     const device = o.width < mobileBelow ? deviceOf(Math.min(o.width, TABLET_MAX - 1)) : "desktop";
     const mobile = device !== "desktop";
     proxy.ua = { ...userAgent(version?.userAgent, device), lang: o.lang };
-    await cdp.send("Browser.setDownloadBehavior", { behavior: "deny" }).catch(() => {});
+    await cdp
+      .send("Browser.setDownloadBehavior", { behavior: "deny", browserContextId: browser.contextId })
+      .catch(() => {});
     const newTarget = async (background: boolean) => {
       proxy.creating++;
       const t = await cdp
-        .send("Target.createTarget", { url: "about:blank", background })
+        .send("Target.createTarget", { url: "about:blank", background, browserContextId: browser.contextId })
         .finally(() => proxy.creating--);
       if (!t?.targetId) throw new CaptureError("capture_failed", "no target");
       proxy.ownTargets.add(t.targetId);

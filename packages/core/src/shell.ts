@@ -11,6 +11,8 @@ export interface ShellOptions {
   /** Allow network inside the sandbox (default false). */
   network?: boolean;
   maxOutput?: number;
+  /** Extra variables for the child environment. */
+  env?: Record<string, string>;
 }
 
 export interface ShellResult {
@@ -48,6 +50,7 @@ export function runShell(command: string, opts: ShellOptions): Promise<ShellResu
   return new Promise((resolve) => {
     const env = { ...process.env };
     for (const k of opts.stripEnv ?? []) delete env[k];
+    Object.assign(env, opts.env);
     env.HARNESS = "1";
     env.CI = env.CI ?? "1"; // discourage interactive prompts / watch modes
     let file = "bash";

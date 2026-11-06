@@ -130,7 +130,14 @@ export async function runAgent(o: RunAgentOptions): Promise<AgentResult> {
     host.emit({ type: "context.append", agent: o.agent, message: m });
   const toolMap = new Map(o.tools.map((t) => [t.name, t]));
   const specs = o.tools.map(toSpec);
-  const maxTurns = o.maxTurns ?? host.config.limits?.maxTurns ?? 60;
+  const limits = host.config.limits ?? {};
+  let maxTurns = o.maxTurns ?? limits.maxTurns ?? 60;
+  // An explicit per-agent turn limit is a hard stop; the configured one is a progress checkpoint.
+  const rollover = o.maxTurns === undefined && limits.continueAfterMaxTurns !== false;
+  const maxTotalTurns = limits.maxTotalTurns ?? 1500;
+  /** File changes (diffs + edited paths) at the last checkpoint. */
+  let progressMark = 0;
+  let checkpoints = 0;
   const cfgContext = host.config.context ?? {};
   const compactAt = cfgContext.compactAt ?? 0.7;
   const keepRecent = cfgContext.keepRecent ?? 6;
@@ -186,10 +193,33 @@ export async function runAgent(o: RunAgentOptions): Promise<AgentResult> {
   try {
     while (true) {
       if (host.signal.aborted) return result("cancelled");
+      if (turn >= maxTurns && rollover) {
+        const progress = diffs.length + edited.size;
+        const capped = maxTotalTurns > 0 && turn >= maxTotalTurns;
+        if (progress > progressMark && !capped) {
+          progressMark = progress;
+          checkpoints++;
+          const step = o.maxTurns ?? limits.maxTurns ?? 60;
+          maxTurns = maxTotalTurns > 0 ? Math.min(turn + step, maxTotalTurns) : turn + step;
+          host.emit({
+            type: "log",
+            level: "info",
+            message: `${o.agent}: checkpoint ${checkpoints} after ${turn} turns; files changed since the last one, continuing`,
+          });
+          push({
+            role: "user",
+            content:
+              `[harness] Checkpoint: ${turn} turns used. You are still making progress, so keep going until the task is complete. ` +
+              "Do not repeat diagnostics you already ran; work on what remains. When the work is done, reply with your final summary and no tool calls.",
+          });
+        }
+      }
       if (turn >= maxTurns) {
         host.emit({
           type: "error",
-          message: `${o.agent}: reached max turns (${maxTurns})`,
+          message: rollover
+            ? `${o.agent}: stopped after ${turn} turns: ${maxTotalTurns > 0 && turn >= maxTotalTurns ? "reached limits.maxTotalTurns" : `no files changed in the last ${limits.maxTurns ?? 60} turns`}`
+            : `${o.agent}: reached max turns (${maxTurns})`,
           recoverable: false,
         });
         return result("max_turns", `max turns (${maxTurns}) reached`);
@@ -227,7 +257,14 @@ export async function runAgent(o: RunAgentOptions): Promise<AgentResult> {
           onSummary: (text) => host.emit({ type: "reasoning.summary", id: msgId, text }),
           onUsage: (input, output, model) => {
             host.budget.add(input, output, 0);
-            host.emit({ type: "usage", inputTokens: input, outputTokens: output, model });
+            host.emit({
+              type: "usage",
+              inputTokens: input,
+              outputTokens: output,
+              model,
+              purpose: "thinking",
+              messageId: msgId,
+            });
           },
         });
       };
@@ -267,6 +304,8 @@ export async function runAgent(o: RunAgentOptions): Promise<AgentResult> {
         outputTokens: outTok,
         cost: cost || undefined,
         model: o.modelRef,
+        purpose: "reply",
+        messageId: msgId,
       });
       measured = inTok > 0 ? { tokens: inTok, count: sentCount } : undefined;
 
@@ -348,6 +387,7 @@ export async function runAgent(o: RunAgentOptions): Promise<AgentResult> {
           outputTokens: u.output,
           cost: cost || undefined,
           model: s.ref,
+          purpose: "compaction",
         });
       },
       onError: (e) =>

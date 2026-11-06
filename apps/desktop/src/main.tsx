@@ -8,6 +8,7 @@ import { StudioProvider } from "./store";
 import { installZoom } from "./zoom";
 import { Shell } from "./components/Shell";
 import { CDRMark } from "@web/components/Brand";
+import { openUrl } from "@tauri-apps/plugin-opener";
 
 const SETTINGS_KEY = "harness.settings.v1";
 
@@ -77,6 +78,16 @@ function Boot() {
 }
 
 installZoom();
+
+// The webview opens no windows of its own: links meant for a new tab (such as the preview's
+// "Open in a new tab") open in the system browser.
+if (isTauri())
+  document.addEventListener("click", (e) => {
+    const a = (e.target as Element | null)?.closest?.("a[target=_blank]") as HTMLAnchorElement | null;
+    if (!a || !/^https?:/i.test(a.href)) return;
+    e.preventDefault();
+    void openUrl(a.href);
+  });
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

@@ -700,6 +700,28 @@ describe("server: sandboxes and preview", () => {
     }
     await expect(c.getSession(info.id, { after: -1 })).rejects.toMatchObject({ status: 400 });
   });
+  it("adds live reload to previews opened in a browser tab and versions the page's folder", async () => {
+    const c = createClient({ baseUrl: srv.url, token: "test-token" });
+    const info = await c.createSession({ sandbox: { name: "live" } });
+    mkdirSync(join(info.projectPath, "site"));
+    writeFileSync(join(info.projectPath, "site/index.html"), "<!doctype html><p>hi</p>");
+    const { previewBase } = await c.getSession(info.id, { events: false });
+    const page = c.previewUrl(previewBase, "site/index.html");
+    const embedded = await (await fetch(page)).text();
+    expect(embedded).not.toContain("data-cdr-live");
+    const live = await (await fetch(`${page}?live=1`)).text();
+    expect(live.startsWith("<!doctype html><script data-cdr-preview>")).toBe(true);
+    expect(live).toContain("data-cdr-live");
+    const version = async () => {
+      const r = await fetch(c.previewUrl(previewBase, "site/.cdr-live"));
+      expect(r.headers.get("cache-control")).toBe("no-store");
+      return ((await r.json()) as { version: string }).version;
+    };
+    const before = await version();
+    writeFileSync(join(info.projectPath, "site/style.css"), "p { color: red }");
+    await new Promise((r) => setTimeout(r, 350)); // past the version cache
+    expect(await version()).not.toBe(before);
+  });
   it("confines legacy home sessions to their creations and keeps other sessions separate", async () => {
     const home = mkdtempSync(join(tmpdir(), "legacy-home-"));
     mkdirSync(join(home, "snake-game"));
@@ -741,6 +763,9 @@ describe("server: sandboxes and preview", () => {
       expect((await fetch(c.previewUrl(details.previewBase!, "snake-game/game.js"))).status).toBe(200);
       expect((await fetch(c.previewUrl(details.previewBase!, "private.txt"))).status).toBe(403);
       expect((await fetch(c.previewUrl(details.previewBase!, "snake-game/leak.txt"))).status).toBe(403);
+      // Live reload versions only folders the session may show, never the whole home directory.
+      expect((await fetch(c.previewUrl(details.previewBase!, "snake-game/.cdr-live"))).status).toBe(200);
+      expect((await fetch(c.previewUrl(details.previewBase!, ".cdr-live"))).status).toBe(403);
       const a = await c.createSession({ sandbox: { name: "a" } });
       const b = await c.createSession({ sandbox: { name: "b" } });
       writeFileSync(join(a.projectPath, "only-a.txt"), "a");

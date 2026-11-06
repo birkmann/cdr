@@ -1,12 +1,7 @@
-import { spawn, type ChildProcess } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import type { Readable, Writable } from "node:stream";
-import { Cdp } from "@harness/capture";
+import { leaseChrome } from "@harness/capture";
 
 /**
- * Page probe: headless Chrome driven over the DevTools protocol on a pipe (the transport is @harness/capture's Cdp). Loads a page at several
+ * Page probe: headless Chrome from @harness/capture's browser pool, driven over the DevTools protocol. Loads a page at several
  * viewport sizes and reports what a reviewer would notice: script errors, failed loads,
  * horizontal overflow, broken images and controls without an accessible name.
  */
@@ -173,48 +168,20 @@ export async function probePage(
   } = {},
 ): Promise<PageReport> {
   const viewports = opts.viewports?.length ? opts.viewports : [VIEWPORTS.phone, VIEWPORTS.desktop];
-  const profile = mkdtempSync(join(tmpdir(), "harness-chrome-"));
-  let child: ChildProcess | undefined;
-  let closing = false;
-  const kill = () => {
-    try {
-      child?.kill("SIGKILL");
-    } catch {
-      /* already gone */
-    }
-  };
-  opts.signal?.addEventListener("abort", kill, { once: true });
+  // a warm browser from the pool: repeated checks skip Chrome's start-up
+  const lease = await leaseChrome(chrome, { args: ["--allow-file-access-from-files"], signal: opts.signal });
+  const { cdp } = lease;
   try {
-    child = spawn(
-      chrome,
-      [
-        "--headless=new",
-        "--remote-debugging-pipe",
-        "--disable-gpu",
-        "--no-first-run",
-        "--no-default-browser-check",
-        "--mute-audio",
-        "--hide-scrollbars",
-        "--disable-extensions",
-        "--disable-background-networking",
-        "--allow-file-access-from-files",
-        `--user-data-dir=${profile}`,
-        "about:blank",
-      ],
-      { stdio: ["ignore", "ignore", "ignore", "pipe", "pipe"] },
-    );
-    const spawnError = new Promise<never>((_, reject) => child!.once("error", reject));
-    const cdp = new Cdp(child.stdio[3] as Writable, child.stdio[4] as Readable);
     const errors: string[] = [];
     const consoleLines: string[] = [];
     const failedRequests: string[] = [];
     const add = (list: string[], s: string) => {
       if (s && !list.includes(s) && list.length < 30) list.push(s);
     };
-    const { targetId } = await Promise.race([
-      cdp.send("Target.createTarget", { url: "about:blank" }),
-      spawnError,
-    ]);
+    const { targetId } = await cdp.send("Target.createTarget", {
+      url: "about:blank",
+      browserContextId: lease.contextId,
+    });
     const { sessionId } = await cdp.send("Target.attachToTarget", { targetId, flatten: true });
     const requests = new Map<string, string>();
     cdp.on((method, p, s) => {
@@ -303,8 +270,6 @@ export async function probePage(
       await new Promise((r) => setTimeout(r, 500));
       exercise = { clicked: res.result?.value ?? 0, errors: errors.slice(before) };
     }
-    closing = true;
-    await cdp.send("Browser.close").catch(() => undefined);
     const ok =
       errors.length === 0 &&
       reports.every((r) => r.overflowPx === 0 && r.images.failed.length === 0 && r.unnamed.length === 0);
@@ -317,28 +282,7 @@ export async function probePage(
       ...(exercise ? { exercise } : {}),
     };
   } finally {
-    opts.signal?.removeEventListener("abort", kill);
-    // Wait for Chrome to exit before deleting its profile: it keeps writing into
-    // the profile while shutting down, which makes rmdir fail with ENOTEMPTY.
-    if (child && child.exitCode === null && child.signalCode === null) {
-      const exited = new Promise<void>((r) => child!.once("exit", () => r()));
-      const graceful =
-        closing &&
-        (await Promise.race([
-          exited.then(() => true),
-          new Promise<boolean>((r) => setTimeout(() => r(false), 2_000)),
-        ]));
-      if (!graceful) {
-        kill();
-        await Promise.race([exited, new Promise((r) => setTimeout(r, 2_000))]);
-      }
-    }
-    // Cleanup is best effort and must never replace the probe's result.
-    try {
-      rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
-    } catch {
-      /* leftover temp dir is harmless */
-    }
+    await lease.close();
   }
 }
 

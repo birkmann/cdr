@@ -796,6 +796,7 @@ export class Session {
       outputTokens: res.usage.output,
       cost: cost || undefined,
       model: m.ref,
+      purpose: "other",
     });
     return res.text;
   }
