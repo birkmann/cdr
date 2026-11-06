@@ -215,6 +215,12 @@ importers:
         specifier: ^6.4.5
         version: 6.4.5(@types/node@22.20.5)
 
+  packages/capture:
+    dependencies:
+      '@harness/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+
   packages/cli:
     dependencies:
       '@harness/client':
@@ -236,11 +242,53 @@ importers:
         specifier: workspace:*
         version: link:../protocol
 
+  packages/codegen:
+    dependencies:
+      '@harness/extract':
+        specifier: workspace:*
+        version: link:../extract
+      '@harness/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      '@harness/scene':
+        specifier: workspace:*
+        version: link:../scene
+
   packages/core:
+    dependencies:
+      '@harness/capture':
+        specifier: workspace:*
+        version: link:../capture
+      '@harness/measure':
+        specifier: workspace:*
+        version: link:../measure
+      '@harness/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      '@harness/recreate':
+        specifier: workspace:*
+        version: link:../recreate
+
+  packages/extract:
     dependencies:
       '@harness/protocol':
         specifier: workspace:*
         version: link:../protocol
+      '@harness/scene':
+        specifier: workspace:*
+        version: link:../scene
+
+  packages/measure:
+    dependencies:
+      '@harness/capture':
+        specifier: workspace:*
+        version: link:../capture
+      '@harness/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      '@harness/scene':
+        specifier: workspace:*
+        version: link:../scene
 
   packages/protocol:
     devDependencies:
@@ -263,6 +311,39 @@ importers:
       react:
         specifier: ^18.3.1
         version: 18.3.1
+
+  packages/recreate:
+    dependencies:
+      '@harness/capture':
+        specifier: workspace:*
+        version: link:../capture
+      '@harness/codegen':
+        specifier: workspace:*
+        version: link:../codegen
+      '@harness/extract':
+        specifier: workspace:*
+        version: link:../extract
+      '@harness/measure':
+        specifier: workspace:*
+        version: link:../measure
+      '@harness/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      '@harness/scene':
+        specifier: workspace:*
+        version: link:../scene
+
+  packages/scene:
+    dependencies:
+      '@harness/capture':
+        specifier: workspace:*
+        version: link:../capture
+      '@harness/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      polygon-clipping:
+        specifier: ^0.15.7
+        version: 0.15.7
 
   packages/server:
     dependencies:
@@ -1426,6 +1507,9 @@ packages:
     engines: {node: '>=20'}
     hasBin: true
 
+  polygon-clipping@0.15.7:
+    resolution: {integrity: sha512-nhfdr83ECBg6xtqOAJab1tbksbBAOMUltN60bU+llHVOL0e5Onm1WpAXXWXVB39L8AJFssoIhEVuy/S90MmotA==}
+
   postcss@8.5.32:
     resolution: {integrity: sha512-LJlKCCAUFKOuZxipUdYw1NzIITEsPcgyOG9LkvRJvuKj/bRzbuRY0ARXvL0pWGpsZvn8jku+LMep2eU0seHp8g==}
     engines: {node: ^10 || ^12 || >=14}
@@ -1473,6 +1557,9 @@ packages:
     resolution: {integrity: sha512-Xf0nWe6RseziFMu+Ap9biiUbmplq6S9/p+7w7YXP/JBHhrUDDUhwa+vANyubuqfZWTveU//DYVGsDG7RKL/vEw==}
     engines: {node: '>=0.10.0'}
 
+  robust-predicates@3.0.3:
+    resolution: {integrity: sha512-NS3levdsRIUOmiJ8FZWCP7LG3QpJyrs/TE0Zpf1yvZu8cAJJ6QMW92H1c7kWpdIHo8RvmLxN/o2JXTKHp74lUA==}
+
   rollup@4.67.4:
     resolution: {integrity: sha512-Lsv3oKcz5jgOQJej/p7nfwbVEdAbDT+z6OPf/SCdI+nF+q2ENp0pTKT35ZwXAmH8g45mfrIiJeEyAqKYSYoL9Q==}
     engines: {node: '>=18.0.0', npm: '>=8.0.0'}
@@ -1498,6 +1585,10 @@ packages:
 
   space-separated-tokens@2.0.2:
     resolution: {integrity: sha512-PEGlAwrG8yXGXRjW32fGbg66JAlOAwbObuqVoJpv/mRgoWDQfgH1wDPvtzWyUSNAXBGSk8h755YDbbcEy3SH2Q==}
+
+  splaytree@3.2.3:
+    resolution: {integrity: sha512-7OXrNWzy6CK+r7Ch9OLPBDTKfB6XlWHjX4P0RU5B3IgFuWPeYN0XtRtlexGRjgbQxpfaUve6jTAwBGWuGntz/w==}
+    engines: {node: '>=18.20 || >=20'}
 
   stackback@0.0.2:
     resolution: {integrity: sha512-1XMJE5fQo1jGH6Y/7ebnwPOBEkIEnT4QF32d5R1+VXdXveM0IBMJt8zfaxX1P3QhVwrYe+576+jkANtSS2mBbw==}
@@ -3027,6 +3118,11 @@ snapshots:
 
   playwright-core@1.64.1: {}
 
+  polygon-clipping@0.15.7:
+    dependencies:
+      robust-predicates: 3.0.3
+      splaytree: 3.2.3
+
   postcss@8.5.32:
     dependencies:
       nanoid: 3.3.20
@@ -3103,6 +3199,8 @@ snapshots:
 
   require-from-string@2.0.2: {}
 
+  robust-predicates@3.0.3: {}
+
   rollup@4.67.4:
     dependencies:
       '@types/estree': 1.0.10
@@ -3149,6 +3247,8 @@ snapshots:
   source-map-js@1.2.2: {}
 
   space-separated-tokens@2.0.2: {}
+
+  splaytree@3.2.3: {}
 
   stackback@0.0.2: {}
 

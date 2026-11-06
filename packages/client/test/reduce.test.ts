@@ -23,7 +23,7 @@ describe("reduceSession: subagents and goals", () => {
         role: "executor",
         isolation: "worktree",
         worktree: "/p/.harness/worktrees/x",
-        branch: "morrow/x/research",
+        branch: "cdr/x/research",
       },
       {
         type: "agent.status",
@@ -42,7 +42,7 @@ describe("reduceSession: subagents and goals", () => {
       sessionId: "c1",
       task: "research",
       isolation: "worktree",
-      branch: "morrow/x/research",
+      branch: "cdr/x/research",
       status: "done",
       result: "success",
       phase: "execute",
@@ -64,7 +64,7 @@ describe("reduceSession: subagents and goals", () => {
         goalId: "goal-1",
         title: "T",
         worktree: "/w",
-        branch: "morrow/goal-t",
+        branch: "cdr/goal-t",
         round: 1,
       },
       { type: "goal.checkpoint", goalId: "goal-1", commit: "abc", step: "round 1", summary: "s", criteria },
@@ -126,5 +126,76 @@ describe("reduceSession: turn timing", () => {
     expect(s.currentTurn).toBe("u2");
     expect(s.turnTimes.u2).toEqual({ start: "2026-11-05T10:05:00.000Z" });
     expect(s.turnTimes.u1.end).toBe("2026-11-05T10:03:12.000Z");
+  });
+});
+
+describe("reduceSession: checkpoints", () => {
+  it("attaches a turn checkpoint to the user message it precedes and lists restores", () => {
+    const s = play([
+      { type: "checkpoint.created", id: "cp_1", reason: "turn", commit: "abc", files: 3 },
+      { type: "message.start", id: "m1", role: "user" },
+      { type: "message.end", id: "m1", text: "hi" },
+      { type: "done", status: "success" },
+      { type: "message.start", id: "m2", role: "user" },
+      { type: "checkpoint.created", id: "cp_2", reason: "restore", commit: "def", files: 3 },
+      {
+        type: "checkpoint.restored",
+        id: "cp_1",
+        backupId: "cp_2",
+        files: [{ path: "a.txt", status: "modified" }],
+        changed: 1,
+      },
+    ]);
+    expect(s.messages.m1.checkpoint).toBe("cp_1");
+    expect(s.messages.m2.checkpoint).toBeUndefined();
+    expect(s.timeline.at(-1)).toMatchObject({ kind: "event", event: { type: "checkpoint.restored" } });
+  });
+
+  it("attaches a checkpoint emitted after its user message (messageId) to that message only", () => {
+    const s = play([
+      { type: "message.start", id: "m1", role: "user" },
+      { type: "message.end", id: "m1", text: "hi" },
+      { type: "checkpoint.created", id: "cp_1", reason: "turn", commit: "abc", files: 3, messageId: "m1" },
+      { type: "done", status: "success" },
+      { type: "message.start", id: "m2", role: "user" },
+      { type: "message.end", id: "m2", text: "again" },
+    ]);
+    expect(s.messages.m1.checkpoint).toBe("cp_1");
+    expect(s.messages.m2.checkpoint).toBeUndefined();
+  });
+});
+
+describe("reduceSession: recreate shots", () => {
+  it("keeps the live page's screenshots per run, a re-taken file replacing its entry", () => {
+    const shot = (kind: "peek" | "live", width: number): EventBody => ({
+      type: "recreate.shot",
+      runId: "r1",
+      kind,
+      width,
+      height: 900,
+      path: `.harness/recreate/r1/capture/${kind === "peek" ? `peek/${width}.jpg` : `live/${width}.png`}`,
+    });
+    const s = play([
+      {
+        type: "recreate.started",
+        runId: "r1",
+        url: "https://acme.example/",
+        widths: [],
+        targets: ["static"],
+        dir: ".harness/recreate/r1",
+      },
+      shot("peek", 1440),
+      shot("live", 390),
+      shot("live", 1440),
+      shot("live", 390),
+    ]);
+    const run = s.recreate!.runs.r1;
+    expect(run.shots.map((x) => [x.kind, x.width, x.seq])).toEqual([
+      ["peek", 1440, 2],
+      ["live", 1440, 4],
+      ["live", 390, 5],
+    ]);
+    // the timeline stays unchanged: shots belong to the preview, not to the chat
+    expect(s.timeline.filter((t) => t.kind === "event" && t.event.type === "recreate.shot")).toEqual([]);
   });
 });

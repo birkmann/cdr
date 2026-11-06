@@ -5,15 +5,25 @@ import { spawnSync } from "node:child_process";
 import type { Risk, TodoItem } from "@harness/protocol";
 import type { Tool, ToolContext, ToolResult } from "./types.js";
 import { ToolError } from "./types.js";
-import { hasRipgrep, listProjectFiles, rel, renderTree, resolveInProject } from "./paths.js";
+import {
+  displayPath,
+  hasRipgrep,
+  listProjectFiles,
+  rel,
+  renderTree,
+  resolveInProject,
+  resolveTarget,
+  searchRoot,
+} from "./paths.js";
 import { unifiedDiff } from "../diff.js";
 import { runShell } from "../shell.js";
-import { globToRegExp, truncateMiddle } from "../util.js";
+import { globToRegExp, redact, truncateMiddle } from "../util.js";
 import { harnessHome } from "../config.js";
 import { isReadOnlyCommand } from "../permissions.js";
 import { searchUnsplashTool, useUnsplashPhotoTool } from "./unsplash.js";
 import { loadSkillTool } from "./skill.js";
 import { VIEWPORTS, formatPageReport, probePage } from "./browser.js";
+import { findChrome } from "@harness/capture";
 
 const MAX_READ_BYTES = 2_000_000;
 const DEFAULT_READ_LINES = 2000;
@@ -40,7 +50,7 @@ export const readFileTool: Tool = {
   },
   readOnly: true,
   async execute(args: { path: string; offset?: number; limit?: number }, ctx) {
-    const abs = resolveInProject(ctx.projectRoot, args.path);
+    const { abs } = resolveTarget(ctx, args.path);
     if (!existsSync(abs)) return { ok: false, output: `File not found: ${args.path}` };
     const st = statSync(abs);
     if (st.isDirectory()) return { ok: false, output: `${args.path} is a directory. Use list_dir instead.` };
@@ -68,6 +78,21 @@ export const readFileTool: Tool = {
   },
 };
 
+/** True when a file tool call would write into the chat output folder instead of the project. */
+function isOutputWrite(ctx: ToolContext | undefined, path: unknown): boolean {
+  if (!ctx?.outputDir || typeof path !== "string") return false;
+  try {
+    return resolveTarget(ctx, path, { forWrite: true }).output;
+  } catch {
+    return false;
+  }
+}
+
+/** Files in the output folder are not part of the project: no afterEdit hook, commit or edited-file list. */
+function fileEdit(path: string, output: boolean): Pick<ToolResult, "edited" | "diffPath"> {
+  return output ? { diffPath: path } : { edited: [path] };
+}
+
 export const writeFileTool: Tool = {
   name: "write_file",
   description:
@@ -82,20 +107,22 @@ export const writeFileTool: Tool = {
     required: ["path", "content"],
   },
   readOnly: false,
+  risk: (args, ctx) => (isOutputWrite(ctx, args?.path) ? "low" : "medium"),
   async execute(args: { path: string; content: string }, ctx) {
-    const abs = resolveInProject(ctx.projectRoot, args.path, { forWrite: true });
+    const { abs, output } = resolveTarget(ctx, args.path, { forWrite: true });
     const before = existsSync(abs) ? readFileSync(abs, "utf8") : "";
     const existed = existsSync(abs);
     mkdirSync(dirname(abs), { recursive: true });
     writeFileSync(abs, args.content);
-    const r = rel(ctx.projectRoot, abs);
-    const diff = unifiedDiff(r, before, args.content);
+    const r = displayPath(ctx, abs, output);
+    const label = output ? rel(ctx.outputDir!, abs) : r;
+    const diff = unifiedDiff(label, before, args.content);
     const lines = args.content.split("\n").length;
     return {
       ok: true,
       output: `${existed ? "Overwrote" : "Created"} ${r} (${lines} lines).`,
       diff,
-      edited: [r],
+      ...fileEdit(label, output),
     };
   },
 };
@@ -169,8 +196,9 @@ export const patchFileTool: Tool = {
     required: ["path", "search", "replace"],
   },
   readOnly: false,
+  risk: (args, ctx) => (isOutputWrite(ctx, args?.path) ? "low" : "medium"),
   async execute(args: { path: string; search: string; replace: string; replace_all?: boolean }, ctx) {
-    const abs = resolveInProject(ctx.projectRoot, args.path, { forWrite: true });
+    const { abs, output } = resolveTarget(ctx, args.path, { forWrite: true });
     if (!existsSync(abs))
       return { ok: false, output: `File not found: ${args.path}. Use write_file to create it.` };
     if (args.search === "") return { ok: false, output: "`search` must not be empty." };
@@ -200,13 +228,14 @@ export const patchFileTool: Tool = {
       ? content.split(args.search).join(args.replace)
       : content.replace(args.search, () => args.replace);
     writeFileSync(abs, updated);
-    const r = rel(ctx.projectRoot, abs);
-    const diff = unifiedDiff(r, content, updated);
+    const r = displayPath(ctx, abs, output);
+    const label = output ? rel(ctx.outputDir!, abs) : r;
+    const diff = unifiedDiff(label, content, updated);
     return {
       ok: true,
       output: `Patched ${r} (${positions.length} replacement${positions.length > 1 ? "s" : ""}).\n${diff}`,
       diff,
-      edited: [r],
+      ...fileEdit(label, output),
     };
   },
 };
@@ -225,11 +254,9 @@ export const globTool: Tool = {
   },
   readOnly: true,
   async execute(args: { pattern: string; path?: string }, ctx) {
-    const files = listProjectFiles(ctx.projectRoot, args.path ?? ".");
-    const base =
-      args.path && args.path !== "."
-        ? rel(ctx.projectRoot, resolveInProject(ctx.projectRoot, args.path)) + "/"
-        : "";
+    const { root: searchIn, path } = searchRoot(ctx, args.path);
+    const files = listProjectFiles(searchIn, path);
+    const base = path !== "." ? rel(searchIn, resolveInProject(searchIn, path)) + "/" : "";
     const re = globToRegExp(args.pattern);
     const reBasename = !args.pattern.includes("/") ? re : null;
     const hits = files.filter((f) => {
@@ -262,8 +289,9 @@ export const grepTool: Tool = {
   },
   readOnly: true,
   async execute(args: { pattern: string; path?: string; glob?: string; ignore_case?: boolean }, ctx) {
-    const target = resolveInProject(ctx.projectRoot, args.path ?? ".");
-    const root = resolveInProject(ctx.projectRoot, ".");
+    const { root: searchIn, path } = searchRoot(ctx, args.path);
+    const target = resolveInProject(searchIn, path);
+    const root = resolveInProject(searchIn, ".");
     const max = 300;
     if (hasRipgrep()) {
       const a = [
@@ -281,7 +309,7 @@ export const grepTool: Tool = {
       ];
       if (args.ignore_case) a.push("-i");
       if (args.glob) a.push("-g", args.glob);
-      a.push("-e", args.pattern, "--", rel(ctx.projectRoot, target));
+      a.push("-e", args.pattern, "--", rel(searchIn, target));
       const r = spawnSync("rg", a, { cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
       if (r.status === 2) return { ok: false, output: `grep error: ${r.stderr.trim()}` };
       const lines = r.stdout
@@ -303,8 +331,8 @@ export const grepTool: Tool = {
       return { ok: false, output: `Invalid regex: ${(e as Error).message}` };
     }
     const files = statSync(target).isFile()
-      ? [rel(ctx.projectRoot, target)]
-      : listProjectFiles(ctx.projectRoot, rel(ctx.projectRoot, target));
+      ? [rel(searchIn, target)]
+      : listProjectFiles(searchIn, rel(searchIn, target));
     const g = args.glob ? globToRegExp(args.glob) : null;
     const out: string[] = [];
     for (const f of files) {
@@ -338,14 +366,12 @@ export const listDirTool: Tool = {
   },
   readOnly: true,
   async execute(args: { path?: string; depth?: number }, ctx) {
-    const p = args.path ?? ".";
-    const abs = resolveInProject(ctx.projectRoot, p);
+    const { root: searchIn, path: p } = searchRoot(ctx, args.path);
+    const abs = resolveInProject(searchIn, p);
     if (!existsSync(abs) || !statSync(abs).isDirectory())
-      return { ok: false, output: `Not a directory: ${p}` };
-    const base = rel(ctx.projectRoot, abs);
-    const files = listProjectFiles(ctx.projectRoot, p).map((f) =>
-      base === "." ? f : f.slice(base.length + 1),
-    );
+      return { ok: false, output: `Not a directory: ${args.path ?? "."}` };
+    const base = rel(searchIn, abs);
+    const files = listProjectFiles(searchIn, p).map((f) => (base === "." ? f : f.slice(base.length + 1)));
     return { ok: true, output: files.length ? renderTree(files, Math.max(1, args.depth ?? 2)) : "(empty)" };
   },
 };
@@ -464,33 +490,154 @@ export const todoTool: Tool = {
   },
 };
 
+type MemoryScope = "project" | "user";
+
+function memoryScope(scope: unknown): MemoryScope {
+  return scope === "user" ? "user" : "project";
+}
+
+/** Memory is loaded into every later session, so a user-wide write asks first (in `ask` mode). */
+function memoryRisk(args: { scope?: unknown }): Risk {
+  return memoryScope(args?.scope) === "user" ? "medium" : "low";
+}
+
+function memoryPath(scope: MemoryScope, ctx: ToolContext): string {
+  const dir =
+    scope === "user"
+      ? join(harnessHome(), "memory")
+      : join(resolveInProject(ctx.projectRoot, "."), ".harness", "memory");
+  return join(dir, "MEMORY.md");
+}
+
+function normalizeFact(fact: unknown): string {
+  return String(fact ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Find the bullet lines in MEMORY.md that `query` names: an exact fact wins, otherwise every bullet containing it
+ * (case-insensitive). Returns line indexes.
+ */
+const BULLET = /^\s*[-*]\s+(.*?)\s*$/;
+
+/** The fact on a bullet line ("- fact" or "* fact", any line ending), or undefined for other lines. */
+function bulletFact(line: string): string | undefined {
+  const m = BULLET.exec(line);
+  return m?.[1] ? normalizeFact(m[1]) : undefined;
+}
+
+function matchFacts(lines: string[], query: string): number[] {
+  const bullets = lines.flatMap((l, i) => {
+    const fact = bulletFact(l);
+    return fact ? [{ i, fact }] : [];
+  });
+  const exact = bullets.filter((b) => b.fact === query);
+  if (exact.length) return exact.map((b) => b.i);
+  const q = query.toLowerCase();
+  return bullets.filter((b) => b.fact.toLowerCase().includes(q)).map((b) => b.i);
+}
+
+function withTrailingNewline(text: string): string {
+  return text === "" || text.endsWith("\n") ? text : `${text}\n`;
+}
+
+/** Resolve `query` to exactly one stored fact, or explain why not. */
+function findOneFact(
+  path: string,
+  query: string,
+  scope: MemoryScope,
+): { lines: string[]; index: number } | { error: string } {
+  const lines = existsSync(path) ? readFileSync(path, "utf8").split("\n") : [];
+  const hits = matchFacts(lines, query);
+  if (hits.length === 0) return { error: `No fact in ${scope} memory (${path}) matches "${query}".` };
+  if (hits.length > 1)
+    return {
+      error:
+        `"${query}" matches ${hits.length} ${scope} memories; quote one exactly:\n` +
+        hits.map((i) => lines[i]).join("\n"),
+    };
+  return { lines, index: hits[0]! };
+}
+
 export const rememberTool: Tool = {
   name: "remember",
   description:
     "Save a durable fact for future sessions (project conventions, commands that work, user preferences). " +
-    "scope=project (default) stores it with the repo, scope=user stores it globally.",
+    "scope=project (default) stores it with the repo, scope=user stores it globally. " +
+    "To correct an outdated fact, pass it (or a unique part of it) as `replaces`. Never store secrets.",
+  parameters: {
+    type: "object",
+    properties: {
+      fact: { type: "string" },
+      scope: { type: "string", enum: ["project", "user"] },
+      replaces: {
+        type: "string",
+        description: "An existing fact (or a unique part of it) this one replaces.",
+      },
+    },
+    required: ["fact"],
+  },
+  // It never touches project code, so read-only sessions keep it; `risk` still gates user-wide writes.
+  readOnly: true,
+  risk: memoryRisk,
+  async execute(args: { fact: string; scope?: MemoryScope; replaces?: string }, ctx) {
+    const scope = memoryScope(args.scope);
+    const fact = normalizeFact(args.fact);
+    if (!fact) return { ok: false, output: "Nothing to remember: `fact` is empty." };
+    if (redact(fact) !== fact)
+      return {
+        ok: false,
+        output: "Refused: the fact looks like it contains a secret. Memory must never hold secrets.",
+      };
+    const path = memoryPath(scope, ctx);
+    mkdirSync(dirname(path), { recursive: true });
+    if (!existsSync(path)) writeFileSync(path, "# Memory\n\n");
+
+    const replaces = normalizeFact(args.replaces);
+    if (replaces) {
+      const found = findOneFact(path, replaces, scope);
+      if ("error" in found) return { ok: false, output: found.error };
+      const old = bulletFact(found.lines[found.index]!)!;
+      // drop the old fact and any existing copy of the new one, then append the new one
+      const body = found.lines.filter((l, i) => i !== found.index && bulletFact(l) !== fact).join("\n");
+      writeFileSync(path, `${withTrailingNewline(body)}- ${fact}\n`);
+      ctx.emit({ type: "memory.saved", scope, path, fact, replaced: old });
+      return { ok: true, output: `Replaced in ${scope} memory: "${old}" → "${fact}".` };
+    }
+
+    const current = readFileSync(path, "utf8");
+    if (current.split("\n").some((l) => bulletFact(l) === fact))
+      return { ok: true, output: "Already remembered." };
+    appendFileSync(path, `${current.endsWith("\n") ? "" : "\n"}- ${fact}\n`);
+    ctx.emit({ type: "memory.saved", scope, path, fact });
+    return { ok: true, output: `Saved to ${scope} memory.` };
+  },
+};
+
+export const forgetTool: Tool = {
+  name: "forget",
+  description:
+    "Remove a fact from memory that is wrong or no longer true. `fact` is the stored fact or a unique part of it; " +
+    "scope=project (default) or user. To correct a fact instead, use remember with `replaces`.",
   parameters: {
     type: "object",
     properties: { fact: { type: "string" }, scope: { type: "string", enum: ["project", "user"] } },
     required: ["fact"],
   },
   readOnly: true,
-  risk: () => "low",
-  async execute(args: { fact: string; scope?: "project" | "user" }, ctx) {
-    const scope = args.scope === "user" ? "user" : "project";
-    const dir =
-      scope === "user"
-        ? join(harnessHome(), "memory")
-        : join(resolveInProject(ctx.projectRoot, "."), ".harness", "memory");
-    mkdirSync(dir, { recursive: true });
-    const path = join(dir, "MEMORY.md");
-    if (!existsSync(path)) writeFileSync(path, "# Memory\n\n");
-    const fact = args.fact.replace(/\s+/g, " ").trim();
-    if (readFileSync(path, "utf8").includes(`- ${fact}\n`))
-      return { ok: true, output: "Already remembered." };
-    appendFileSync(path, `- ${fact}\n`);
-    ctx.emit({ type: "memory.saved", scope, path, fact });
-    return { ok: true, output: `Saved to ${scope} memory.` };
+  risk: memoryRisk,
+  async execute(args: { fact: string; scope?: MemoryScope }, ctx) {
+    const scope = memoryScope(args.scope);
+    const query = normalizeFact(args.fact);
+    if (!query) return { ok: false, output: "Nothing to forget: `fact` is empty." };
+    const path = memoryPath(scope, ctx);
+    const found = findOneFact(path, query, scope);
+    if ("error" in found) return { ok: false, output: found.error };
+    const fact = bulletFact(found.lines[found.index]!)!;
+    writeFileSync(path, found.lines.filter((_, i) => i !== found.index).join("\n"));
+    ctx.emit({ type: "memory.removed", scope, path, fact });
+    return { ok: true, output: `Removed from ${scope} memory: "${fact}".` };
   },
 };
 
@@ -527,23 +674,8 @@ export const setPreviewTool: Tool = {
   },
 };
 
-const CHROME_CANDIDATES = [
-  "google-chrome-stable",
-  "google-chrome",
-  "chromium",
-  "chromium-browser",
-  "microsoft-edge",
-];
-let chromePath: string | null | undefined;
-export function findChrome(): string | null {
-  if (chromePath !== undefined) return chromePath;
-  if (process.env.HARNESS_CHROME) return (chromePath = process.env.HARNESS_CHROME);
-  for (const c of CHROME_CANDIDATES) {
-    const r = spawnSync("which", [c], { encoding: "utf8" });
-    if (r.status === 0 && r.stdout.trim()) return (chromePath = r.stdout.trim());
-  }
-  return (chromePath = null);
-}
+/** Chrome / Chromium on this machine (`HARNESS_CHROME` overrides); shared with the recreate capture. */
+export { findChrome };
 
 export const checkPreviewTool: Tool = {
   name: "check_preview",
@@ -604,6 +736,7 @@ export function builtinTools(): Tool[] {
     askUserTool,
     todoTool,
     rememberTool,
+    forgetTool,
     loadSkillTool,
     setPreviewTool,
     checkPreviewTool,

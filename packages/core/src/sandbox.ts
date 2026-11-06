@@ -51,7 +51,9 @@ export function createSandboxDir(name?: string): string {
 }
 
 export const SANDBOX_PROMPT = `# Sandbox workspace
-This project is a fresh sandbox created for this conversation (the folder starts empty apart from .gitignore). You own it: create the project from scratch.
+This project is a fresh sandbox created for this conversation (the folder starts empty apart from .gitignore). You own it, but only build when the user asks for something to be made.
+- Questions, explanations, opinions and casual chat get a text answer only: do not create files, call \`set_preview\` or call \`check_preview\`, even though the folder is empty.
+- When the user does ask you to build something, create the project from scratch.
 - Prefer self-contained, dependency-free solutions (plain HTML/CSS/JavaScript in an index.html, or a small Node/Python script) unless the user asks for a framework.
 - If you need packages, install them with the package manager (network may be available); keep it minimal.
 - For anything viewable in a browser (game, page, UI, chart): build it as a static HTML file (inline or relative scripts/styles; or build it and use the built index.html). As soon as a first working version exists, call \`set_preview\` – the user sees it live and can try it while you continue.

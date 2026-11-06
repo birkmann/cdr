@@ -17,6 +17,31 @@ import { unifiedDiff } from "./diff.js";
 import { slugify } from "./util.js";
 
 export const WORKFLOW_PRESETS: Record<string, WorkflowDef> = {
+  recreate: {
+    name: "recreate",
+    description: "1:1 recreation of a URL: capture (consent) → build → measure → finish",
+    phases: [
+      {
+        phase: "execute",
+        model: "executor",
+        tools: [
+          "load_skill",
+          "recreate_capture",
+          "recreate_build",
+          "recreate_measure",
+          "recreate_section",
+          "recreate_components",
+          "recreate_convert",
+          "read_file",
+          "patch_file",
+          "set_preview",
+        ],
+        prompt:
+          "Load the recreate-url skill first and follow it: recreate_capture (it asks the user for consent), recreate_build, recreate_measure, then report the numbers, the compare page and the rights notice. Do not repair sections unless the user asks for it; then follow the skill's repair rules (recreate_section, then patch_file inside the section markers only; never change copy or photos; at most two attempts per section) and measure again.",
+      },
+      { phase: "finish" },
+    ],
+  },
   default: {
     name: "default",
     description: "plan (approval) → execute → verify → review → finish",

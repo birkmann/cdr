@@ -6,7 +6,7 @@ body:
     id: surface
     attributes:
       label: Where did it happen?
-      options: [Terminal (morrow), Web app (morrow serve), Desktop app (CDR Studio), SDK / API, Other]
+      options: [Terminal (cdr), Web app (cdr serve), Desktop app (CDR Studio), SDK / API, Other]
     validations: { required: true }
   - type: textarea
     id: what
@@ -31,5 +31,5 @@ body:
     id: logs
     attributes:
       label: Logs or events
-      description: Remove API keys and private code first. `morrow --json` prints the event stream.
+      description: Remove API keys and private code first. `cdr run --json` prints the event stream.
       render: text

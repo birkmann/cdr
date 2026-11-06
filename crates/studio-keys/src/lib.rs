@@ -13,7 +13,7 @@
 //! secrets (never values) are kept in a small index JSON file in the app's
 //! config directory; [`KeyStore::list_known`] reads it.
 //!
-//! Set `MORROW_KEYS_BACKEND=file` to force the file backend.
+//! Set `CDR_KEYS_BACKEND=file` to force the file backend.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -25,11 +25,11 @@ use keyring_core::CredentialStore;
 use serde::{Deserialize, Serialize, Serializer};
 
 /// Service name used for every keychain entry.
-pub const SERVICE: &str = "morrow-studio";
+pub const SERVICE: &str = "cdr-studio";
 
 const INDEX_FILE: &str = "keys-index.json";
 const SECRETS_FILE: &str = "secrets.json";
-const PROBE_NAME: &str = "__morrow_studio_probe__";
+const PROBE_NAME: &str = "__cdr_studio_probe__";
 
 /// Errors of this crate; serializes as its message string.
 #[derive(Debug, thiserror::Error)]
@@ -188,11 +188,9 @@ impl KeyStore {
     /// otherwise the file backend in `fallback_dir`. The name index lives in
     /// `config_dir`.
     pub fn open(config_dir: impl AsRef<Path>, fallback_dir: impl AsRef<Path>) -> Result<KeyStore> {
-        let forced_file = std::env::var("CDR_KEYS_BACKEND")
-            .or_else(|_| std::env::var("MORROW_KEYS_BACKEND"))
-            .is_ok_and(|v| v == "file");
+        let forced_file = std::env::var("CDR_KEYS_BACKEND").is_ok_and(|v| v == "file");
         let reason = if forced_file {
-            "MORROW_KEYS_BACKEND=file".to_string()
+            "CDR_KEYS_BACKEND=file".to_string()
         } else {
             match platform_store().and_then(|(s, name)| probe(&s).map(|_| (s, name))) {
                 Ok((store, name)) => return Ok(Self::with_store(config_dir, store, name)),

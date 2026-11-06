@@ -1,6 +1,27 @@
 import { stripVTControlCharacters } from "node:util";
 
+/** "default" means the terminal's own foreground/background, so the UI inherits the user's theme. */
+export const DEFAULT = "default";
 export const theme = {
+  bg: DEFAULT,
+  panel: "#2b2c2e",
+  selected: "#44464b",
+  text: DEFAULT,
+  muted: "#a0a3aa",
+  faint: "#7d8087",
+  border: "#4c4d50",
+  accent: "#d4a05a",
+  onAccent: "#1c1c1c",
+  green: "#8fc98f",
+  red: "#e59595",
+  blue: "#a5bed3",
+  code: "#242527",
+  diffAdd: "#1f3a26",
+  diffDel: "#44232a",
+};
+export type Palette = typeof theme;
+/** The earlier Classic look (`/terminal-design classic`): painted graphite background, lime accent. */
+export const classicTheme: Palette = {
   bg: "#1c1c1c",
   panel: "#2b2c2e",
   selected: "#44464b",
@@ -9,10 +30,13 @@ export const theme = {
   faint: "#92969e",
   border: "#4c4d50",
   accent: "#c8f56b",
+  onAccent: "#1c1c1c",
   green: "#a6c998",
   red: "#e59595",
   blue: "#a5bed3",
   code: "#242527",
+  diffAdd: "#1f3a26",
+  diffDel: "#44232a",
 };
 export type Style = { fg?: string; bg?: string; bold?: boolean };
 type Cell = { char: string; fg: string; bg: string; bold: boolean };
@@ -79,18 +103,20 @@ export function wrap(text: string, columns: number): string[] {
 export class Canvas {
   readonly cells: Cell[][];
   cursor?: { x: number; y: number };
+  /** `base` is the colour of empty cells and of text drawn without its own foreground. */
   constructor(
     readonly columns: number,
     readonly rows: number,
+    readonly base: { fg: string; bg: string } = { fg: theme.text, bg: theme.bg },
   ) {
     this.cells = Array.from({ length: rows }, () =>
-      Array.from({ length: columns }, () => ({ char: " ", fg: theme.text, bg: theme.bg, bold: false })),
+      Array.from({ length: columns }, () => ({ char: " ", fg: base.fg, bg: base.bg, bold: false })),
     );
   }
   fill(x: number, y: number, w: number, h: number, bg = theme.panel) {
     for (let row = Math.max(0, y); row < Math.min(this.rows, y + h); row++)
       for (let col = Math.max(0, x); col < Math.min(this.columns, x + w); col++)
-        this.cells[row][col] = { char: " ", fg: theme.text, bg, bold: false };
+        this.cells[row][col] = { char: " ", fg: this.base.fg, bg, bold: false };
   }
   text(x: number, y: number, text: string, style: Style = {}, max = this.columns - x) {
     if (y < 0 || y >= this.rows) return;
@@ -102,7 +128,7 @@ export class Canvas {
       if (col >= 0) {
         this.cells[y][col] = {
           char: c,
-          fg: style.fg ?? theme.text,
+          fg: style.fg ?? this.base.fg,
           bg: style.bg ?? this.cells[y][col].bg,
           bold: style.bold ?? false,
         };
@@ -126,7 +152,7 @@ export class Canvas {
         const key = `${c.fg}:${c.bg}:${c.bold}`;
         if (key !== last) {
           out += color
-            ? `\x1b[0;${c.bold ? "1;" : ""}38;2;${rgb(c.fg)};48;2;${rgb(c.bg)}m`
+            ? `\x1b[0;${c.bold ? "1;" : ""}${paint(c.fg, 38)};${paint(c.bg, 48)}m`
             : c.bold
               ? "\x1b[1m"
               : "\x1b[0m";
@@ -141,13 +167,20 @@ export class Canvas {
 function rgb(hex: string) {
   return [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(";");
 }
+/** SGR colour parameter: truecolor for hex values, the terminal default for the sentinel. */
+function paint(color: string, base: 38 | 48) {
+  return color === DEFAULT ? `${base + 1}` : `${base};2;${rgb(color)}`;
+}
 
 /** Paint changed rows only; preserve shell scrollback in the alternate screen. */
 export class Screen {
   private previous: string[] = [];
   constructor(private out: NodeJS.WriteStream) {}
   open() {
-    this.out.write("\x1b[?1049h\x1b[?25l\x1b[?7l\x1b[?2004h\x1b[2J");
+    // Mouse reporting (press + SGR encoding) makes the wheel arrive as mouse events instead of
+    // the terminal faking Up/Down arrows, which would recall prompt history.
+    const mouse = process.env.CDR_NO_MOUSE ? "" : "\x1b[?1000h\x1b[?1006h";
+    this.out.write(`\x1b[?1049h\x1b[?25l\x1b[?7l\x1b[?2004h${mouse}\x1b[2J`);
   }
   reset() {
     this.previous = [];
@@ -164,7 +197,7 @@ export class Screen {
     this.out.write(out);
   }
   close() {
-    this.out.write("\x1b[0m\x1b[?2004l\x1b[?7h\x1b[?25h\x1b[?1049l");
+    this.out.write("\x1b[0m\x1b[?1006l\x1b[?1000l\x1b[?2004l\x1b[?7h\x1b[?25h\x1b[?1049l");
     this.previous = [];
   }
 }

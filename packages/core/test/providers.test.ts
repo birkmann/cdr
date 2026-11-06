@@ -18,6 +18,59 @@ function fakeFetch(responses: (Response | ((body: any) => Response))[]) {
   return { fn, bodies };
 }
 
+describe("provider account balance", () => {
+  const balanceFetch = (res: Response) => {
+    const calls: { url: string; headers: Record<string, string> }[] = [];
+    const fn = (async (url: string, init: RequestInit) => {
+      calls.push({ url, headers: init.headers as Record<string, string> });
+      return res;
+    }) as unknown as typeof fetch;
+    return { fn, calls };
+  };
+
+  it("reads DeepSeek's /user/balance with the bearer key and parses amounts", async () => {
+    const f = balanceFetch(
+      Response.json({
+        is_available: true,
+        balance_infos: [
+          { currency: "USD", total_balance: "18.03", granted_balance: "0.00", topped_up_balance: "18.03" },
+          { currency: "CNY", total_balance: "bad" },
+        ],
+      }),
+    );
+    const p = new OpenAICompatibleProvider({
+      id: "deepseek",
+      baseURL: "https://api.deepseek.com/",
+      apiKey: "sk-test",
+      fetch: f.fn,
+    });
+    expect(await p.getBalance()).toEqual([{ currency: "USD", total: 18.03, granted: 0, toppedUp: 18.03 }]);
+    expect(f.calls[0].url).toBe("https://api.deepseek.com/user/balance");
+    expect(f.calls[0].headers.authorization).toBe("Bearer sk-test");
+  });
+
+  it("returns null for providers without a balance API and never leaks the key on errors", async () => {
+    const other = balanceFetch(Response.json({}));
+    const p = new OpenAICompatibleProvider({
+      id: "x",
+      baseURL: "https://api.example.com/v1",
+      apiKey: "sk-x",
+      fetch: other.fn,
+    });
+    expect(await p.getBalance()).toBeNull();
+    expect(other.calls).toHaveLength(0);
+    const bad = new OpenAICompatibleProvider({
+      id: "deepseek",
+      baseURL: "https://api.deepseek.com",
+      apiKey: "sk-secret-123",
+      fetch: balanceFetch(new Response("invalid key sk-secret-123", { status: 401 })).fn,
+    });
+    const err = await bad.getBalance().catch((e: Error) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toBe("deepseek: GET /user/balance -> 401");
+  });
+});
+
 describe("OpenAI-compatible provider", () => {
   it("sends DeepSeek's native thinking controls, leaving defaults and unrelated APIs untouched", async () => {
     const f = fakeFetch(Array.from({ length: 7 }, () => sseResponse(["[DONE]"])));
@@ -194,6 +247,116 @@ describe("OpenAI-compatible provider", () => {
     expect(r.toolCalls).toHaveLength(1);
     expect(r.toolCalls[0].name).toBe("read_file");
     expect(p.capabilities("gemma").tools).toBe(false);
+  });
+});
+
+describe("model discovery with capabilities", () => {
+  function urlFetch(routes: Record<string, unknown | number>) {
+    const urls: string[] = [];
+    const fn = (async (url: string) => {
+      urls.push(url);
+      const hit = routes[url];
+      if (hit === undefined || typeof hit === "number")
+        return new Response("nope", { status: (hit as number | undefined) ?? 404 });
+      return new Response(JSON.stringify(hit), { status: 200 });
+    }) as unknown as typeof fetch;
+    return { fn, urls };
+  }
+
+  it("reads capabilities and context length from Ollama's native tag list", async () => {
+    const f = urlFetch({
+      "http://x:11434/api/tags": {
+        models: [
+          {
+            model: "qwen3.8:latest",
+            capabilities: ["completion", "tools", "thinking", "vision"],
+            details: { context_length: 262144 },
+          },
+          {
+            model: "nomic-embed-text:latest",
+            capabilities: ["embedding"],
+            details: { context_length: 2048 },
+          },
+          { model: "plain", capabilities: ["completion"] },
+        ],
+      },
+    });
+    const p = new OpenAICompatibleProvider({ id: "local", baseURL: "http://x:11434/v1", fetch: f.fn });
+    expect(await p.listModelDetails()).toEqual([
+      { id: "nomic-embed-text:latest", capabilities: ["embedding"], contextWindow: 2048 },
+      { id: "plain" },
+      {
+        id: "qwen3.8:latest",
+        capabilities: ["thinking", "tools", "vision"],
+        contextWindow: 262144,
+      },
+    ]);
+    expect(await p.listModels()).toEqual(["nomic-embed-text:latest", "plain", "qwen3.8:latest"]);
+  });
+
+  it("falls back to ids from /models when the server is not Ollama, without probing it", async () => {
+    const f = urlFetch({ "http://x/v1/models": { data: [{ id: "b" }, { id: "a" }] } });
+    const p = new OpenAICompatibleProvider({ id: "lm", baseURL: "http://x/v1", apiKey: "k", fetch: f.fn });
+    expect(await p.listModelDetails()).toEqual([{ id: "a" }, { id: "b" }]);
+    expect(f.urls).toEqual(["http://x/v1/models"]);
+  });
+
+  it("asks /api/show for capabilities when a stock Ollama's tag list has none", async () => {
+    const calls: { url: string; body?: string }[] = [];
+    const fn = (async (url: string, init?: RequestInit) => {
+      calls.push({ url, body: init?.body as string | undefined });
+      if (url.endsWith("/api/tags"))
+        return new Response(JSON.stringify({ models: [{ model: "qwen:latest" }] }));
+      if (url.endsWith("/api/show"))
+        return new Response(
+          JSON.stringify({
+            capabilities: ["completion", "tools"],
+            model_info: { "qwen2.context_length": 32768 },
+          }),
+        );
+      return new Response("nope", { status: 404 });
+    }) as unknown as typeof fetch;
+    const p = new OpenAICompatibleProvider({ id: "local", baseURL: "http://localhost:11434/v1", fetch: fn });
+    expect(await p.listModelDetails()).toEqual([
+      { id: "qwen:latest", capabilities: ["tools"], contextWindow: 32768 },
+    ]);
+    expect(calls[1]).toEqual({
+      url: "http://localhost:11434/api/show",
+      body: JSON.stringify({ model: "qwen:latest" }),
+    });
+  });
+
+  it("lets config override what the server reports", async () => {
+    const f = urlFetch({
+      "http://x:11434/api/tags": {
+        models: [
+          { model: "m1", capabilities: ["tools"], details: { context_length: 1000 } },
+          { model: "m2", capabilities: ["tools", "vision"] },
+        ],
+      },
+    });
+    const p = new OpenAICompatibleProvider({
+      id: "t",
+      baseURL: "http://x:11434/v1",
+      fetch: f.fn,
+      models: {
+        m1: { vision: true, reasoning: true, contextWindow: 32000 },
+        m2: { tools: false, vision: false },
+      },
+    });
+    expect(await p.listModelDetails()).toEqual([
+      { id: "m1", capabilities: ["thinking", "tools", "vision"], contextWindow: 32000 },
+      { id: "m2" },
+    ]);
+  });
+
+  it("reports an unreachable server instead of an empty list", async () => {
+    const p = new OpenAICompatibleProvider({
+      id: "t",
+      baseURL: "http://x/v1",
+      fetch: urlFetch({}).fn,
+    });
+    await expect(p.listModelDetails()).rejects.toThrow(/GET \/models -> 404/);
   });
 });
 

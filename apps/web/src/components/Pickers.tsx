@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import type { BrowseResponse, ReasoningEffort } from "@harness/client";
+import type {
+  AvailableModels,
+  BrowseResponse,
+  ModelDetail,
+  ModelListEntry,
+  ReasoningEffort,
+} from "@harness/client";
 import { basename, useApp, useKnownProjects, type PermissionMode } from "../app-state";
 import { IconCheck, IconChevron, IconFolder, IconGit, IconSparkle, IconUp, IconX } from "./icons";
 
@@ -387,6 +393,74 @@ export function EffortPicker({
   );
 }
 
+/** Configured models (from the role settings) as provider groups, before full discovery answers. */
+function groupConfigured(models: ModelListEntry[]): Record<string, AvailableModels> {
+  const groups: Record<string, AvailableModels> = {};
+  for (const m of models) {
+    const entry = (groups[m.provider] ??= { models: [] });
+    const name = m.id.slice(m.provider.length + 1);
+    if (!entry.models.includes(name)) entry.models.push(name);
+    if (!m.configured) entry.error = "Provider needs configuration";
+  }
+  return groups;
+}
+
+/** Context size as providers advertise it: 128000 is "128K", 262144 is "256K", 1000000 is "1M". */
+export function contextLabel(tokens: number): string {
+  const short = (n: number, unit: number, suffix: string) => {
+    const v = n / unit;
+    return `${v >= 10 ? Math.round(v) : Math.round(v * 10) / 10}${suffix}`;
+  };
+  // Powers of two (32768, 131072, 262144) are binary sizes; everything else is decimal.
+  const binary = tokens >= 1024 && tokens % 1024 === 0;
+  if (tokens >= 1_000_000) return `${short(tokens, binary ? 1024 * 1024 : 1_000_000, "M")} context`;
+  if (tokens >= 1000) return `${short(tokens, binary ? 1024 : 1000, "K")} context`;
+  return `${tokens} context`;
+}
+
+/** Discovery answers per project, so reopening the picker does not contact every provider again. */
+const discovered = new Map<string, Record<string, AvailableModels>>();
+
+/** Discovered providers win; configured ones that discovery skips (no model listing, not configured) stay. */
+function mergeModels(
+  configured: Record<string, AvailableModels> | undefined,
+  found: Record<string, AvailableModels> | undefined,
+): Record<string, AvailableModels> | undefined {
+  if (!configured && !found) return undefined;
+  return { ...configured, ...found };
+}
+
+/** Capability badges for one model: vision, tools, thinking and context size, when known. */
+function ModelBadges({ detail }: { detail?: ModelDetail }) {
+  const caps = detail?.capabilities ?? [];
+  const items: ReactNode[] = [];
+  if (caps.includes("vision"))
+    items.push(
+      <span key="vision" className="cap vision">
+        vision
+      </span>,
+    );
+  if (caps.includes("tools"))
+    items.push(
+      <span key="tools" className="cap">
+        tools
+      </span>,
+    );
+  if (caps.includes("thinking"))
+    items.push(
+      <span key="thinking" className="cap">
+        thinking
+      </span>,
+    );
+  if (detail?.contextWindow)
+    items.push(
+      <span key="context" className="cap quiet">
+        {contextLabel(detail.contextWindow)}
+      </span>,
+    );
+  return items.length ? <span className="cap-list">{items}</span> : null;
+}
+
 function ModelMenu({
   value,
   defaultLabel,
@@ -399,43 +473,71 @@ function ModelMenu({
   onPick(ref: string): void;
 }) {
   const { client } = useApp();
-  const [available, setAvailable] = useState<Record<string, { models: string[]; error?: string }>>();
-  const [loadingRemote, setLoadingRemote] = useState(false);
+  const key = projectPath ?? "";
+  const [configured, setConfigured] = useState<Record<string, AvailableModels>>();
+  const [found, setFound] = useState<Record<string, AvailableModels> | undefined>(() => discovered.get(key));
+  const available = mergeModels(configured, found);
+  const [loading, setLoading] = useState(false);
+  const [failed, setFailed] = useState(false);
   const [filter, setFilter] = useState("");
+  // Only the latest request may update the list, so a slow answer cannot overwrite a newer one.
+  const latest = useRef(0);
+  const refresh = () => {
+    if (!client) return;
+    const mine = ++latest.current;
+    setLoading(true);
+    setFailed(false);
+    client
+      .availableModels(projectPath)
+      .then((r) => {
+        discovered.set(key, r);
+        if (mine === latest.current) setFound(r);
+      })
+      .catch(() => {
+        if (mine === latest.current) setFailed(true);
+      })
+      .finally(() => {
+        if (mine === latest.current) setLoading(false);
+      });
+  };
   useEffect(() => {
     if (!client) return;
     let live = true;
-    setAvailable(undefined);
+    latest.current++; // an answer still in flight for the previous project must not land here
+    setLoading(false);
+    setFailed(false);
+    // A different project has different models: drop the old list instead of showing it until the new one answers.
+    setConfigured(undefined);
+    setFound(discovered.get(key));
+    // Configured models show straight away; discovery (with capabilities) adds to them. Discovery contacts every
+    // provider, so it runs once per project; the Refresh button runs it again.
     void client
       .models(projectPath)
-      .then((r) => {
-        const groups: Record<string, { models: string[]; error?: string }> = {};
-        for (const m of r.models) {
-          const entry = (groups[m.provider] ??= {
-            models: [],
-            ...(!m.configured ? { error: "Provider needs configuration" } : {}),
-          });
-          const name = m.id.slice(m.provider.length + 1);
-          if (!entry.models.includes(name)) entry.models.push(name);
-        }
-        if (live) setAvailable(groups);
-      })
-      .catch(() => live && setAvailable({}));
+      .then((r) => live && setConfigured(groupConfigured(r.models)))
+      .catch(() => {});
+    if (!discovered.has(key)) refresh();
     return () => {
       live = false;
     };
+    // refresh is recreated each render; it only needs to run when the client or project changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [client, projectPath]);
-  const discover = async () => {
-    if (!client) return;
-    setLoadingRemote(true);
-    try {
-      const found = await client.availableModels(projectPath);
-      setAvailable((current) => ({ ...current, ...found }));
-    } finally {
-      setLoadingRemote(false);
-    }
-  };
-  const f = filter.toLowerCase();
+  const f = filter.trim().toLowerCase();
+  const groups = Object.entries(available ?? {}).flatMap(([provider, entry]) => {
+    const byId = new Map((entry.details ?? []).map((d) => [d.id, d]));
+    const models = entry.models.flatMap((name) => {
+      const detail = byId.get(name);
+      const caps = detail?.capabilities ?? [];
+      // Embedding-only models cannot chat, so they are not offered.
+      if (caps.includes("embedding")) return [];
+      const searchable = `${provider}/${name} ${caps.join(" ")}`.toLowerCase();
+      return searchable.includes(f) ? [{ name, detail }] : [];
+    });
+    if (!models.length && !entry.error) return [];
+    return [{ provider, entry, models }];
+  });
+  const offered = groups.reduce((n, g) => n + g.models.length, 0);
+  const anyError = Object.values(available ?? {}).some((e) => !!e.error);
   return (
     <div className="picker wide">
       <div className="picker-head">Model</div>
@@ -447,20 +549,20 @@ function ModelMenu({
           placeholder="Filter or type provider/model…"
         />
       </div>
-      <button
-        className="ghost tiny"
-        disabled={loadingRemote}
-        onClick={() =>
-          void discover().catch(() =>
-            setAvailable((a) => ({
-              ...a,
-              connection: { models: [], error: "Could not reach the providers. Try again." },
-            })),
-          )
-        }
-      >
-        {loadingRemote ? "Discovering…" : "Discover more models"}
-      </button>
+      <div className="model-status">
+        <span className="muted small">
+          {loading
+            ? "Checking providers…"
+            : failed
+              ? "Could not reach the providers."
+              : available
+                ? `${offered} model${offered === 1 ? "" : "s"}`
+                : ""}
+        </span>
+        <button className="ghost tiny" disabled={loading} onClick={refresh}>
+          {loading ? "Refreshing…" : "Refresh"}
+        </button>
+      </div>
       <div className="picker-list tall">
         <Option
           active={!value}
@@ -476,21 +578,27 @@ function ModelMenu({
           />
         )}
         {!available && <div className="muted pad">Loading models from providers…</div>}
-        {available &&
-          Object.entries(available).map(([provider, { models, error }]) => {
-            const list = models.filter((m) => `${provider}/${m}`.toLowerCase().includes(f));
-            if (!list.length && !error) return null;
-            return (
-              <div key={provider}>
-                <div className="group-head">{provider}</div>
-                {error && <div className="muted pad small">{error}</div>}
-                {list.map((m) => {
-                  const ref = `${provider}/${m}`;
-                  return <Option key={ref} active={value === ref} title={m} onClick={() => onPick(ref)} />;
-                })}
-              </div>
-            );
-          })}
+        {groups.map(({ provider, entry, models }) => (
+          <div key={provider}>
+            <div className="group-head">{provider}</div>
+            {entry.error && <div className="muted pad small">{entry.error}</div>}
+            {models.map(({ name, detail }) => {
+              const ref = `${provider}/${name}`;
+              return (
+                <Option
+                  key={ref}
+                  active={value === ref}
+                  title={name}
+                  desc={<ModelBadges detail={detail} />}
+                  onClick={() => onPick(ref)}
+                />
+              );
+            })}
+          </div>
+        ))}
+        {available && !offered && !anyError && (
+          <div className="muted pad small">No model matches “{filter.trim()}”.</div>
+        )}
       </div>
     </div>
   );

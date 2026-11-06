@@ -16,7 +16,7 @@ export interface Terminal {
 
 export function createTerminal(
   output: NodeJS.WritableStream = process.stdout,
-  opts: { input?: NodeJS.ReadableStream; history?: string[] } = {},
+  opts: { input?: NodeJS.ReadableStream; history?: string[]; skills?: string[] } = {},
 ): Terminal {
   const input = opts.input ?? process.stdin;
   const isTTY = !!(input as NodeJS.ReadStream).isTTY && !!(output as NodeJS.WriteStream).isTTY;
@@ -24,7 +24,7 @@ export function createTerminal(
     input,
     output,
     terminal: isTTY,
-    completer: completeCommand,
+    completer: (line: string) => completeCommand(line, opts.skills),
     history: opts.history?.slice(-200).reverse(),
     historySize: 200,
     removeHistoryDuplicates: true,

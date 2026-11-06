@@ -72,7 +72,7 @@ pub fn run() {
             let config_dir = app
                 .path()
                 .app_config_dir()
-                .unwrap_or_else(|_| PathBuf::from(".morrow-studio"));
+                .unwrap_or_else(|_| PathBuf::from(".cdr-studio"));
             let _ = std::fs::create_dir_all(&config_dir);
             let settings_path = config_dir.join("settings.json");
             let state = AppState {

@@ -17,6 +17,13 @@ export interface Skill {
   triggers: RegExp[];
   /** Where auto-activation is allowed: sandbox sessions only (default), every session, or never. */
   auto: "sandbox" | "always" | "never";
+  /**
+   * `disable-model-invocation: true`: only the user can start the skill (by selecting it for a message).
+   * It is left out of the agent's skill index, but stays loadable by name so other skills can refer to it.
+   */
+  userOnly: boolean;
+  /** Hint shown after the skill name when the user selects it (`argument-hint`). */
+  argumentHint?: string;
   /** Markdown instructions without the frontmatter. */
   body: string;
   /** Absolute folder of the skill (reference files are resolved inside it). */
@@ -44,7 +51,9 @@ function hasSkillFolders(dir: string): boolean {
 
 function unquote(v: string): string {
   const t = v.trim();
-  if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) return t.slice(1, -1);
+  if (t.length >= 2 && t.startsWith('"') && t.endsWith('"'))
+    return t.slice(1, -1).replace(/\\(["\\])/g, "$1");
+  if (t.length >= 2 && t.startsWith("'") && t.endsWith("'")) return t.slice(1, -1).replace(/''/g, "'");
   return t;
 }
 
@@ -98,11 +107,15 @@ export function readSkill(dir: string, source: Skill["source"]): Skill | null {
     }
   }
   const auto = str(data.auto).trim();
+  const userOnly = str(data["disable-model-invocation"]).trim() === "true";
+  const argumentHint = str(data["argument-hint"]).trim();
   return {
     name,
     description,
     triggers,
-    auto: auto === "always" || auto === "never" ? auto : "sandbox",
+    auto: userOnly ? "never" : auto === "always" || auto === "never" ? auto : "sandbox",
+    userOnly,
+    ...(argumentHint ? { argumentHint } : {}),
     body: body.trim(),
     dir: realpathSync(dir),
     source,
@@ -154,11 +167,12 @@ export function discoverSkills(projectRoot: string, config?: HarnessConfig): Ski
 
 /** System-prompt section listing the available skills (names and descriptions only). */
 export function skillsIndex(skills: Skill[], active: string[] = []): string {
-  if (!skills.length) return "";
-  const lines = skills.map(
+  const listed = skills.filter((s) => !s.userOnly || active.includes(s.name));
+  if (!listed.length) return "";
+  const lines = listed.map(
     (s) => `- **${s.name}**${active.includes(s.name) ? " (already loaded below)" : ""}: ${s.description}`,
   );
-  return `# Skills\nSkills are expert instructions for specific kinds of work. Before starting work that a skill covers, call \`load_skill\` with its name and follow it. Skills marked as loaded are already included in this prompt.\n${lines.join("\n")}`;
+  return `# Skills\nSkills are expert instructions for specific kinds of work. Before starting work that a skill covers, call \`load_skill\` with its name and follow it. Skills marked as loaded are already included in this prompt. When a skill mentions another skill as \`/name\`, load that skill with \`load_skill\`.\n${lines.join("\n")}`;
 }
 
 /** Skills whose triggers match the task and whose `auto` scope allows this session. */
@@ -169,10 +183,64 @@ export function matchSkills(skills: Skill[], task: string, opts: { sandbox: bool
   });
 }
 
+/** Resolve skills the user selected for a message; unknown names are returned separately. */
+export function selectSkills(skills: Skill[], names: string[]): { selected: Skill[]; unknown: string[] } {
+  const selected: Skill[] = [];
+  const unknown: string[] = [];
+  for (const n of new Set(names)) {
+    const s = skills.find((x) => x.name === n);
+    if (s) selected.push(s);
+    else unknown.push(n);
+  }
+  return { selected, unknown };
+}
+
+/**
+ * Imported skills (Claude Code format) refer to each other as `call the Skill tool with "name"` or
+ * `call the Skill tool twice, for "a" and "b"`. Returns the known skill names a skill refers to that way.
+ */
+export function skillReferences(s: Skill, skills: Skill[]): string[] {
+  const known = new Set(skills.map((x) => x.name));
+  const out: string[] = [];
+  for (const sentence of s.body.split(/(?<=[.!?:])\s+|\n/))
+    if (/\bSkill tool\b/.test(sentence))
+      for (const m of sentence.matchAll(/["`]([a-z0-9][a-z0-9-]{0,63})["`]/g))
+        if (known.has(m[1]) && m[1] !== s.name && !out.includes(m[1])) out.push(m[1]);
+  return out;
+}
+
+/** A skill whose every instruction is a hand-off to other skills (e.g. grill-me → grilling). */
+function isRedirect(s: Skill): boolean {
+  const lines = s.body.split("\n").filter((l) => l.trim());
+  return lines.length > 0 && lines.every((l) => /\bSkill tool\b/.test(l));
+}
+
+/**
+ * Skills that active redirect skills hand off to, recursively, excluding ones already active. They are
+ * injected alongside, so the hand-off works even for models that ignore it or sessions without load_skill.
+ */
+export function delegatedSkills(active: Skill[], skills: Skill[]): Skill[] {
+  const out: Skill[] = [];
+  const has = (n: string) => active.some((s) => s.name === n) || out.some((s) => s.name === n);
+  const visit = (s: Skill) => {
+    if (!isRedirect(s)) return;
+    for (const n of skillReferences(s, skills)) {
+      const target = skills.find((x) => x.name === n);
+      if (!target || has(n)) continue;
+      out.push(target);
+      visit(target);
+    }
+  };
+  active.forEach(visit);
+  return out;
+}
+
 /** Full skill text as injected into a prompt or returned by load_skill. */
 export function renderSkill(s: Skill): string {
   const refs = listSkillFiles(s);
-  return `<skill name="${s.name}">\n${s.body}${refs.length ? `\n\nReference files (read with load_skill { name: "${s.name}", file }): ${refs.join(", ")}` : ""}\n</skill>`;
+  // This harness's tool for loading skills is load_skill, not Claude Code's Skill tool.
+  const body = s.body.replace(/\bthe Skill tool\b/g, "`load_skill`");
+  return `<skill name="${s.name}">\n${body}${refs.length ? `\n\nReference files (read with load_skill { name: "${s.name}", file }): ${refs.join(", ")}` : ""}\n</skill>`;
 }
 
 /** Files inside the skill folder other than SKILL.md (relative, `/`-separated, max depth 3). */

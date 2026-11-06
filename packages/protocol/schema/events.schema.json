@@ -132,6 +132,28 @@
         }
       ]
     },
+    "CheckpointChange": {
+      "additionalProperties": false,
+      "description": "One file a checkpoint restore changes: back to its old content, deleted (it did not exist yet) or recreated.",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "modified",
+            "deleted",
+            "added"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "status"
+      ],
+      "type": "object"
+    },
     "CriterionResult": {
       "additionalProperties": false,
       "description": "Result of checking one acceptance criterion (autonomous workflow review).",
@@ -592,6 +614,45 @@
         {
           "additionalProperties": false,
           "properties": {
+            "id": {
+              "type": "string"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "reasoning.summary",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "id",
+            "seq",
+            "sessionId",
+            "text",
+            "ts",
+            "type",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
             "attachments": {
               "items": {
                 "$ref": "#/definitions/AttachmentInfo"
@@ -607,6 +668,13 @@
             },
             "sessionId": {
               "type": "string"
+            },
+            "skills": {
+              "description": "Skills the user selected for this message (user messages only).",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
             },
             "text": {
               "type": "string"
@@ -1253,10 +1321,75 @@
         {
           "additionalProperties": false,
           "properties": {
+            "agent": {
+              "type": "string"
+            },
+            "count": {
+              "description": "How many times this agent's context has been compacted so far in this run.",
+              "type": "number"
+            },
+            "historyPath": {
+              "description": "Project-relative file holding the raw history that was removed (searchable by the agent).",
+              "type": "string"
+            },
+            "method": {
+              "description": "\"prune\": old tool output/images trimmed only; \"brief\": older history replaced by an execution brief.",
+              "enum": [
+                "prune",
+                "brief"
+              ],
+              "type": "string"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "tokensAfter": {
+              "type": "number"
+            },
+            "tokensBefore": {
+              "description": "Estimated context tokens before and after.",
+              "type": "number"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "context.compacted",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "agent",
+            "count",
+            "method",
+            "seq",
+            "sessionId",
+            "tokensAfter",
+            "tokensBefore",
+            "ts",
+            "type",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
             "fact": {
               "type": "string"
             },
             "path": {
+              "type": "string"
+            },
+            "replaced": {
               "type": "string"
             },
             "scope": {
@@ -1300,6 +1433,53 @@
         {
           "additionalProperties": false,
           "properties": {
+            "fact": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            },
+            "scope": {
+              "enum": [
+                "project",
+                "user"
+              ],
+              "type": "string"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "memory.removed",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "fact",
+            "path",
+            "scope",
+            "seq",
+            "sessionId",
+            "ts",
+            "type",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
             "content": {
               "description": "The skill's Markdown instructions as the model received them.",
               "type": "string"
@@ -1315,6 +1495,14 @@
               "type": "array"
             },
             "name": {
+              "type": "string"
+            },
+            "reason": {
+              "description": "Why it was injected (default \"matched\").",
+              "enum": [
+                "matched",
+                "selected"
+              ],
               "type": "string"
             },
             "seq": {
@@ -1549,6 +1737,158 @@
             "seq",
             "sessionId",
             "status",
+            "ts",
+            "type",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "commit": {
+              "description": "Snapshot commit in the project's checkpoint store.",
+              "type": "string"
+            },
+            "files": {
+              "description": "Files in the snapshot.",
+              "type": "number"
+            },
+            "id": {
+              "type": "string"
+            },
+            "messageId": {
+              "description": "The user message whose turn this checkpoint precedes (\"turn\" checkpoints; older logs omit it and emit the checkpoint just before that message instead).",
+              "type": "string"
+            },
+            "reason": {
+              "description": "\"turn\": before a user turn; \"restore\": the state just before a checkpoint was restored.",
+              "enum": [
+                "turn",
+                "restore"
+              ],
+              "type": "string"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "checkpoint.created",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "commit",
+            "files",
+            "id",
+            "reason",
+            "seq",
+            "sessionId",
+            "ts",
+            "type",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "backupId": {
+              "type": "string"
+            },
+            "changed": {
+              "type": "number"
+            },
+            "files": {
+              "description": "Changed files (at most 200 listed); `changed` is the full count.",
+              "items": {
+                "$ref": "#/definitions/CheckpointChange"
+              },
+              "type": "array"
+            },
+            "id": {
+              "type": "string"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "checkpoint.restored",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "backupId",
+            "changed",
+            "files",
+            "id",
+            "seq",
+            "sessionId",
+            "ts",
+            "type",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "message": {
+              "type": "string"
+            },
+            "reason": {
+              "enum": [
+                "turn",
+                "restore"
+              ],
+              "type": "string"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "checkpoint.failed",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "message",
+            "reason",
+            "seq",
+            "sessionId",
             "ts",
             "type",
             "v"
@@ -1926,6 +2266,534 @@
             "v"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "consent": {
+              "$ref": "#/definitions/RecreateConsent",
+              "description": "the consent recorded earlier (a resumed run); a new run's consent arrives as recreate.consent"
+            },
+            "dir": {
+              "description": "run folder relative to the project root",
+              "type": "string"
+            },
+            "finalUrl": {
+              "type": "string"
+            },
+            "runId": {
+              "type": "string"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "targets": {
+              "items": {
+                "$ref": "#/definitions/RecreateTarget"
+              },
+              "type": "array"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "recreate.started",
+              "type": "string"
+            },
+            "url": {
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            },
+            "widths": {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "dir",
+            "runId",
+            "seq",
+            "sessionId",
+            "targets",
+            "ts",
+            "type",
+            "url",
+            "v",
+            "widths"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "detail": {
+              "type": "string"
+            },
+            "ms": {
+              "type": "number"
+            },
+            "runId": {
+              "type": "string"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "skipped": {
+              "description": "parts the budgets dropped (resumable)",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "stage": {
+              "$ref": "#/definitions/RecreateStage"
+            },
+            "status": {
+              "enum": [
+                "running",
+                "done",
+                "failed",
+                "skipped"
+              ],
+              "type": "string"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "recreate.stage",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "runId",
+            "seq",
+            "sessionId",
+            "stage",
+            "status",
+            "ts",
+            "type",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "bands": {
+              "description": "the section's band on the live page per captured width (px from the top of the full-page shot)",
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "h": {
+                    "type": "number"
+                  },
+                  "width": {
+                    "type": "number"
+                  },
+                  "y": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "width",
+                  "y",
+                  "h"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "id": {
+              "type": "string"
+            },
+            "index": {
+              "type": "number"
+            },
+            "kind": {
+              "type": "string"
+            },
+            "label": {
+              "type": "string"
+            },
+            "pixel": {
+              "description": "worst pixel mismatch of the section's band over the widths",
+              "type": "number"
+            },
+            "runId": {
+              "type": "string"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "status": {
+              "enum": [
+                "building",
+                "checking",
+                "ok",
+                "below-threshold",
+                "repaired"
+              ],
+              "type": "string"
+            },
+            "text": {
+              "description": "visible strings of the band missing / extra",
+              "type": "number"
+            },
+            "total": {
+              "type": "number"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "recreate.section",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "id",
+            "index",
+            "kind",
+            "label",
+            "runId",
+            "seq",
+            "sessionId",
+            "status",
+            "total",
+            "ts",
+            "type",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "height": {
+              "type": "number"
+            },
+            "kind": {
+              "description": "peek: the first screen right after load; live: a full-page reference shot",
+              "enum": [
+                "peek",
+                "live"
+              ],
+              "type": "string"
+            },
+            "path": {
+              "description": "image relative to the project root",
+              "type": "string"
+            },
+            "runId": {
+              "type": "string"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "recreate.shot",
+              "description": "a screenshot of the live page, written to the run folder while it is captured (shown while waiting)",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            },
+            "width": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "height",
+            "kind",
+            "path",
+            "runId",
+            "seq",
+            "sessionId",
+            "ts",
+            "type",
+            "v",
+            "width"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "comparePath": {
+              "type": "string"
+            },
+            "gates": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "detail": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "pass": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "name",
+                  "pass"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "interactions": {
+              "type": "string"
+            },
+            "runId": {
+              "type": "string"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "target": {
+              "$ref": "#/definitions/RecreateTarget"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "recreate.measured",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            },
+            "widths": {
+              "items": {
+                "$ref": "#/definitions/RecreateWidthResult"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "gates",
+            "runId",
+            "seq",
+            "sessionId",
+            "target",
+            "ts",
+            "type",
+            "v",
+            "widths"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "lint": {
+              "additionalProperties": false,
+              "properties": {
+                "issues": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "pass": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "pass",
+                "issues"
+              ],
+              "type": "object"
+            },
+            "runId": {
+              "type": "string"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "sets": {
+              "items": {
+                "$ref": "#/definitions/RecreateSetSummary"
+              },
+              "type": "array"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "recreate.components",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "lint",
+            "runId",
+            "seq",
+            "sessionId",
+            "sets",
+            "ts",
+            "type",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "consent": {
+              "$ref": "#/definitions/RecreateConsent"
+            },
+            "runId": {
+              "type": "string"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "recreate.consent",
+              "type": "string"
+            },
+            "url": {
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "consent",
+            "runId",
+            "seq",
+            "sessionId",
+            "ts",
+            "type",
+            "url",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "comparePath": {
+              "type": "string"
+            },
+            "outputs": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "target": {
+                    "$ref": "#/definitions/RecreateTarget"
+                  }
+                },
+                "required": [
+                  "target",
+                  "path"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "runId": {
+              "type": "string"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "status": {
+              "$ref": "#/definitions/RunStatus"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "recreate.finished",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "outputs",
+            "runId",
+            "seq",
+            "sessionId",
+            "status",
+            "ts",
+            "type",
+            "v"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -1986,6 +2854,152 @@
         "max"
       ],
       "type": "string"
+    },
+    "RecreateConsent": {
+      "additionalProperties": false,
+      "properties": {
+        "at": {
+          "type": "string"
+        },
+        "by": {
+          "description": "who answered: the user, or the permission mode / --yes on their behalf",
+          "enum": [
+            "user",
+            "auto"
+          ],
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "ask",
+            "auto",
+            "yolo",
+            "yes"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "by",
+        "at",
+        "mode"
+      ],
+      "type": "object"
+    },
+    "RecreateSetSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "props": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "uses": {
+          "type": "number"
+        },
+        "variants": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "variants",
+        "props",
+        "uses"
+      ],
+      "type": "object"
+    },
+    "RecreateStage": {
+      "enum": [
+        "consent",
+        "probe",
+        "capture",
+        "scene",
+        "build",
+        "measure",
+        "components",
+        "system",
+        "convert",
+        "ds-export",
+        "repair"
+      ],
+      "type": "string"
+    },
+    "RecreateTarget": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "enum": [
+            "static",
+            "react-vite",
+            "ds-react",
+            "ds-lit",
+            "ds-angular",
+            "tokens",
+            "design-md"
+          ],
+          "type": "string"
+        }
+      ],
+      "description": "Output of a recreation run: the static page, a converted project, design-system packages, tokens, brand guide."
+    },
+    "RecreateWidthResult": {
+      "additionalProperties": false,
+      "properties": {
+        "height": {
+          "additionalProperties": false,
+          "properties": {
+            "live": {
+              "type": "number"
+            },
+            "out": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "live",
+            "out"
+          ],
+          "type": "object"
+        },
+        "hscroll": {
+          "type": "number"
+        },
+        "pixel": {
+          "type": "number"
+        },
+        "textDrift": {
+          "type": "number"
+        },
+        "textReal": {
+          "type": "number"
+        },
+        "width": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "width",
+        "pixel",
+        "textReal",
+        "textDrift",
+        "height",
+        "hscroll"
+      ],
+      "type": "object"
     },
     "Risk": {
       "enum": [

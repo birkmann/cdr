@@ -1,10 +1,11 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { licensesPlugin } from "../../scripts/licenses.mjs";
 import { fileURLToPath } from "node:url";
 
 // The desktop UI reuses the web app's chat, pickers, and styles from apps/web/src via "@web".
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), licensesPlugin("the CDR Studio interface")],
   clearScreen: false,
   resolve: {
     dedupe: ["react", "react-dom"],

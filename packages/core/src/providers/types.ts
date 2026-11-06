@@ -1,4 +1,4 @@
-import type { ChatMessage, ToolCall, ReasoningEffort } from "@harness/protocol";
+import type { ChatMessage, ModelDetail, ToolCall, ReasoningEffort } from "@harness/protocol";
 
 export interface ToolSpec {
   name: string;
@@ -32,12 +32,24 @@ export interface ProviderCapabilities {
   contextWindow: number;
 }
 
+/** Remaining provider account balance in one currency (e.g. DeepSeek `GET /user/balance`). */
+export interface ProviderBalance {
+  currency: string;
+  total: number;
+  granted?: number;
+  toppedUp?: number;
+}
+
 export interface Provider {
   id: string;
   stream(req: ProviderRequest): AsyncIterable<ProviderEvent>;
   capabilities(model: string): ProviderCapabilities;
   countTokens?(messages: ChatMessage[]): number;
   listModels?(signal?: AbortSignal): Promise<string[]>;
+  /** Models with capabilities where the provider reports them (falls back to ids only). */
+  listModelDetails?(signal?: AbortSignal): Promise<ModelDetail[]>;
+  /** Account balance, or null when the provider has no balance API. Never include credentials in errors. */
+  getBalance?(signal?: AbortSignal): Promise<ProviderBalance[] | null>;
 }
 
 export class ProviderError extends Error {

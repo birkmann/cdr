@@ -9,14 +9,29 @@ import {
   parseModelRef,
   resolveInProject,
   workingTreeDiff,
+  discoverSkills,
   type Harness,
+  type ProviderBalance,
   type Session,
+  type Skill,
 } from "@harness/core";
 import type { Attachment, HarnessEvent } from "@harness/protocol";
-import { COMMANDS } from "../commands.js";
+import { COMMANDS, listCheckpoints, parseSkillCommand, rewindCommand } from "../commands.js";
 import { Editor, InputDecoder } from "./input.js";
 import { Screen, clean } from "./screen.js";
-import { renderView, transcript, type Dialog, type Picker, type PickerItem, type View } from "./view.js";
+import {
+  renderView,
+  designScrollRows,
+  DESIGNS,
+  isDesign,
+  type AccountBalance,
+  type Dialog,
+  type Picker,
+  type PickerItem,
+  type TerminalDesign,
+  type View,
+} from "./view.js";
+import { loadDesign, saveDesign } from "./prefs.js";
 
 const MODES = [
   { label: "Chat" },
@@ -25,10 +40,14 @@ const MODES = [
   { label: "Quick fix", workflow: "quick-fix" },
   { label: "Review", workflow: "review-only" },
 ];
-type PickerKind = "commands" | "models" | "sessions" | "permissions";
+type PickerKind = "commands" | "models" | "sessions" | "permissions" | "skills" | "designs";
 interface Options {
   version: string;
   verbose?: boolean;
+  /** Skills for the first message (--skill). */
+  skills?: string[];
+  /** Terminal design to start with; defaults to the saved choice, then `default`. */
+  design?: TerminalDesign;
   input?: NodeJS.ReadStream;
   output?: NodeJS.WriteStream;
 }
@@ -51,9 +70,14 @@ export class TerminalApp {
   private frame = 0;
   private scroll = 0;
   private expanded = false;
-  private sidebar = true;
+  private sidebar = false;
+  private design: TerminalDesign = "default";
   private mode = 0;
   private branch: string | null = null;
+  private balance?: AccountBalance;
+  private balanceTimer?: ReturnType<typeof setInterval>;
+  private balanceLoading = false;
+  private balanceProvider = "";
   private started = Date.now();
   private waitingAt?: number;
   private waitingMs = 0;
@@ -63,6 +87,7 @@ export class TerminalApp {
   private historyIndex = -1;
   private historyDraft = "";
   private attachments: Attachment[] = [];
+  private firstSkills?: string[];
   private picker?: Picker & { kind: PickerKind; all: PickerItem[] };
   private document?: View["document"];
   private promptId = "";
@@ -79,7 +104,9 @@ export class TerminalApp {
     private opts: Options,
   ) {
     this.session = session;
+    this.firstSkills = opts.skills;
     this.expanded = !!opts.verbose;
+    this.design = opts.design ?? loadDesign();
     this.input = opts.input ?? process.stdin;
     this.output = opts.output ?? process.stdout;
     this.screen = new Screen(this.output);
@@ -110,6 +137,7 @@ export class TerminalApp {
           if (this.waitingAt !== undefined) this.waitingMs += now - this.waitingAt;
           this.waitingAt = undefined;
         } else if (event.status === "waiting" && this.waitingAt === undefined) this.waitingAt = now;
+        if (previousStatus === "running" && event.status !== "running") void this.refreshBalance();
       }
       this.dirty = true;
     }, 0);
@@ -196,6 +224,7 @@ export class TerminalApp {
       project: this.session.projectRoot,
       branch: this.branch,
       model: this.session.config.models.executor || "No model configured",
+      balance: this.balance,
       permission: this.session.policy.mode,
       mode: MODES[this.mode].label,
       version: this.opts.version,
@@ -209,6 +238,7 @@ export class TerminalApp {
       scroll: this.scroll,
       expanded: this.expanded,
       sidebar: this.sidebar,
+      design: this.design,
       notice: Date.now() < this.noticeUntil ? this.notice : undefined,
       attachments: this.attachments.map((a) => a.name),
       picker: this.picker,
@@ -262,6 +292,7 @@ export class TerminalApp {
             if (this.picker) this.filterPicker();
             this.dirty = true;
           },
+          (direction) => this.wheel(direction),
         );
         this.input.on("data", this.data);
         this.input.on("end", this.end);
@@ -271,6 +302,8 @@ export class TerminalApp {
         process.on("SIGTERM", this.signal);
         process.on("exit", this.restore);
         this.timer = setInterval(this.draw, 80);
+        this.balanceTimer = setInterval(() => void this.refreshBalance(), 5 * 60_000);
+        void this.refreshBalance();
         this.draw();
       } catch (error) {
         this.restore();
@@ -282,6 +315,7 @@ export class TerminalApp {
     if (this.closed) return;
     this.closed = true;
     if (this.timer) clearInterval(this.timer);
+    if (this.balanceTimer) clearInterval(this.balanceTimer);
     this.unsubscribe?.();
     this.decoder?.close();
     this.input.off("data", this.data);
@@ -398,12 +432,7 @@ export class TerminalApp {
       return;
     }
     if (key.name === "pageup" || key.name === "pagedown") {
-      const limit = Math.max(
-        0,
-        transcript(this.state, Math.max(20, Math.min(102, (this.output.columns || 80) - 8)), this.expanded)
-          .length - 1,
-      );
-      this.scroll = Math.min(limit, Math.max(0, this.scroll + (key.name === "pageup" ? 10 : -10)));
+      this.scrollBy(key.name === "pageup" ? 10 : -10);
       return;
     }
     if (key.name === "end" && !this.editor.text) {
@@ -441,6 +470,29 @@ export class TerminalApp {
     }
     this.edit(this.editor, text, key);
     if (this.editor.text === "/") this.openPicker("commands", "/");
+  }
+  /** Scroll the transcript by `delta` rows (positive = further back), clamped to its length. */
+  private scrollBy(delta: number) {
+    const limit = Math.max(
+      0,
+      designScrollRows(this.design, this.state, this.output.columns || 80, this.sidebar, this.expanded) - 1,
+    );
+    this.scroll = Math.min(limit, Math.max(0, this.scroll + delta));
+    this.dirty = true;
+  }
+  /** Mouse wheel / trackpad: scroll whatever is on screen, never touch prompt history. */
+  private wheel(direction: "up" | "down") {
+    const step = direction === "up" ? 3 : -3;
+    if (this.dialog() || this.picker) return;
+    if (this.document) {
+      this.document.scroll = Math.min(
+        Math.max(0, this.documentRows() - 5),
+        Math.max(0, this.document.scroll - step),
+      );
+      this.dirty = true;
+      return;
+    }
+    this.scrollBy(step);
   }
   private documentRows() {
     return (
@@ -521,15 +573,34 @@ export class TerminalApp {
       }
     }
   }
+  private skills(): Skill[] {
+    try {
+      return discoverSkills(this.session.projectRoot, this.session.config);
+    } catch {
+      return [];
+    }
+  }
   private openPicker(kind: PickerKind, query = "") {
     let items: PickerItem[];
-    if (kind === "commands") items = COMMANDS.map(([label, detail]) => ({ label, detail, value: label }));
+    if (kind === "commands")
+      items = [
+        ...COMMANDS.map(([label, detail]) => ({ label, detail, value: label })),
+        ...this.skills().map((s) => ({ label: `/${s.name}`, detail: s.description, value: `/${s.name}` })),
+      ];
+    else if (kind === "skills")
+      items = this.skills().map((s) => ({ label: `/${s.name}`, detail: s.description, value: `/${s.name}` }));
     else if (kind === "sessions")
       items = this.harness.listSessions().map((s) => ({
         label: s.title || s.id,
         detail: basename(s.projectPath),
         value: s.id,
         disabled: s.projectMissing,
+      }));
+    else if (kind === "designs")
+      items = DESIGNS.map((d) => ({
+        label: d.label,
+        detail: d.id === this.design ? `${d.detail} · current` : d.detail,
+        value: d.id,
       }));
     else if (kind === "permissions")
       items = [
@@ -558,7 +629,11 @@ export class TerminalApp {
             ? "Choose a model"
             : kind === "sessions"
               ? "Resume a conversation"
-              : "Permissions",
+              : kind === "skills"
+                ? "Skills · Enter, then type your message"
+                : kind === "designs"
+                  ? "Terminal design"
+                  : "Permissions",
       query: new Editor(),
       items,
       all: items,
@@ -604,7 +679,7 @@ export class TerminalApp {
         this.alert("Wait for this turn to finish, or press Esc to cancel it.");
         return;
       }
-      if (p.kind === "commands" && /^\/\w+\s+\S/.test(p.query.text)) {
+      if (p.kind === "commands" && /^\/[\w-]+\s+\S/.test(p.query.text)) {
         this.editor.set(p.query.text);
         this.picker = undefined;
         void this.submit();
@@ -614,8 +689,10 @@ export class TerminalApp {
       if (!item || item.disabled) return;
       this.picker = undefined;
       const draft = this.editor.text.startsWith("/") ? "" : this.editor.text;
-      if (p.kind === "commands") {
-        if (["/run", "/quick", "/plan", "/attach", "/resume"].includes(item.value))
+      if (p.kind === "skills") this.editor.set(`${item.value} ${draft}`.trimEnd() + " ");
+      else if (p.kind === "commands") {
+        const isSkill = this.skills().some((s) => `/${s.name}` === item.value);
+        if (isSkill || ["/run", "/quick", "/plan", "/attach", "/resume"].includes(item.value))
           this.editor.set(item.value + " ");
         else {
           this.editor.set(item.value);
@@ -623,6 +700,12 @@ export class TerminalApp {
         }
       } else if (p.kind === "models") {
         this.editor.set(`/model ${item.value}`);
+        void this.submit().then(() => {
+          if (!this.editor.text) this.editor.set(draft);
+          this.dirty = true;
+        });
+      } else if (p.kind === "designs") {
+        this.editor.set(`/terminal-design ${item.value}`);
         void this.submit().then(() => {
           if (!this.editor.text) this.editor.set(draft);
           this.dirty = true;
@@ -641,6 +724,47 @@ export class TerminalApp {
     }
     this.edit(p.query, text, key);
     this.filterPicker();
+  }
+  /** Fetch the provider account balance (e.g. DeepSeek) for the sidebar; failures keep the last value. */
+  private async refreshBalance() {
+    if (this.balanceLoading || this.closed) return;
+    this.balanceLoading = true;
+    const session = this.session;
+    try {
+      const ref = session.config.models.executor;
+      const id = ref ? parseModelRef(ref).provider : "";
+      if (id !== this.balanceProvider) {
+        this.balanceProvider = id;
+        this.balance = undefined;
+      }
+      const { registry } = this.harness.providerRegistry(session.projectRoot);
+      if (!id || !registry.isConfigured(id)) return;
+      const items = await registry.get(id).getBalance?.(AbortSignal.timeout(6000));
+      if (this.closed || this.session !== session || this.balanceProvider !== id) return;
+      this.balance = items ? { items, start: this.balance?.start ?? items } : undefined;
+    } catch {
+      if (this.closed || this.session !== session) return;
+      this.balance = { items: this.balance?.items ?? [], start: this.balance?.start, error: true };
+    } finally {
+      this.balanceLoading = false;
+      this.dirty = true;
+    }
+  }
+  /** Switch the terminal design now and remember it for the next start. */
+  private setDesign(design: TerminalDesign) {
+    const changed = design !== this.design;
+    this.design = design;
+    // Rows wrap to a different width in each design, so keep the scroll offset in range.
+    this.scrollBy(0);
+    this.screen.reset();
+    const label = DESIGNS.find((d) => d.id === design)!.label;
+    this.alert(
+      !changed
+        ? `Already using the ${label} design`
+        : saveDesign(design)
+          ? `Switched to the ${label} design`
+          : `Switched to the ${label} design (could not save it for next time)`,
+    );
   }
   private async discoverModels(p: Picker & { all: PickerItem[] }) {
     p.hint = "Discovering configured providers…";
@@ -687,8 +811,39 @@ export class TerminalApp {
         this.finish(0);
         return;
       }
+      if (command === "/skills") {
+        this.openPicker("skills");
+        return;
+      }
+      if (command === "/terminal-design") {
+        if (!arg) {
+          this.openPicker("designs");
+          return;
+        }
+        const next =
+          arg.toLowerCase() === "toggle"
+            ? this.design === "default"
+              ? "classic"
+              : "default"
+            : arg.toLowerCase();
+        if (!isDesign(next)) throw new Error(`Use /terminal-design ${DESIGNS.map((d) => d.id).join(" | ")}`);
+        this.setDesign(next);
+        return;
+      }
       if (["/help", "/commands"].includes(command)) {
         this.openPicker("commands");
+        return;
+      }
+      if (command === "/rewind") {
+        const list = listCheckpoints(this.session);
+        this.alert(
+          arg || !list.length
+            ? (await rewindCommand(this.session, arg)).trim()
+            : `/rewind <n> restores files to before: ${list
+                .slice(0, 5)
+                .map((cp, i) => `${i + 1}) ${cp.message.split("\n")[0].slice(0, 30)}`)
+                .join(" · ")}`,
+        );
         return;
       }
       if (command === "/continue") {
@@ -798,10 +953,17 @@ export class TerminalApp {
         return;
       }
       const workflowCommand = /^\/(run|quick|plan|review)\b\s*([\s\S]*)$/.exec(text);
-      if (text.startsWith("/") && !workflowCommand)
-        throw new Error(`Unknown command ${command}. Ctrl+P opens commands.`);
+      const skillCommand = workflowCommand
+        ? undefined
+        : parseSkillCommand(
+            text,
+            this.skills().map((s) => s.name),
+          );
+      if (text.startsWith("/") && !workflowCommand && !skillCommand)
+        throw new Error(`Unknown command ${command}. Ctrl+P opens commands and skills.`);
       let workflow = MODES[this.mode].workflow,
-        task = text;
+        task = skillCommand?.text ?? text;
+      const skills = skillCommand?.skills ?? this.firstSkills;
       if (workflowCommand) {
         workflow = {
           run: this.session.workflow,
@@ -819,8 +981,9 @@ export class TerminalApp {
       this.interrupted = false;
       this.dirty = true;
       this.activeRun = workflow
-        ? this.session.run(task, { workflow, attachments: this.attachments })
-        : this.session.chat(task, this.attachments);
+        ? this.session.run(task, { workflow, attachments: this.attachments, skills })
+        : this.session.chat(task, this.attachments, { skills });
+      this.firstSkills = undefined;
       await this.activeRun;
       this.attachments = [];
     } catch (error) {

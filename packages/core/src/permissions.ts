@@ -169,6 +169,8 @@ export class PermissionPolicy {
     if (toolRule === "deny")
       return { decision: "deny", risk, reason: `Tool ${tool.name} is denied by config.` };
     if (toolRule === "allow") return { decision: "allow", risk };
+    // the tool asks for itself (a consent gate): never pre-empted, never granted "always"
+    if (tool.selfGated) return { decision: "allow", risk };
     if (this.mode === "yolo") return { decision: "allow", risk };
     if (tool.name === "bash") {
       const command = String(args?.command ?? "");
@@ -187,7 +189,8 @@ export class PermissionPolicy {
     }
     if (this.grants.has(this.grantKey(tool.name, args))) return { decision: "allow", risk };
     if (toolRule === "ask") return { decision: "ask", risk };
-    if (tool.readOnly || risk === "low") return { decision: "allow", risk };
+    // `risk` defaults to low for read-only tools; an explicit higher risk (e.g. a user-wide memory write) still asks.
+    if (risk === "low") return { decision: "allow", risk };
     if (this.mode === "auto") {
       // Inside the bwrap sandbox the shell can only write to the project, so "risky" commands need no prompt.
       if (tool.name === "bash" && this.cfg.sandbox !== "bwrap") {

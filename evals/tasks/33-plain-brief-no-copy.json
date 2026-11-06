@@ -1,0 +1,11 @@
+{
+  "id": "33-plain-brief-no-copy",
+  "suite": "recreate",
+  "sandbox": true,
+  "task": "example.com",
+  "timeoutMs": 900000,
+  "checks": [
+    { "type": "command", "command": "test ! -d .harness/recreate" },
+    { "type": "fileContains", "path": "**/*.html", "pattern": "<html", "flags": "i" }
+  ]
+}

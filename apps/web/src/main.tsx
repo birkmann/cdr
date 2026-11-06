@@ -9,6 +9,7 @@ import type { CSSProperties } from "react";
 import { ConnectScreen, SettingsDialog } from "./components/Settings";
 
 import { CommandPalette } from "./components/CommandPalette";
+import { DialogHost } from "./components/Dialogs";
 import { IconMenu } from "./components/icons";
 import "./styles.css";
 
@@ -22,7 +23,7 @@ function Shell() {
   const [search, setSearch] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [homeVersion, setHomeVersion] = useState(0);
-  const sidebar = useColumnWidth("morrow.sidebar-width", {
+  const sidebar = useColumnWidth("cdr.sidebar-width", {
     initial: () => 258,
     min: 200,
     max: (available) => Math.min(400, available - 480),
@@ -99,7 +100,12 @@ function Shell() {
           {route.name === "home" ? (
             <Home key={`${route.projectPath || ""}:${homeVersion}`} projectPath={route.projectPath} />
           ) : route.name === "chat" ? (
-            <ChatView key={route.id} id={route.id} initialPreview={route.preview} />
+            <ChatView
+              key={route.id}
+              id={route.id}
+              initialPreview={route.preview}
+              initialHistory={route.history}
+            />
           ) : (
             <Library key={route.name} kind={route.name} />
           )}
@@ -107,6 +113,7 @@ function Shell() {
       </main>
       {search && <CommandPalette onClose={() => setSearch(false)} onSettings={() => setSettings(true)} />}
       {settings && <SettingsDialog onClose={() => setSettings(false)} />}
+      <DialogHost />
     </div>
   );
 }

@@ -1,6 +1,6 @@
 # CDR Studio (desktop)
 
-CDR Studio is the native desktop app for the CDR harness. It is a Tauri 2 application. A Rust backend handles Git, terminals, file watching, language servers, credentials and the harness process. The webview UI reuses the web app's chat components. The design rationale is in [desktop-plan.md](desktop-plan.md).
+CDR Studio is the native desktop app for the CDR harness. It is a Tauri 2 application. A Rust backend handles Git, terminals, file watching, language servers, credentials and the harness process. The webview UI reuses the web app's chat components.
 
 ## Run it
 
@@ -113,8 +113,6 @@ Scheduled goals, either once at a time or repeating by cron, start while the app
 cdr goal new "Add CSV export" --criteria "pnpm test passes" --budget-cost 2
 cdr goal run <id>
 ```
-
-The corresponding `MORROW_*` environment variables remain supported as fallback aliases.
 
 ## Development
 

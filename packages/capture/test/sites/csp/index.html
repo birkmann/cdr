@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <!-- like www.ibmix.de: `default-src 'self'` on the page while its stylesheet lives on another host -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'unsafe-inline'" />
+    <title>CSP fixture</title>
+    <script>
+      const l = document.createElement("link");
+      l.rel = "stylesheet";
+      l.href = `http://localhost:${location.port}/style.css`;
+      document.head.append(l);
+    </script>
+  </head>
+  <body>
+    <h1 class="hero">Styled from another host</h1>
+  </body>
+</html>

@@ -3,11 +3,22 @@ import { cors } from "hono/cors";
 import { streamSSE } from "hono/streaming";
 import { serve, type ServerType } from "@hono/node-server";
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
-import { dirname, extname, join, resolve, sep } from "node:path";
+import {
+  closeSync,
+  existsSync,
+  fstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  readSync,
+  readdirSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, extname, isAbsolute, join, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { bodyLimit } from "hono/body-limit";
-import { sessionFileScope } from "./session-files.js";
+import { sessionFileScope, sessionReferencedFiles } from "./session-files.js";
 import { preparePreviewHtml } from "./preview-document.js";
 import type {
   BrowseResponse,
@@ -16,21 +27,28 @@ import type {
   SessionSettingsRequest,
   CreateSessionRequest,
   HarnessEvent,
+  AvailableModels,
   ModelListEntry,
   ModelRole,
   PermissionAnswer,
   PlanAnswer,
   QuestionAnswer,
+  RecreateRequest,
   SendMessageRequest,
+  SessionLogResponse,
+  SkillInfo,
+  StorageInfo,
 } from "@harness/protocol";
 import { HARNESS_VERSION } from "@harness/protocol";
 import {
   ATTACHMENT_LIMITS,
   generateCommitMessage,
+  generateProjectSummary,
   GoalError,
   GoalStore,
   Harness,
   deleteGoal,
+  discoverSkills,
   discardGoal,
   mergeGoal,
   pauseGoal,
@@ -38,6 +56,7 @@ import {
   startGoal,
   harnessHome,
   parseModelRef,
+  recreateInSession,
   resolveInProject,
   workingTreeDiff,
   WORKFLOW_PRESETS,
@@ -60,7 +79,17 @@ export interface ServerOptions {
   goals?: GoalStore;
 }
 
-const API_PREFIXES = ["/health", "/models", "/sessions", "/browse", "/preview", "/commit-message", "/goals"];
+const API_PREFIXES = [
+  "/health",
+  "/models",
+  "/skills",
+  "/sessions",
+  "/browse",
+  "/preview",
+  "/commit-message",
+  "/goals",
+  "/storage",
+];
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -118,6 +147,92 @@ function safeEqual(a: string, b: string): boolean {
   return A.length === B.length && timingSafeEqual(A, B);
 }
 
+const RECREATE_TARGETS = ["static", "react-vite", "ds-react", "ds-lit", "ds-angular", "tokens", "design-md"];
+const RECREATE_STAGES = [
+  "consent",
+  "probe",
+  "capture",
+  "scene",
+  "build",
+  "measure",
+  "components",
+  "system",
+  "convert",
+  "ds-export",
+  "repair",
+];
+const RUN_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+
+/** Validate a POST /sessions/:id/recreate body; returns the request or an error message. */
+export function parseRecreateRequest(raw: unknown): RecreateRequest | string {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return "body must be a JSON object";
+  const r = raw as Record<string, unknown>;
+  if (typeof r.url !== "string" || !r.url.trim()) return "url is required";
+  let url: URL;
+  try {
+    url = new URL(r.url.trim());
+  } catch {
+    return "url is not a valid URL";
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") return "url must be http(s)";
+  const out: RecreateRequest = { url: url.href };
+  if (r.widths !== undefined) {
+    if (!Array.isArray(r.widths) || r.widths.length === 0 || r.widths.length > 8)
+      return "widths must be a list of 1–8 widths";
+    for (const w of r.widths)
+      if (typeof w !== "number" || !Number.isInteger(w) || w < 320 || w > 2560)
+        return "widths must be integers between 320 and 2560";
+    out.widths = [...new Set(r.widths as number[])];
+  }
+  if (r.to !== undefined) {
+    if (!Array.isArray(r.to) || r.to.length === 0 || r.to.some((t) => typeof t !== "string" || !t.trim()))
+      return "to must be a list of target names";
+    const to = (r.to as string[]).map((t) => (t.trim() === "react" ? "react-vite" : t.trim()));
+    const unknown = to.find((t) => !RECREATE_TARGETS.includes(t));
+    if (unknown) return `unknown target: ${unknown}`;
+    out.to = [...new Set(to)];
+  }
+  if (r.style !== undefined) {
+    if (!["tailwind", "css-modules", "vanilla"].includes(r.style as string))
+      return "style must be tailwind, css-modules or vanilla";
+    out.style = r.style as RecreateRequest["style"];
+  }
+  if (r.repair !== undefined) {
+    if (typeof r.repair !== "boolean") return "repair must be a boolean";
+    out.repair = r.repair;
+  }
+  if (r.run !== undefined) {
+    if (typeof r.run !== "string" || !RUN_ID.test(r.run)) return "run must be a run id";
+    out.run = r.run;
+  }
+  if (r.from !== undefined) {
+    if (typeof r.from !== "string" || !RECREATE_STAGES.includes(r.from)) return "from must be a stage name";
+    if (!out.run) return "from needs run";
+    out.from = r.from as RecreateRequest["from"];
+  }
+  if (r.out !== undefined) {
+    if (typeof r.out !== "string" || !r.out.trim()) return "out must be a folder path";
+    // a folder inside the project: relative, no `..`, not .git (the pipeline checks symlinks too)
+    const parts = r.out.trim().split(/[\\/]+/);
+    if (
+      isAbsolute(r.out.trim()) ||
+      /^[a-z]:/i.test(r.out.trim()) ||
+      parts.includes("..") ||
+      parts[0] === ".git"
+    )
+      return "out must be a relative folder inside the project";
+    out.out = r.out.trim();
+  }
+  return out;
+}
+
+/** Run ids this session has started (only those run folders are served through its preview key). */
+function sessionRunIds(s: Session): Set<string> {
+  const ids = new Set<string>();
+  for (const e of s.events) if (e.type === "recreate.started") ids.add(e.runId);
+  return ids;
+}
+
 class HttpError extends Error {
   constructor(
     readonly status: 400 | 401 | 403 | 404 | 409,
@@ -170,6 +285,10 @@ export function createApp(opts: ServerOptions = {}): { app: Hono; harness: Harne
     }
     const prefix = `/preview/${key}/`;
     const relPath = decodeURIComponent(c.req.path.slice(prefix.length)) || "index.html";
+    // 1:1 recreation run folders (.harness/recreate/<runId>/…): read-only, only runs of this session, confined to
+    // the run folder, so the compare page and the growing output work in the preview iframe.
+    const run = /^\.harness\/recreate\/([^/]+)(?:\/(.*))?$/.exec(relPath);
+    if (run) return serveRunFile(c, s, run[1], run[2] ?? "");
     let abs: string;
     try {
       const scope = sessionFileScope(s);
@@ -193,6 +312,36 @@ export function createApp(opts: ServerOptions = {}): { app: Hono; harness: Harne
       "access-control-allow-origin": "*",
     });
   });
+
+  const serveRunFile = (c: Context, s: Session, runId: string, rest: string) => {
+    if (!RUN_ID.test(runId) || !sessionRunIds(s).has(runId)) return c.text("not found", 404);
+    const runRoot = join(s.projectRoot, ".harness", "recreate", runId);
+    if (!existsSync(runRoot)) return c.text("not found", 404);
+    let abs: string;
+    try {
+      abs = resolveInProject(runRoot, rest || ".");
+      if (existsSync(abs) && statSync(abs).isDirectory())
+        abs = resolveInProject(runRoot, join(abs, "index.html"));
+    } catch {
+      return c.text("forbidden", 403);
+    }
+    if (!existsSync(abs) || statSync(abs).isDirectory()) return c.text("not found", 404);
+    const extension = extname(abs).toLowerCase();
+    const contents = readFileSync(abs);
+    const body =
+      extension === ".html" || extension === ".htm"
+        ? Buffer.from(preparePreviewHtml(contents.toString("utf8")))
+        : contents;
+    return c.body(body, 200, {
+      "content-type": MIME[extension] ?? "application/octet-stream",
+      "cache-control": "no-store",
+      "x-content-type-options": "nosniff",
+      "access-control-allow-origin": "*",
+      // recreated pages and the compare page are third-party markup: opened in a tab of their own they still get an
+      // opaque origin, so they never reach the app's storage (the bearer token)
+      "content-security-policy": "sandbox allow-scripts allow-popups allow-forms",
+    });
+  };
 
   app.get("/health", (c) =>
     c.json({ ok: true, version: HARNESS_VERSION, sessions: harness.liveSessions().length }),
@@ -281,18 +430,73 @@ export function createApp(opts: ServerOptions = {}): { app: Hono; harness: Harne
     }
   });
 
+  /** One-shot AI title and summary for a project folder (from its listing, README, manifests and chats). */
+  app.post("/project-summary", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { projectPath?: string; model?: string };
+    if (!body.projectPath || typeof body.projectPath !== "string")
+      return c.json({ error: "projectPath is required" }, 400);
+    const root = resolve(body.projectPath);
+    if (!existsSync(root) || !statSync(root).isDirectory()) return c.json({ error: "Folder not found" }, 404);
+    if (
+      opts.allowedRoots?.length &&
+      !opts.allowedRoots.some((r) => root === resolve(r) || root.startsWith(resolve(r) + sep))
+    )
+      return c.json({ error: "Folder is outside the allowed roots" }, 403);
+    try {
+      const { config, registry } = harness.providerRegistry(root);
+      const ref = body.model || config.models.executor;
+      if (!ref) return c.json({ error: "No model is configured" }, 400);
+      const { provider, model } = registry.resolve(ref);
+      const conversationTitles = harness
+        .listSessions()
+        .filter((s) => resolve(s.projectPath) === root && s.title)
+        .map((s) => s.title as string);
+      const result = await generateProjectSummary({
+        root,
+        provider,
+        model,
+        conversationTitles,
+        signal: AbortSignal.timeout(60_000),
+      });
+      return c.json({ ...result, model: ref });
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 500);
+    }
+  });
+
+  /** Skills a user can select for a message in this project (or in a new sandbox when projectPath is omitted). */
+  app.get("/skills", (c) => {
+    const projectPath = c.req.query("projectPath");
+    // Without a project (a new sandbox) only built-in, user and global-config skills apply.
+    const root = projectPath ? resolve(projectPath) : join(harnessHome(), "sandboxes", ".none");
+    const config = harness.config(projectPath ? root : homedir());
+    const skills: SkillInfo[] = discoverSkills(root, config).map((s) => ({
+      name: s.name,
+      description: s.description,
+      source: s.source,
+      ...(s.userOnly ? { userOnly: true } : {}),
+      ...(s.argumentHint ? { argumentHint: s.argumentHint } : {}),
+    }));
+    return c.json({ skills });
+  });
+
   app.get("/models", async (c) => {
     const projectPath = c.req.query("projectPath") || process.cwd();
     const { config, registry } = harness.providerRegistry(projectPath);
     if (c.req.query("remote") === "true") {
-      const available: Record<string, { models: string[]; error?: string }> = {};
+      const available: Record<string, AvailableModels> = {};
       await Promise.all(
         Object.keys(config.providers).map(async (id) => {
           if (!registry.isConfigured(id)) return;
           try {
             const p = registry.get(id);
-            if (!p.listModels) return;
-            available[id] = { models: await p.listModels(AbortSignal.timeout(6000)) };
+            const signal = AbortSignal.timeout(6000);
+            if (p.listModelDetails) {
+              const details = await p.listModelDetails(signal);
+              available[id] = { models: details.map((d) => d.id), details };
+            } else if (p.listModels) {
+              available[id] = { models: await p.listModels(signal) };
+            }
           } catch (e) {
             available[id] = { models: [], error: (e as Error).message.slice(0, 200) };
           }
@@ -332,6 +536,9 @@ export function createApp(opts: ServerOptions = {}): { app: Hono; harness: Harne
       throw new HttpError(400, "invalid permissionMode");
     if (!req.projectPath || req.sandbox) {
       // New sandbox workspace under ~/.harness/sandboxes
+      // Tell the user to connect a model now, instead of creating a chat whose first turn can only fail.
+      const modelProblem = harness.modelProblem({ models: req.models });
+      if (modelProblem) throw new HttpError(400, modelProblem);
       try {
         const s = harness.createSession({
           sandbox: typeof req.sandbox === "object" ? req.sandbox : true,
@@ -357,6 +564,8 @@ export function createApp(opts: ServerOptions = {}): { app: Hono; harness: Harne
       throw new HttpError(400, `projectPath does not exist: ${projectPath}`);
     if (req.permissionMode && !["ask", "auto", "yolo"].includes(req.permissionMode))
       throw new HttpError(400, "invalid permissionMode");
+    const modelProblem = harness.modelProblem({ projectPath, models: req.models });
+    if (modelProblem) throw new HttpError(400, modelProblem);
     let s: Session;
     try {
       s = harness.createSession({
@@ -378,6 +587,10 @@ export function createApp(opts: ServerOptions = {}): { app: Hono; harness: Harne
     return c.json({ sessions: harness.listSessions(parent ? { parent } : {}) });
   });
 
+  app.get("/storage", (c) =>
+    c.json({ home: harnessHome(), sessionsDir: harness.store.dir } satisfies StorageInfo),
+  );
+
   app.get("/sessions/:id/tree", (c) => {
     const id = c.req.param("id");
     try {
@@ -396,6 +609,7 @@ export function createApp(opts: ServerOptions = {}): { app: Hono; harness: Harne
     return c.json({
       ...s.info(),
       previewBase: `/preview/${previewKey(s.id)}/`,
+      recreateEnabled: s.config.recreate?.enabled !== false,
       pending: s.pendingRequests(),
       todos: s.todos,
       ...(includeEvents
@@ -415,6 +629,10 @@ export function createApp(opts: ServerOptions = {}): { app: Hono; harness: Harne
     const req = await body<SendMessageRequest>(c);
     if (!req.text?.trim()) throw new HttpError(400, "text is required");
     if (s.isRunning) throw new HttpError(409, "session is already running");
+    const modelProblem = s.modelProblem(
+      req.mode === "task" ? ["executor", "planner", "reviewer"] : ["executor"],
+    );
+    if (modelProblem) throw new HttpError(400, modelProblem);
     const attachments = req.attachments ?? [];
     if (!Array.isArray(attachments) || attachments.length > ATTACHMENT_LIMITS.maxFiles)
       throw new HttpError(400, `at most ${ATTACHMENT_LIMITS.maxFiles} attachments`);
@@ -424,12 +642,39 @@ export function createApp(opts: ServerOptions = {}): { app: Hono; harness: Harne
       if ((a.data.length * 3) / 4 > ATTACHMENT_LIMITS.maxBytes)
         throw new HttpError(400, `${a.name} is larger than 10 MB`);
     }
+    const skillNames = req.skills ?? [];
+    if (!Array.isArray(skillNames) || skillNames.some((n) => typeof n !== "string") || skillNames.length > 10)
+      throw new HttpError(400, "skills must be a list of at most 10 skill names");
+    try {
+      s.resolveSkills(skillNames);
+    } catch (e) {
+      throw new HttpError(400, (e as Error).message);
+    }
     const p =
       req.mode === "task"
-        ? s.run(req.text, { workflow: req.workflow, attachments })
-        : s.chat(req.text, attachments);
+        ? s.run(req.text, { workflow: req.workflow, attachments, skills: skillNames })
+        : s.chat(req.text, attachments, { skills: skillNames });
     p.catch((e) => s.emit({ type: "error", message: (e as Error).message, recoverable: true }));
     return c.json({ accepted: true, mode: req.mode ?? "chat" }, 202);
+  });
+
+  /** Start a 1:1 recreation run in this session; consent arrives as permission.request. */
+  const recreating = new Set<string>();
+  app.post("/sessions/:id/recreate", async (c) => {
+    const s = session(c);
+    if (s.config.recreate?.enabled === false)
+      throw new HttpError(403, "recreate is disabled in this project's config");
+    const req = parseRecreateRequest(await body<unknown>(c));
+    if (typeof req === "string") throw new HttpError(400, req);
+    if (s.isRunning || recreating.has(s.id)) throw new HttpError(409, "session is already running");
+    recreating.add(s.id);
+    recreateInSession(s, req)
+      .catch((e) => {
+        s.emit({ type: "error", message: (e as Error).message, recoverable: true });
+        s.emit({ type: "status", status: "failed" });
+      })
+      .finally(() => recreating.delete(s.id));
+    return c.json({ ok: true }, 202);
   });
 
   app.post("/sessions/:id/continue", (c) => {
@@ -520,6 +765,26 @@ export function createApp(opts: ServerOptions = {}): { app: Hono; harness: Harne
     return c.json({ ok: true });
   });
 
+  app.get("/sessions/:id/checkpoints/:cpId", async (c) => {
+    const s = session(c);
+    try {
+      return c.json({ files: await s.previewCheckpoint(c.req.param("cpId")) });
+    } catch (e) {
+      throw new HttpError(404, (e as Error).message);
+    }
+  });
+
+  app.post("/sessions/:id/checkpoints/:cpId/restore", async (c) => {
+    const s = session(c);
+    if (s.isRunning) throw new HttpError(409, "Stop the session before restoring a checkpoint");
+    try {
+      const r = await s.restoreCheckpoint(c.req.param("cpId"));
+      return c.json({ ok: true, backupId: r.backupId, changed: r.files.length });
+    } catch (e) {
+      throw new HttpError(409, (e as Error).message);
+    }
+  });
+
   app.post("/sessions/:id/cancel", (c) => {
     const s = session(c);
     if (s.isExternalRun)
@@ -546,6 +811,23 @@ export function createApp(opts: ServerOptions = {}): { app: Hono; harness: Harne
     }
   });
 
+  /** The conversation's stored JSONL event log (already redacted when written) and the files it referenced. */
+  app.get("/sessions/:id/log", (c) => {
+    const s = session(c);
+    const path = harness.store.path(s.id);
+    if (!existsSync(path)) throw new HttpError(404, "no stored log for this session");
+    const { bytes, mtime, records, content, truncated } = readLogTail(path, LOG_LIMIT);
+    return c.json({
+      path,
+      bytes,
+      modifiedAt: mtime.toISOString(),
+      records,
+      content,
+      truncated,
+      files: sessionReferencedFiles(s),
+    } satisfies SessionLogResponse);
+  });
+
   app.get("/sessions/:id/diff", (c) => {
     const s = session(c);
     return c.json({ diff: workingTreeDiff(s.projectRoot) ?? "" });
@@ -564,10 +846,17 @@ export function createApp(opts: ServerOptions = {}): { app: Hono; harness: Harne
     }
     if (!existsSync(abs) || statSync(abs).isDirectory()) throw new HttpError(404, "not found");
     if (statSync(abs).size > 20_000_000) throw new HttpError(400, "file too large");
+    const isPdf = extname(abs).toLowerCase() === ".pdf";
     return c.body(readFileSync(abs), 200, {
       "content-type": MIME[extname(abs).toLowerCase()] ?? "application/octet-stream",
       "x-content-type-options": "nosniff",
-      "content-security-policy": "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'",
+      // A PDF is shown by the browser's built-in viewer inside the UI's side column, which a
+      // `default-src 'none'` policy would block. It may be framed by this origin, the Vite dev server
+      // and the desktop webview (cross-origin to the API); the unguessable token is still required.
+      "content-security-policy": isPdf
+        ? "frame-ancestors 'self' http://127.0.0.1:* http://localhost:* tauri://localhost http://tauri.localhost https://tauri.localhost"
+        : "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'",
+      ...(isPdf ? { "content-disposition": "inline" } : {}),
     });
   });
 
@@ -710,4 +999,39 @@ export function startServer(
       });
     });
   });
+}
+
+const LOG_LIMIT = 4_000_000;
+
+/** The file's size and record count, and its last complete records that fit in `limit` bytes. */
+function readLogTail(path: string, limit: number) {
+  const fd = openSync(path, "r");
+  try {
+    const st = fstatSync(fd);
+    const buffer = Buffer.alloc(st.size);
+    let length = 0;
+    while (length < buffer.length) {
+      const n = readSync(fd, buffer, length, buffer.length - length, length);
+      if (!n) break;
+      length += n;
+    }
+    const data = buffer.subarray(0, length);
+    let records = 0;
+    for (let i = data.indexOf(10), start = 0; i !== -1; start = i + 1, i = data.indexOf(10, start))
+      if (i > start) records++;
+    if (data.length && data[data.length - 1] !== 10) records++; // torn last record
+    if (data.length <= limit)
+      return { bytes: st.size, mtime: st.mtime, records, content: data.toString("utf8"), truncated: false };
+    // Start after a newline so the tail holds only whole records (and whole UTF-8 characters).
+    const start = data.indexOf(10, data.length - limit) + 1;
+    return {
+      bytes: st.size,
+      mtime: st.mtime,
+      records,
+      content: start > 0 ? data.subarray(start).toString("utf8") : "",
+      truncated: true,
+    };
+  } finally {
+    closeSync(fd);
+  }
 }

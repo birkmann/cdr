@@ -55,6 +55,27 @@ describe("agent loop via Session.chat", () => {
     expect(h.store.read(s.id).length).toBe(s.events.length);
   });
 
+  it("ends a chat turn as failed when the provider has no API key, instead of staying running", async () => {
+    const h = harnessWith(new MockProvider({ replies: [] }), {
+      providers: {
+        mock: { type: "mock" },
+        keyed: {
+          type: "openai-compatible",
+          baseURL: "http://127.0.0.1:9",
+          apiKeyEnv: "CDR_TEST_NO_SUCH_KEY",
+        },
+      },
+    });
+    const s = h.createSession({ projectPath: tempProject({}), models: { executor: "keyed/x" } });
+    expect(s.modelProblem()).toMatch(/No model is connected.*CDR_TEST_NO_SUCH_KEY/);
+    expect(h.modelProblem({ models: { executor: "keyed/x" } })).toMatch(/CDR_TEST_NO_SUCH_KEY/);
+    expect(h.modelProblem()).toBeUndefined();
+    const r = await s.chat("hi");
+    expect(r.status).toBe("error");
+    expect(s.status).toBe("failed");
+    expect(types(s.events).slice(-3)).toEqual(["error", "done", "status"]);
+  });
+
   it("asks for permission and respects deny", async () => {
     const root = tempProject();
     const mock = new MockProvider({

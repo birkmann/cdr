@@ -55,4 +55,4 @@ Actions: `pauseGoal`, `discardGoal` (removes worktree and branch), `mergeGoal` (
 }
 ```
 
-`harness run "…" -w careful`
+`cdr run "…" -w careful`

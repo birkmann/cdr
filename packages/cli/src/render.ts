@@ -1,4 +1,5 @@
 import type { HarnessEvent } from "@harness/protocol";
+import { compactionLine } from "@harness/client";
 
 const tty = process.stdout.isTTY && !process.env.NO_COLOR;
 const wrap = (code: string) => (s: string) => (tty ? `\x1b[${code}m${s}\x1b[0m` : s);
@@ -124,6 +125,10 @@ export class Renderer {
         }
         if (this.opts.verbose) this.write(c.gray(e.text));
         break;
+      case "reasoning.summary":
+        if (!this.atLineStart) this.write("\n");
+        this.line(c.gray(`  ↳ ${e.text}`));
+        break;
       case "message.delta":
         if (this.inReasoning) {
           this.inReasoning = false;
@@ -190,11 +195,91 @@ export class Renderer {
       case "preview.ready":
         this.line(c.green(`  ▶ preview: ${e.path}`) + c.dim("  (open the chat in the web app to see it)"));
         break;
-      case "skill.activated":
-        this.line(c.dim(`  skill ${e.name} loaded (matched the task)`));
+      case "checkpoint.created":
         break;
+      case "checkpoint.restored":
+        this.line(
+          c.yellow(
+            `  ↺ restored checkpoint ${e.id}: ${e.changed} file${e.changed === 1 ? "" : "s"} changed`,
+          ) + c.dim(`  (undo: restore ${e.backupId})`),
+        );
+        break;
+      case "checkpoint.failed":
+        this.line(c.dim(`  checkpoint not saved: ${e.message}`));
+        break;
+      case "skill.activated":
+        this.line(
+          c.dim(`  skill ${e.name} loaded (${e.reason === "selected" ? "selected" : "matched the task"})`),
+        );
+        break;
+      case "recreate.started":
+        this.line(
+          c.bold(`⧉ recreate ${e.url}`) + c.dim(`  run ${e.runId} · ${e.targets.join(", ")} · ${e.dir}`),
+        );
+        break;
+      case "recreate.consent":
+        this.line(c.dim(`  consent: ${e.consent.by} (${e.consent.mode})`));
+        break;
+      case "recreate.stage":
+        if (e.status !== "running") {
+          const col = e.status === "done" ? c.green : e.status === "failed" ? c.red : c.yellow;
+          this.line(
+            `  ${col(e.status === "done" ? "✓" : e.status === "failed" ? "✗" : "–")} ${e.stage}` +
+              c.dim(
+                `${e.ms !== undefined ? ` ${(e.ms / 1000).toFixed(1)}s` : ""}${e.detail ? `  ${e.detail}` : ""}`,
+              ) +
+              (e.skipped?.length ? c.yellow(`\n      skipped: ${e.skipped.slice(0, 8).join(", ")}`) : ""),
+          );
+        } else this.line(c.dim(`  … ${e.stage}`));
+        break;
+      case "recreate.section":
+        if (e.status === "ok" || e.status === "repaired" || e.status === "below-threshold")
+          this.line(
+            `    ${e.status === "below-threshold" ? c.yellow("▲") : c.green("▪")} ${e.index + 1}/${e.total} ${e.id}` +
+              c.dim(
+                ` [${e.kind}] ${e.status}${e.pixel !== undefined ? ` ${(e.pixel * 100).toFixed(1)} %` : ""}`,
+              ),
+          );
+        break;
+      case "recreate.shot":
+        if (e.kind === "live") this.line(c.dim(`    live shot ${e.width}px  ${e.path}`));
+        break;
+      case "recreate.measured":
+        this.line(`  measured ${e.target}:`);
+        for (const w of e.widths)
+          this.line(
+            c.dim(
+              `    ${w.width}px  pixel ${(w.pixel * 100).toFixed(2)} %  text ${w.textReal} (${w.textDrift} drift)  height ${w.height.out}/${w.height.live}px${w.hscroll ? `  h-scroll ${w.hscroll}px` : ""}`,
+            ),
+          );
+        for (const g of e.gates)
+          this.line(
+            `    ${g.pass ? c.green("✓") : c.red("✗")} ${g.name}` + c.dim(g.detail ? `  ${g.detail}` : ""),
+          );
+        break;
+      case "recreate.components":
+        this.line(
+          `  components: ${e.sets.length} sets, lint ${e.lint.pass ? c.green("pass") : c.red("fail")}` +
+            c.dim(e.lint.issues.length ? `  ${e.lint.issues.slice(0, 4).join("; ")}` : ""),
+        );
+        break;
+      case "recreate.finished": {
+        const col = e.status === "success" ? c.green : e.status === "cancelled" ? c.yellow : c.red;
+        this.line(col(`⧉ recreate ${e.status}`) + c.dim(`  ${e.summary ?? ""}`));
+        for (const o of e.outputs) this.line(c.dim(`    ${o.target}: ${o.path}`));
+        if (e.comparePath) this.line(c.dim(`    compare: ${e.comparePath}`));
+        break;
+      }
       case "memory.saved":
-        this.line(c.dim(`  remembered (${e.scope}): ${e.fact}`));
+        this.line(
+          c.dim(`  remembered (${e.scope}): ${e.fact}` + (e.replaced ? `  (replaces: ${e.replaced})` : "")),
+        );
+        break;
+      case "memory.removed":
+        this.line(c.dim(`  forgot (${e.scope}): ${e.fact}`));
+        break;
+      case "context.compacted":
+        this.line(c.dim(`  ${compactionLine(e)}`));
         break;
       case "usage":
         this.usage.input += e.inputTokens;

@@ -9,7 +9,12 @@ import { createClient, HarnessApiError } from "@harness/client";
 
 let srv: StartedServer;
 let repo: string;
-const mock = new MockProvider({ handler: () => ({ text: "Update the greeting\n\nSay hello to everyone." }) });
+const mock = new MockProvider({
+  handler: (req) =>
+    String(req.messages[0]?.content).includes("project picker")
+      ? { text: '{"title":"Greeting demo","summary":"Says hello."}' }
+      : { text: "Update the greeting\n\nSay hello to everyone." },
+});
 
 beforeAll(async () => {
   repo = mkdtempSync(join(tmpdir(), "srv-commit-"));
@@ -45,5 +50,18 @@ describe("POST /commit-message", () => {
     });
     await expect(client.commitMessage(join(repo, "missing"))).rejects.toBeInstanceOf(HarnessApiError);
     expect((await fetch(`${srv.url}/commit-message`, { method: "POST" })).status).toBe(401);
+  });
+});
+
+describe("POST /project-summary", () => {
+  it("returns an AI title and summary for a project folder", async () => {
+    const client = createClient({ baseUrl: srv.url, token: "t" });
+    expect(await client.projectSummary(repo)).toEqual({
+      title: "Greeting demo",
+      summary: "Says hello.",
+      model: "mock/m",
+    });
+    await expect(client.projectSummary(join(repo, "missing"))).rejects.toMatchObject({ status: 404 });
+    expect((await fetch(`${srv.url}/project-summary`, { method: "POST" })).status).toBe(401);
   });
 });

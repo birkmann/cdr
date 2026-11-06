@@ -13,12 +13,17 @@ import type {
   UpdateGoalRequest,
   CreateSessionRequest,
   HarnessEvent,
+  AvailableModels,
   ModelListEntry,
   PermissionDecision,
   PlanDecision,
   SendMessageRequest,
+  SkillInfo,
   SessionInfo,
   TodoItem,
+  CheckpointChange,
+  SessionLogResponse,
+  StorageInfo,
 } from "@harness/protocol";
 
 export type * from "@harness/protocol";
@@ -94,6 +99,11 @@ export interface HarnessClient {
     projectPath: string,
     model?: string,
   ): Promise<{ message: string; scope: "staged" | "all"; model: string }>;
+  /** AI-generated title and short summary of what a project folder is about. */
+  projectSummary(
+    projectPath: string,
+    model?: string,
+  ): Promise<{ title: string; summary: string; model: string }>;
   getSession(
     id: string,
     opts?: { events?: boolean; after?: number; internal?: boolean; signal?: AbortSignal },
@@ -110,12 +120,22 @@ export interface HarnessClient {
   ): Promise<void>;
   cancel(id: string): Promise<void>;
   continueJob(id: string): Promise<void>;
+  /** Files restoring a checkpoint would change (compared with the workspace now). */
+  previewCheckpoint(id: string, checkpointId: string): Promise<CheckpointChange[]>;
+  /** Reset the workspace files to a checkpoint; the current state is checkpointed first (`backupId`). */
+  restoreCheckpoint(id: string, checkpointId: string): Promise<{ backupId: string; changed: number }>;
   files(id: string, path?: string): Promise<{ files?: string[]; path?: string; content?: string }>;
+  /** Where the server stores conversation history. */
+  storage(): Promise<StorageInfo>;
+  /** A conversation's stored event log (its JSONL file) and the project files it referenced. */
+  sessionLog(id: string): Promise<SessionLogResponse>;
   diff(id: string): Promise<string>;
   updateSettings(id: string, settings: SessionSettingsRequest): Promise<SessionInfo>;
   deleteSession(id: string): Promise<void>;
   browse(path?: string, opts?: { hidden?: boolean }): Promise<BrowseResponse>;
-  availableModels(projectPath?: string): Promise<Record<string, { models: string[]; error?: string }>>;
+  availableModels(projectPath?: string): Promise<Record<string, AvailableModels>>;
+  /** Skills that can be selected for a message in this project (built-in and user skills without one). */
+  skills(projectPath?: string): Promise<SkillInfo[]>;
   /** URL for raw file bytes in the session's project (usable as <img src>). */
   rawUrl(id: string, path: string): string;
   /** Absolute URL of the live preview for a project file (needs `previewBase` from getSession). */
@@ -179,6 +199,7 @@ export function createClient(opts: ClientOptions): HarnessClient {
     mergeGoal: (id) => call("POST", `/goals/${enc(id)}/merge`, {}),
     requestGoalChanges: (id, feedback) => call("POST", `/goals/${enc(id)}/changes`, { feedback }),
     commitMessage: (projectPath, model) => call("POST", "/commit-message", { projectPath, model }),
+    projectSummary: (projectPath, model) => call("POST", "/project-summary", { projectPath, model }),
     deleteGoal: async (id) => {
       await call("DELETE", `/goals/${enc(id)}`);
     },
@@ -207,7 +228,12 @@ export function createClient(opts: ClientOptions): HarnessClient {
     continueJob: async (id) => {
       await call("POST", `/sessions/${enc(id)}/continue`, {});
     },
+    previewCheckpoint: async (id, cp) =>
+      (await call<{ files: CheckpointChange[] }>("GET", `/sessions/${enc(id)}/checkpoints/${enc(cp)}`)).files,
+    restoreCheckpoint: (id, cp) => call("POST", `/sessions/${enc(id)}/checkpoints/${enc(cp)}/restore`, {}),
     files: (id, path) => call("GET", `/sessions/${enc(id)}/files${path ? `?path=${enc(path)}` : ""}`),
+    storage: () => call("GET", "/storage"),
+    sessionLog: (id) => call("GET", `/sessions/${enc(id)}/log`),
     diff: async (id) => (await call<{ diff: string }>("GET", `/sessions/${enc(id)}/diff`)).diff,
     updateSettings: (id, settings) => call("POST", `/sessions/${enc(id)}/settings`, settings),
     deleteSession: async (id) => {
@@ -217,11 +243,18 @@ export function createClient(opts: ClientOptions): HarnessClient {
       call("GET", `/browse?${path ? `path=${enc(path)}&` : ""}${o?.hidden ? "hidden=true" : ""}`),
     availableModels: async (projectPath) =>
       (
-        await call<{ available: Record<string, { models: string[]; error?: string }> }>(
+        await call<{ available: Record<string, AvailableModels> }>(
           "GET",
           `/models?remote=true${projectPath ? `&projectPath=${enc(projectPath)}` : ""}`,
         )
       ).available,
+    skills: async (projectPath) =>
+      (
+        await call<{ skills: SkillInfo[] }>(
+          "GET",
+          `/skills${projectPath ? `?projectPath=${enc(projectPath)}` : ""}`,
+        )
+      ).skills,
     previewUrl: (previewBase, path) => `${base}${previewBase}${path.split("/").map(enc).join("/")}`,
     rawUrl: (id, path) => `${base}/sessions/${enc(id)}/raw?path=${enc(path)}&token=${enc(opts.token)}`,
     events: (id, o = {}) => streamEvents(f, `${base}/sessions/${enc(id)}/events`, opts.token, o),
@@ -318,9 +351,15 @@ export interface MessageView {
   role: "user" | "assistant";
   text: string;
   reasoning?: string;
+  /** Short decision lines summarising the reasoning so far (reasoning.summary). */
+  decisions?: string[];
   agent?: string;
   streaming: boolean;
   attachments?: AttachmentInfo[];
+  /** Skills the user selected for this message. */
+  skills?: string[];
+  /** Workspace checkpoint taken right before this user message's turn (restorable). */
+  checkpoint?: string;
 }
 
 export type TimelineItem =
@@ -373,6 +412,45 @@ export interface GoalView {
   criteria: CriterionResult[];
 }
 
+/** One recreation run as the UIs show it: stages, section rows, numbers, outputs. */
+export interface RecreateRunView {
+  runId: string;
+  url: string;
+  dir?: string;
+  targets: string[];
+  consent?: { by: "user" | "auto"; at: string; mode: string };
+  stages: Record<
+    string,
+    {
+      status: "running" | "done" | "failed" | "skipped";
+      ms?: number;
+      detail?: string;
+      skipped?: string[];
+      /** when the stage started (the running event's timestamp), for a live elapsed time */
+      startedAt?: string;
+    }
+  >;
+  sections: Array<{
+    index: number;
+    total: number;
+    id: string;
+    kind: string;
+    label: string;
+    status: "building" | "checking" | "ok" | "below-threshold" | "repaired";
+    pixel?: number;
+    /** the band on the live page per captured width (kept from the first event that carried it) */
+    bands?: { width: number; y: number; h: number }[];
+  }>;
+  /** screenshots of the live page taken so far (peeks first, then full-page shots), newest last */
+  shots: Array<{ kind: "peek" | "live"; width: number; height: number; path: string; seq: number }>;
+  measured: Record<string, Extract<HarnessEvent, { type: "recreate.measured" }>>;
+  components?: Extract<HarnessEvent, { type: "recreate.components" }>;
+  status: "running" | "success" | "failed" | "cancelled";
+  outputs: { target: string; path: string }[];
+  comparePath?: string;
+  summary?: string;
+}
+
 export interface SessionState {
   externalRun?: boolean;
   workflow?: string;
@@ -388,6 +466,8 @@ export interface SessionState {
   todos: TodoItem[];
   phase?: string;
   usage: { inputTokens: number; outputTokens: number; cost: number };
+  /** Context compactions in this session: how many, and the token sizes around the latest one. */
+  compaction?: { count: number; tokensBefore: number; tokensAfter: number };
   done?: Extract<HarnessEvent, { type: "done" }>;
   errors: string[];
   projectPath?: string;
@@ -407,6 +487,10 @@ export interface SessionState {
   turnTimes: Record<string, { start: string; end?: string }>;
   /** User message id of the latest turn. */
   currentTurn?: string;
+  /** 1:1 recreation runs by run id. */
+  recreate?: { runs: Record<string, RecreateRunView> };
+  /** Turn checkpoint not yet attached to its user message. */
+  pendingCheckpoint?: string;
 }
 
 export const initialSessionState = (): SessionState => ({
@@ -423,6 +507,14 @@ export const initialSessionState = (): SessionState => ({
   agents: {},
   turnTimes: {},
 });
+
+const kTokens = (n: number) => (n >= 1000 ? `${Math.round(n / 1000)}K` : String(n));
+
+/** One-line description of a context compaction, shared by all frontends. */
+export function compactionLine(e: Extract<HarnessEvent, { type: "context.compacted" }>): string {
+  const what = e.method === "prune" ? "old tool output trimmed" : "earlier work condensed into a brief";
+  return `Context compacted (${what}): ~${kTokens(e.tokensBefore)} → ~${kTokens(e.tokensAfter)} tokens${e.count > 1 ? ` · ${e.count}× so far` : ""}`;
+}
 
 /** Pure reducer that turns the event stream into UI state. Shared by all frontends. */
 export function reduceSession(state: SessionState, e: HarnessEvent): SessionState {
@@ -483,8 +575,16 @@ export function reduceSession(state: SessionState, e: HarnessEvent): SessionStat
     case "message.start":
       s.messages = {
         ...s.messages,
-        [e.id]: { id: e.id, role: e.role, text: "", agent: e.agent, streaming: true },
+        [e.id]: {
+          id: e.id,
+          role: e.role,
+          text: "",
+          agent: e.agent,
+          streaming: true,
+          ...(e.role === "user" && s.pendingCheckpoint ? { checkpoint: s.pendingCheckpoint } : {}),
+        },
       };
+      if (e.role === "user") s.pendingCheckpoint = undefined;
       s.timeline = [...s.timeline, { kind: "message", id: e.id }];
       break;
     case "message.delta": {
@@ -497,6 +597,11 @@ export function reduceSession(state: SessionState, e: HarnessEvent): SessionStat
       if (m) s.messages = { ...s.messages, [e.id]: { ...m, reasoning: (m.reasoning ?? "") + e.text } };
       break;
     }
+    case "reasoning.summary": {
+      const m = s.messages[e.id];
+      if (m) s.messages = { ...s.messages, [e.id]: { ...m, decisions: [...(m.decisions ?? []), e.text] } };
+      break;
+    }
     case "message.end": {
       const m = s.messages[e.id];
       if (m)
@@ -507,6 +612,7 @@ export function reduceSession(state: SessionState, e: HarnessEvent): SessionStat
             text: e.text,
             streaming: false,
             ...(e.attachments ? { attachments: e.attachments } : {}),
+            ...(e.skills ? { skills: e.skills } : {}),
           },
         };
       break;
@@ -555,7 +661,16 @@ export function reduceSession(state: SessionState, e: HarnessEvent): SessionStat
     case "verify.result":
     case "review.findings":
     case "memory.saved":
+    case "memory.removed":
     case "skill.activated":
+      s.timeline = [...s.timeline, { kind: "event", event: e }];
+      break;
+    case "context.compacted":
+      s.compaction = {
+        count: (s.compaction?.count ?? 0) + 1,
+        tokensBefore: e.tokensBefore,
+        tokensAfter: e.tokensAfter,
+      };
       s.timeline = [...s.timeline, { kind: "event", event: e }];
       break;
     case "log":
@@ -669,7 +784,32 @@ export function reduceSession(state: SessionState, e: HarnessEvent): SessionStat
         };
       s.timeline = [...s.timeline, { kind: "event", event: e }];
       break;
+    case "recreate.started":
+    case "recreate.stage":
+    case "recreate.section":
+    case "recreate.shot":
+    case "recreate.measured":
+    case "recreate.components":
+    case "recreate.consent":
+    case "recreate.finished":
+      s.recreate = reduceRecreate(s.recreate, e);
+      if (e.type === "recreate.started" || e.type === "recreate.finished")
+        s.timeline = [...s.timeline, { kind: "event", event: e }];
+      break;
+    case "checkpoint.created":
+      if (e.reason !== "turn") break;
+      if (e.messageId) {
+        // Taken right after its user message (current logs).
+        const m = s.messages[e.messageId];
+        if (m) s.messages = { ...s.messages, [e.messageId]: { ...m, checkpoint: e.id } };
+      } else s.pendingCheckpoint = e.id; // older logs: emitted just before the user message
+      break;
+    case "checkpoint.restored":
+    case "checkpoint.failed":
+      s.timeline = [...s.timeline, { kind: "event", event: e }];
+      break;
     case "done":
+      s.pendingCheckpoint = undefined;
       s.done = e;
       s.pendingPermissions = [];
       s.pendingQuestions = [];
@@ -678,4 +818,87 @@ export function reduceSession(state: SessionState, e: HarnessEvent): SessionStat
       break;
   }
   return s;
+}
+
+type RecreateEvent = Extract<HarnessEvent, { type: `recreate.${string}` }>;
+
+/** Recreate events → run views. A run spans several tool calls (each emits started / finished), merged by run id. */
+export function reduceRecreate(
+  state: SessionState["recreate"],
+  e: RecreateEvent,
+): NonNullable<SessionState["recreate"]> {
+  const runs = { ...(state?.runs ?? {}) };
+  const prev: RecreateRunView = runs[e.runId] ?? {
+    runId: e.runId,
+    url: "",
+    targets: [],
+    stages: {},
+    sections: [],
+    shots: [],
+    measured: {},
+    status: "running",
+    outputs: [],
+  };
+  const r: RecreateRunView = { ...prev };
+  switch (e.type) {
+    case "recreate.started":
+      r.url = e.url;
+      r.dir = e.dir;
+      r.targets = e.targets;
+      r.status = "running";
+      break;
+    case "recreate.consent":
+      r.consent = e.consent;
+      break;
+    case "recreate.stage":
+      r.stages = {
+        ...r.stages,
+        [e.stage]: {
+          status: e.status,
+          ms: e.ms,
+          detail: e.detail,
+          skipped: e.skipped,
+          startedAt: e.status === "running" ? e.ts : r.stages[e.stage]?.startedAt,
+        },
+      };
+      // a re-built page starts its section rows over
+      if (e.stage === "build" && e.status === "running") r.sections = [];
+      break;
+    case "recreate.section": {
+      const row = {
+        index: e.index,
+        total: e.total,
+        id: e.id,
+        kind: e.kind,
+        label: e.label,
+        status: e.status,
+        pixel: e.pixel,
+        bands: e.bands ?? r.sections.find((x) => x.id === e.id)?.bands,
+      };
+      r.sections = [...r.sections.filter((x) => x.id !== e.id), row].sort((a, b) => a.index - b.index);
+      break;
+    }
+    case "recreate.shot":
+      // the same file again (a re-capture) replaces its entry; seq busts the browser cache
+      r.shots = [
+        ...(r.shots ?? []).filter((x) => x.path !== e.path),
+        { kind: e.kind, width: e.width, height: e.height, path: e.path, seq: e.seq },
+      ];
+      break;
+    case "recreate.measured":
+      r.measured = { ...r.measured, [e.target]: e };
+      if (e.comparePath) r.comparePath = e.comparePath;
+      break;
+    case "recreate.components":
+      r.components = e;
+      break;
+    case "recreate.finished":
+      r.status = e.status;
+      r.outputs = e.outputs;
+      if (e.comparePath) r.comparePath = e.comparePath;
+      r.summary = e.summary;
+      break;
+  }
+  runs[e.runId] = r;
+  return { runs };
 }

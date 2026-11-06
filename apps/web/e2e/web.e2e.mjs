@@ -145,7 +145,7 @@ try {
   assert.equal(await sidebarResize.getAttribute("aria-valuenow"), "258", "double click resets width");
 
   // CDR shell: explicit dark default, keyboard search, suggestions, themes, and navigation.
-  assert.equal(await page.title(), "CDR — A place for your next idea");
+  assert.equal(await page.title(), "CDR — Code. Build. Ship.");
   assert.equal(await page.locator("html").getAttribute("data-theme"), "dark");
   await page.locator(".suggestions .chip").first().click();
   await page.waitForFunction(() => document.querySelector(".composer.large textarea")?.value.includes("snake"));
@@ -291,6 +291,13 @@ try {
   // Creations come from real preview events and open the saved conversation.
   await page.getByRole("button", { name: "Creations", exact: true }).click();
   await page.locator(".creation-card", { hasText: "Snake" }).waitFor();
+  // Each card shows a scaled, sandboxed live render of the page itself.
+  await page
+    .locator(".creation-card", { hasText: "Snake" })
+    .frameLocator("iframe.creation-thumb")
+    .locator("#t", { hasText: "SNAKE READY" })
+    .waitFor();
+  await page.screenshot({ path: join(shots, "creations.png") });
   await page.locator(".creation-card", { hasText: "Snake" }).click();
   await page.frameLocator("iframe.preview-frame").locator("#t", { hasText: "SNAKE READY" }).waitFor();
   await page.getByRole("button", { name: "New chat", exact: true }).click();
@@ -381,9 +388,12 @@ try {
   assert.equal(await page.locator(".history-item").count(), 2);
   await page.locator(".history-item").first().hover();
   await page.getByRole("button", { name: "Delete chat" }).first().click();
+  const confirmDelete = page.getByRole("dialog", { name: /^Delete “/ });
+  await confirmDelete.waitFor();
+  await confirmDelete.getByRole("button", { name: "Delete chat" }).click();
   await page.waitForFunction(() => document.querySelectorAll(".history-item").length === 1);
 
-  await page.screenshot({ path: join(shots, "6-morrow-home.png") });
+  await page.screenshot({ path: join(shots, "6-cdr-home.png") });
 
   // 9. mobile layout renders
   await page.setViewportSize({ width: 390, height: 800 });
@@ -443,12 +453,12 @@ try {
   assert.equal(await page.locator(".msg.assistant").count(), 0, "intermediate narration is collapsed");
   assert.equal(await page.locator(".turn-activity.active .dots").count(), 1, "single animated activity indicator");
   await page.screenshot({ path: join(shots, "activity-collapsed.png") });
-  assert.equal(await page.locator(".conversation-jumps").count(), 0, "no jump button while following short updates");
+  assert.equal(await page.locator(".jump-latest.visible").count(), 0, "no jump button while following short updates");
   await page.setViewportSize({ width: 1440, height: 600 });
   await page.getByRole("button", { name: "Show all steps", exact: true }).click();
   await page.getByText("Compact update 6: checking the next file.", { exact: true }).waitFor();
   await page.locator(".messages").evaluate((el) => { el.scrollTop = 0; el.dispatchEvent(new Event("scroll")); });
-  await page.locator(".conversation-jumps").waitFor();
+  await page.locator(".jump-latest.visible").waitFor();
   const compactPosition = await page.locator(".messages").evaluate((el) => el.scrollTop);
   nextCompact();
   await page.getByText("Compact update 7: checking the next file.", { exact: true }).waitFor();
@@ -456,14 +466,15 @@ try {
   const readBox = await page.locator(".messages").boundingBox();
   const jumpsBox = await page.locator(".conversation-jumps").boundingBox();
   const composerBox = await page.locator(".chat-bottom").boundingBox();
-  assert.ok(jumpsBox.y >= readBox.y + readBox.height - 1, "jump row sits outside the reading area");
+  const readBottom = readBox.y + readBox.height;
+  assert.ok(jumpsBox.y + jumpsBox.height <= readBottom && jumpsBox.y >= readBottom - 64, "jump button floats at the bottom edge of the reading area");
   assert.ok(jumpsBox.y + jumpsBox.height <= composerBox.y + 1, "jump row stays above the composer");
   await page.screenshot({ path: join(shots, "reading-controls.png") });
   await page.getByRole("button", { name: "Hide all steps", exact: true }).click();
   finishCompact();
   await page.getByText("Compact update 8: checking the next file.", { exact: true }).waitFor();
   await page.waitForFunction(() => { const el = document.querySelector(".messages"); return el.scrollHeight - el.scrollTop - el.clientHeight < 2; });
-  assert.equal(await page.locator(".conversation-jumps").count(), 0);
+  await page.waitForFunction(() => !document.querySelector(".jump-latest.visible"));
 
   // Long streaming plans preserve the reading position, including after an explicit jump.
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -580,6 +591,24 @@ try {
   assert.equal(await page.locator(".messages").evaluate(el => el.scrollTop), 320, "reload restores reading position");
   await page.screenshot({ path: join(shots, "thread-snapshot.png") });
 
+  // The History tab shows where the conversation is stored and its raw records.
+  await page.locator(".code-panel .tabs button", { hasText: "History" }).click();
+  const storedAt = await page.locator(".chatlog-path code").innerText();
+  assert.ok(storedAt.endsWith(`${historySession.id}.jsonl`), `log path shown: ${storedAt}`);
+  // Transcript by default: whole messages, not one row per streamed chunk.
+  await page.locator(".chatlog-msg", { hasText: "Saved response 39." }).first().waitFor();
+  await page.screenshot({ path: join(shots, "thread-history-transcript.png") });
+  await page.getByRole("tab", { name: "Records" }).click();
+  await page.locator(".chatlog-record .tree-row").first().click();
+  await page.locator(".chatlog-json").first().waitFor();
+  await page.screenshot({ path: join(shots, "thread-history.png") });
+  await page.goto(`${server.url}/chats`);
+  await page.locator(".storage-note code").waitFor();
+  await page.screenshot({ path: join(shots, "chats-storage.png") });
+  await page.locator(".conversation-row", { hasText: "Snapshot loading test" }).getByRole("button", { name: /Inspect/ }).click();
+  await page.locator(".code-panel .tabs button.active", { hasText: "History" }).waitFor();
+  await page.goto(`${server.url}/c/${historySession.id}`);
+
   // HTML often arrives before CSS/JS. Never present that incomplete first build as ready,
   // including after a reload, and load all assets once the agent publishes it.
   const staged = harness.createSession({ sandbox: { name: "staged-preview" }, title: "Staged page build" });
@@ -668,7 +697,7 @@ try {
   await page.frameLocator("iframe.preview-frame").getByRole("heading", { name: "Completed page" }).waitFor();
   // A real independent terminal process writes to the shared log while the browser is open.
   const terminalCode = `
-    const { Harness, MockProvider } = await import(process.env.MORROW_TEST_CORE);
+    const { Harness, MockProvider } = await import(process.env.CDR_TEST_CORE);
     let release;
     const gate = new Promise(resolve => { release = resolve; });
     const provider = new MockProvider({ handler: async (_req, index) => {
@@ -695,7 +724,7 @@ try {
     process.send({ id: session.id });
   `;
   terminalChild = spawn(process.execPath, ["--input-type=module", "-e", terminalCode], {
-    env: { ...process.env, MORROW_TEST_CORE: new URL("../../../packages/core/dist/index.js", import.meta.url).href },
+    env: { ...process.env, CDR_TEST_CORE: new URL("../../../packages/core/dist/index.js", import.meta.url).href },
     stdio: ["ignore", "ignore", "pipe", "ipc"],
   });
   const terminalExit = new Promise(resolve => terminalChild.once("exit", resolve));
@@ -726,6 +755,159 @@ try {
   await page.getByRole("button", { name: "Toggle code panel" }).click();
   await page.locator(".code-panel .tabs button", { hasText: "Preview" }).click();
   await page.getByText(/Plan ready — no app has been built yet/).waitFor();
+
+  // 1:1 recreation: a pasted URL offers "Recreate 1:1"; the run asks for consent through the permission card
+  // (no "always" for it); denying ends it before anything is fetched. No network is touched.
+  const recreateSession = harness.createSession({ sandbox: { name: "recreate" }, title: "Recreate a page" });
+  await page.goto(`${server.url}/c/${recreateSession.id}`);
+  const urlComposer = page.locator(".composer textarea");
+  await urlComposer.fill("Look at this: https://example.invalid/pricing.");
+  const recreateButton = page.getByRole("button", { name: "Recreate 1:1" });
+  await recreateButton.waitFor();
+  assert.equal(await page.locator(".composer-url-action .mono").textContent(), "https://example.invalid/pricing");
+  await urlComposer.fill("no link here");
+  assert.equal(await recreateButton.count(), 0, "no Recreate button without a URL");
+  await urlComposer.fill("/recreate");
+  await urlComposer.press("Enter");
+  await page.getByText("Usage: /recreate https://example.com").waitFor();
+  await urlComposer.fill("https://example.invalid/pricing");
+  await recreateButton.click();
+  const consent = page.getByRole("region", { name: "Permission request" });
+  await consent.getByText("recreate_capture").waitFor();
+  await consent.getByText(/You are responsible for how you use the result/).waitFor();
+  assert.equal(await consent.getByRole("button", { name: /Always allow/ }).count(), 0, "no always for consent");
+  assert.equal(await urlComposer.inputValue(), "", "composer cleared after starting the run");
+  await page.getByRole("region", { name: "Recreation progress" }).getByText("example.invalid/pricing").waitFor();
+  await consent.getByRole("button", { name: "Deny" }).click();
+  await page.locator(".recreate-card .status-pill", { hasText: /failed|stopped/i }).waitFor();
+  await page.locator(".recreate-stage.failed", { hasText: "Consent" }).waitFor();
+  await page.screenshot({ path: join(shots, "recreate-denied.png") });
+
+  // A progress card renders from recreate events (fed straight into the session log), and the compare page
+  // opens in the Compare tab through the signed preview path.
+  const fed = harness.createSession({ sandbox: { name: "recreate-fed" }, title: "Recreated page" });
+  const runId = "20260101-000000-example-e2e";
+  const runDir = join(fed.projectRoot, ".harness", "recreate", runId);
+  mkdirSync(join(runDir, "compare"), { recursive: true });
+  mkdirSync(join(runDir, "out", "static"), { recursive: true });
+  writeFileSync(join(runDir, "compare", "index.html"), "<!doctype html><h1>Live vs recreated</h1>");
+  writeFileSync(
+    join(runDir, "out", "static", "index.html"),
+    `<!doctype html><body style="margin:0;font:40px sans-serif"><h1 style="margin:0;height:400px;background:#cfe">Recreated output</h1><div style="height:1000px;background:#efc">Hero</div><div style="height:600px;background:#fce">Footer</div></body>`,
+  );
+  mkdirSync(join(runDir, "capture", "live"), { recursive: true });
+  writeFileSync(
+    join(runDir, "capture", "live", "1440.svg"),
+    `<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="2000"><rect width="1440" height="2000" fill="#ddd"/><text x="40" y="120" font-size="80">Live screenshot</text></svg>`,
+  );
+  await page.goto(`${server.url}/c/${fed.id}`);
+  await page.locator(".chat-title", { hasText: "Recreated page" }).waitFor();
+  fed.emit({ type: "status", status: "running" });
+  fed.emit({
+    type: "recreate.started",
+    runId,
+    url: "https://example.invalid/",
+    widths: [390, 1440],
+    targets: ["static"],
+    consent: { by: "user", at: new Date().toISOString(), mode: "ask" },
+    dir: `.harness/recreate/${runId}`,
+  });
+  fed.emit({ type: "recreate.consent", runId, url: "https://example.invalid/", consent: { by: "user", at: new Date().toISOString(), mode: "ask" } });
+  fed.emit({ type: "recreate.stage", runId, stage: "consent", status: "done", ms: 1200 });
+  fed.emit({ type: "recreate.stage", runId, stage: "capture", status: "done", ms: 8400, skipped: ["menu:Products"] });
+  writeFileSync(
+    join(runDir, "capture", "live", "peek.svg"),
+    `<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1000"><rect width="1440" height="1000" fill="#c9d"/><text x="40" y="120" font-size="80">First screen</text></svg>`,
+  );
+  fed.emit({ type: "recreate.shot", runId, kind: "peek", width: 1440, height: 1000, path: `.harness/recreate/${runId}/capture/live/peek.svg` });
+  // while capturing: the first screen, and a placeholder for the rest down to the bottom of the pane
+  await page.getByRole("button", { name: "Toggle code panel" }).click();
+  await page.locator(".code-panel .tabs button", { hasText: "Preview" }).click();
+  await page.locator(".recreate-live-rest").waitFor();
+  {
+    const pageBox = await page.locator(".recreate-live-page").boundingBox();
+    const scrollBox = await page.locator(".recreate-live-scroll").boundingBox();
+    assert.ok(pageBox.height >= scrollBox.height - 30, "the screenshot box fills the pane's height");
+  }
+  await page.screenshot({ path: join(shots, "recreate-peek.png") });
+  fed.emit({ type: "recreate.shot", runId, kind: "live", width: 1440, height: 2000, path: `.harness/recreate/${runId}/capture/live/1440.svg` });
+  // before the build: the live page's screenshot fills the Preview tab
+  await page.locator(".recreate-live img[alt^='Screenshot of the live page']").waitFor();
+  fed.emit({ type: "recreate.stage", runId, stage: "build", status: "running" });
+  const bands = { header: [0, 400], hero: [400, 1000], footer: [1400, 600] };
+  const section = (index, id, label, status, pixel) =>
+    fed.emit({
+      type: "recreate.section",
+      runId,
+      index,
+      total: 3,
+      id,
+      kind: id,
+      label,
+      status,
+      pixel,
+      bands: [{ width: 1440, y: bands[id][0], h: bands[id][1] }],
+    });
+  section(0, "header", "Header", "ok", 0.0021);
+  section(1, "hero", "Hero", "checking");
+  const card = page.getByRole("region", { name: "Recreation progress" });
+  await card.locator(".recreate-segments i.ok[title^='Header']").waitFor({ state: "attached" });
+  await card.locator(".recreate-segments i.checking").waitFor({ state: "attached" });
+  await card.getByText("skipped: menu:Products").waitFor();
+  // the coded page replaces the screenshot section by section (the boundary walks down the page)
+  await page.locator("iframe.recreate-live-frame").waitFor({ state: "attached" });
+  await page.locator(".recreate-live-edge", { hasText: "Header" }).waitFor();
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: join(shots, "recreate-building.png") });
+  // pending stages still ahead are listed; no Compare button before there is a compare page
+  await card.locator(".recreate-stage.pending", { hasText: "Measure" }).waitFor();
+  assert.equal(await card.getByRole("button", { name: "Compare with live page" }).count(), 0);
+  section(1, "hero", "Hero", "repaired", 0.004);
+  section(2, "footer", "Footer", "below-threshold", 0.031);
+  fed.emit({ type: "recreate.stage", runId, stage: "build", status: "done", ms: 30500 });
+  fed.emit({
+    type: "recreate.measured",
+    runId,
+    target: "static",
+    widths: [
+      { width: 390, pixel: 0.0042, textReal: 0, textDrift: 1, height: { live: 4200, out: 4210 }, hscroll: 0 },
+      { width: 1440, pixel: 0.0123, textReal: 0, textDrift: 0, height: { live: 3100, out: 3100 }, hscroll: 0 },
+    ],
+    gates: [{ name: "pixel", pass: false, detail: "1.23 % at 1440" }, { name: "text", pass: true }],
+    comparePath: `.harness/recreate/${runId}/compare/index.html`,
+  });
+  fed.emit({
+    type: "recreate.finished",
+    runId,
+    status: "success",
+    outputs: [{ target: "static", path: `.harness/recreate/${runId}/out/static` }],
+    comparePath: `.harness/recreate/${runId}/compare/index.html`,
+    summary: "3 sections, 1 below threshold",
+  });
+  fed.emit({ type: "done", status: "success", summary: "recreated" });
+  fed.emit({ type: "status", status: "done" });
+  await card.locator(".status-pill", { hasText: "done" }).waitFor();
+  await card.locator(".recreate-sections summary").click();
+  await card.locator(".recreate-section.repaired", { hasText: "Hero" }).waitFor();
+  await card.locator(".recreate-section.below-threshold", { hasText: "3.10 %" }).waitFor();
+  await card.getByText("Sections 3 / 3").waitFor();
+  await card.getByRole("cell", { name: "1440px" }).waitFor();
+  await card.getByText("pixel fail").waitFor();
+  await card.getByText("text pass").waitFor();
+  await card.getByText(`.harness/recreate/${runId}/out/static`).waitFor();
+  await card.getByRole("button", { name: "Compare with live page" }).click();
+  await page.locator(".code-panel .tabs button.active", { hasText: "Compare" }).waitFor();
+  await page.frameLocator("iframe[title='Compare with live page']").getByRole("heading", { name: "Live vs recreated" }).waitFor();
+  // the Preview tab follows the recreated page
+  await page.locator(".code-panel .tabs button", { hasText: "Preview" }).click();
+  await page.frameLocator("iframe.preview-frame").getByRole("heading", { name: "Recreated output" }).waitFor();
+  await page.screenshot({ path: join(shots, "recreate-card.png") });
+
+  // Command palette: a URL in the search offers a 1:1 recreation.
+  await page.keyboard.press("Control+k");
+  await page.getByRole("combobox", { name: "Search conversations and commands" }).fill("https://example.invalid/about");
+  await page.getByRole("option", { name: /Recreate https:\/\/example\.invalid\/about 1:1/ }).waitFor();
+  await page.keyboard.press("Escape");
   assert.deepEqual(errors, []);
   console.log(`web e2e: PASS (screenshots in ${shots})`);
 } catch (e) {

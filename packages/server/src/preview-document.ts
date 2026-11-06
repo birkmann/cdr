@@ -57,6 +57,6 @@ function installPreviewStorage() {
 export function preparePreviewHtml(html: string): string {
   // Preserve the doctype (including leading comments), so standards mode stays intact.
   const prefix = html.match(/^(?:\uFEFF)?(?:\s|<!--[\s\S]*?-->)*(?:<!doctype[^>]*>)?/i)?.[0] ?? "";
-  const bootstrap = `<script data-morrow-preview>(${installPreviewStorage.toString()})();</script>`;
+  const bootstrap = `<script data-cdr-preview>(${installPreviewStorage.toString()})();</script>`;
   return prefix + bootstrap + html.slice(prefix.length);
 }

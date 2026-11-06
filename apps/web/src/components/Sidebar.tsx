@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import type { SessionInfo } from "@harness/client";
 import { basename, useApp } from "../app-state";
 import { CDRMark } from "./Brand";
+import { alertDialog, confirmDialog } from "./Dialogs";
 import {
   IconPlus,
   IconSearch,
@@ -58,18 +59,18 @@ export function Sidebar({
     [sessions, q],
   );
   const del = async (s: SessionInfo) => {
-    if (
-      !confirm(
-        `Delete “${s.title ?? s.id}”? The chat history is removed; files in the project are not touched.`,
-      )
-    )
-      return;
+    const ok = await confirmDialog("The chat history is removed. Files in the project are not touched.", {
+      title: `Delete “${s.title ?? s.id}”?`,
+      ok: "Delete chat",
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await client?.deleteSession(s.id);
       if (route.name === "chat" && route.id === s.id) navigate({ name: "home" });
       await refreshSessions();
     } catch (e) {
-      alert((e as Error).message);
+      void alertDialog((e as Error).message, { title: "Could not delete the chat" });
     }
   };
   return (

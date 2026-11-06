@@ -1,6 +1,47 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import type { Attachment } from "@harness/client";
-import { IconFile, IconPlus, IconSend, IconStop, IconX } from "./icons";
+import type { Attachment, SkillInfo } from "@harness/client";
+import { useApp } from "../app-state";
+import { findUrl, parseRecreateCommand } from "../recreate";
+import { Popover } from "./Pickers";
+import { IconCopy, IconFile, IconPlus, IconSend, IconSparkle, IconStop, IconX } from "./icons";
+
+/** Skills selectable for a message in a project ("" = a new sandbox: built-in and user skills only). */
+export function useSkills(projectPath: string | undefined): SkillInfo[] {
+  const { client } = useApp();
+  const [skills, setSkills] = useState<SkillInfo[]>([]);
+  useEffect(() => {
+    if (!client) return;
+    let live = true;
+    client
+      .skills(projectPath || undefined)
+      .then((s) => live && setSkills(s))
+      .catch(() => live && setSkills([]));
+    return () => {
+      live = false;
+    };
+  }, [client, projectPath]);
+  return skills;
+}
+
+/** Leading `/name` words that name skills: `/tdd /grilling fix it` → skills [tdd, grilling], text "fix it". */
+export function takeSkillPrefix(text: string, skills: SkillInfo[]): { names: string[]; rest: string } {
+  const names: string[] = [];
+  let rest = text.trimStart();
+  while (true) {
+    const m = /^\/([a-z0-9][a-z0-9-]*)(?=\s|$)\s*/.exec(rest);
+    if (!m || !skills.some((s) => s.name === m[1])) break;
+    names.push(m[1]);
+    rest = rest.slice(m[0].length);
+  }
+  return { names, rest };
+}
+
+function matchSkills(skills: SkillInfo[], query: string): SkillInfo[] {
+  const q = query.toLowerCase();
+  const byName = skills.filter((s) => s.name.includes(q));
+  const byDesc = skills.filter((s) => !s.name.includes(q) && s.description.toLowerCase().includes(q));
+  return [...byName.sort((a, b) => +!a.name.startsWith(q) - +!b.name.startsWith(q)), ...byDesc];
+}
 
 export interface PendingFile extends Attachment {
   id: string;
@@ -49,8 +90,12 @@ export interface ComposerProps {
   disabledReason?: string;
   autoFocus?: boolean;
   large?: boolean;
-  onSend(text: string, files: PendingFile[]): Promise<boolean | void> | boolean | void;
+  onSend(text: string, files: PendingFile[], skills: string[]): Promise<boolean | void> | boolean | void;
+  /** Skills the user can select with `/` or the Skills button. */
+  skills?: SkillInfo[];
   onStop?(): void;
+  /** 1:1 recreation of a URL: shows "Recreate 1:1" for a typed URL and handles `/recreate <url>` */
+  onRecreate?(url: string): Promise<boolean | void> | boolean | void;
   left?: ReactNode;
   right?: ReactNode;
 }
@@ -65,9 +110,14 @@ export function Composer({
   large,
   onSend,
   onStop,
+  onRecreate,
+  skills = [],
   left,
   right,
 }: ComposerProps) {
+  const [selected, setSelected] = useState<string[]>([]);
+  const [menuIndex, setMenuIndex] = useState(0);
+  const [menuDismissed, setMenuDismissed] = useState<string>();
   const [text, setText] = useState("");
   const [files, setFiles] = useState<PendingFile[]>([]);
   const [error, setError] = useState<string>();
@@ -105,16 +155,63 @@ export function Composer({
     }
   };
 
-  const canSend = !disabled && !busy && !sending && (text.trim().length > 0 || files.length > 0);
-  const submit = async () => {
-    if (!canSend) return;
+  // Typing `/` (or `/na…`) as the whole draft opens the skill menu.
+  // A reserved command typed in full (`/recreate`) runs as the command on Enter, not as a skill pick.
+  const slash = /^\/([a-z0-9-]*)$/.exec(text);
+  const reserved = slash && onRecreate && slash[1] === "recreate";
+  const menu =
+    slash && !reserved && skills.length && menuDismissed !== text
+      ? matchSkills(skills, slash[1]).slice(0, 8)
+      : [];
+  const toggleSkill = (name: string) =>
+    setSelected((s) => (s.includes(name) ? s.filter((x) => x !== name) : [...s, name]));
+  const pickFromMenu = (skill: SkillInfo) => {
+    if (!selected.includes(skill.name)) setSelected((s) => [...s, skill.name]);
+    setText("");
+    setMenuIndex(0);
+    ta.current?.focus();
+  };
+  const hint = selected.length === 1 ? skills.find((s) => s.name === selected[0])?.argumentHint : undefined;
+
+  const canSend =
+    !disabled && !busy && !sending && (text.trim().length > 0 || files.length > 0 || selected.length > 0);
+  const command = onRecreate ? parseRecreateCommand(text) : undefined;
+  const url = onRecreate && !disabled ? (command ?? findUrl(text)) : undefined;
+  const recreate = async (target: string) => {
+    if (!onRecreate || busy || sending) return;
     setSending(true);
     try {
-      const body = text.trim() || (files.length ? "See the attached files." : "");
-      const ok = await onSend(body, files);
+      const ok = await onRecreate(target);
+      if (ok !== false) setText("");
+      setError(undefined);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSending(false);
+    }
+  };
+  const submit = async () => {
+    if (!canSend) return;
+    if (command !== undefined) {
+      if (!command) return setError("Usage: /recreate https://example.com");
+      return recreate(command);
+    }
+    setSending(true);
+    try {
+      const typed = takeSkillPrefix(text, skills);
+      const names = [...new Set([...selected, ...typed.names])];
+      const body =
+        typed.rest.trim() ||
+        (files.length
+          ? "See the attached files."
+          : names.length
+            ? `Use the ${names.join(" and ")} skill${names.length > 1 ? "s" : ""}.`
+            : "");
+      const ok = await onSend(body, files, names);
       if (ok !== false) {
         setText("");
         setFiles([]);
+        setSelected([]);
       }
     } catch (e) {
       setError((e as Error).message);
@@ -170,6 +267,41 @@ export function Composer({
           ))}
         </div>
       )}
+      {selected.length > 0 && (
+        <div className="skill-chips" aria-label="Selected skills">
+          {selected.map((n) => (
+            <span key={n} className="skill-chip" title={skills.find((s) => s.name === n)?.description}>
+              <IconSparkle size={12} /> {n}
+              <button type="button" aria-label={`Remove skill ${n}`} onClick={() => toggleSkill(n)}>
+                <IconX size={11} />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      {menu.length > 0 && (
+        <div className="skill-menu" role="listbox" aria-label="Skills">
+          {menu.map((s, i) => (
+            <button
+              type="button"
+              role="option"
+              aria-selected={i === Math.min(menuIndex, menu.length - 1)}
+              key={s.name}
+              className={`option ${i === Math.min(menuIndex, menu.length - 1) ? "active" : ""}`}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => pickFromMenu(s)}
+            >
+              <span className="option-check">
+                <IconSparkle size={13} />
+              </span>
+              <span className="option-body">
+                <span className="option-title">/{s.name}</span>
+                <span className="option-desc">{s.description}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
       <textarea
         ref={ta}
         aria-label="Message CDR"
@@ -177,8 +309,8 @@ export function Composer({
         value={text}
         autoFocus={autoFocus}
         rows={large ? 2 : 1}
-        placeholder={disabled && disabledReason ? disabledReason : placeholder}
-        onChange={(e) => setText(e.target.value)}
+        placeholder={disabled && disabledReason ? disabledReason : (hint ?? placeholder)}
+        onChange={(e) => (setText(e.target.value), setMenuIndex(0))}
         onPaste={(e) => {
           const pasted = Array.from(e.clipboardData.files);
           if (pasted.length) {
@@ -187,6 +319,28 @@ export function Composer({
           }
         }}
         onKeyDown={(e) => {
+          if (menu.length && !e.nativeEvent.isComposing) {
+            const i = Math.min(menuIndex, menu.length - 1);
+            if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+              e.preventDefault();
+              setMenuIndex((i + (e.key === "ArrowDown" ? 1 : menu.length - 1)) % menu.length);
+              return;
+            }
+            if ((e.key === "Enter" && !e.shiftKey) || e.key === "Tab") {
+              e.preventDefault();
+              pickFromMenu(menu[i]);
+              return;
+            }
+            if (e.key === "Escape") {
+              e.preventDefault();
+              setMenuDismissed(text);
+              return;
+            }
+          }
+          if (e.key === "Backspace" && !text && selected.length) {
+            setSelected((s) => s.slice(0, -1));
+            return;
+          }
           if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
             e.preventDefault();
             void submit();
@@ -199,6 +353,22 @@ export function Composer({
           <button className="ghost tiny" onClick={() => setError(undefined)}>
             dismiss
           </button>
+        </div>
+      )}
+      {url && (
+        <div className="composer-url-action">
+          <button
+            type="button"
+            className="secondary tiny"
+            disabled={busy || sending}
+            onClick={() => void recreate(url)}
+            title="Recreate this page 1:1 from its live DOM (asks for your consent first)"
+          >
+            <IconCopy size={13} /> Recreate 1:1
+          </button>
+          <span className="muted small mono" title={url}>
+            {url}
+          </span>
         </div>
       )}
       <div className="composer-bar">
@@ -219,7 +389,9 @@ export function Composer({
             hidden
             onChange={(e) => (e.target.files && void addFiles(e.target.files), (e.target.value = ""))}
           />
+          {/* Where the message goes (project/mode) first, then what to give the agent for it. */}
           {left}
+          {skills.length > 0 && <SkillPicker skills={skills} selected={selected} onToggle={toggleSkill} />}
         </div>
         <div className="composer-right">
           {right}
@@ -243,5 +415,65 @@ export function Composer({
       </div>
       {dragging && <div className="drop-hint">Drop files to attach</div>}
     </div>
+  );
+}
+
+/** "Skills" button: search and toggle skills for the next message. */
+function SkillPicker({
+  skills,
+  selected,
+  onToggle,
+}: {
+  skills: SkillInfo[];
+  selected: string[];
+  onToggle(name: string): void;
+}) {
+  const [query, setQuery] = useState("");
+  const list = query ? matchSkills(skills, query) : skills;
+  return (
+    <Popover
+      title="Give the agent a skill for this message (or type /)"
+      label={
+        <>
+          <IconSparkle size={14} />
+          <span className="pill-text">{selected.length ? `Skills · ${selected.length}` : "Skills"}</span>
+        </>
+      }
+    >
+      {() => (
+        <div className="picker wide">
+          <div className="picker-head">Skills</div>
+          <input
+            className="skill-search"
+            autoFocus
+            placeholder="Search skills"
+            aria-label="Search skills"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          <div className="picker-list tall">
+            {list.map((s) => (
+              <button
+                type="button"
+                key={s.name}
+                className={`option ${selected.includes(s.name) ? "active" : ""}`}
+                aria-pressed={selected.includes(s.name)}
+                onClick={() => onToggle(s.name)}
+              >
+                <span className="option-check">{selected.includes(s.name) && <IconSparkle size={13} />}</span>
+                <span className="option-body">
+                  <span className="option-title">
+                    {s.name}
+                    {s.source !== "builtin" && <span className="muted small"> · {s.source}</span>}
+                  </span>
+                  <span className="option-desc">{s.description}</span>
+                </span>
+              </button>
+            ))}
+            {!list.length && <div className="muted small skill-empty">No skills match.</div>}
+          </div>
+        </div>
+      )}
+    </Popover>
   );
 }

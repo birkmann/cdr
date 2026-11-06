@@ -5,6 +5,7 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  statSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -28,7 +29,15 @@ export type EvalCheck =
   | { type: "onlyChanged"; paths: string[] }
   | PreviewCheck
   | JudgeCheck
-  | { type: "maxFiles"; count: number };
+  | { type: "maxFiles"; count: number }
+  | RecreateGateCheck;
+
+/** Gates of the newest recreation run in the workspace (`.harness/recreate/<run>/manifest.json`). */
+export interface RecreateGateCheck {
+  type: "recreateGate";
+  /** gate names that must pass (default: every gate the run recorded) */
+  gates?: string[];
+}
 
 /** Loads a page in headless Chrome (fails when no browser is installed). */
 export interface PreviewCheck {
@@ -81,13 +90,19 @@ export interface EvalTask {
   sandbox?: boolean;
   /** Task group, selected with --suite (default "code"). */
   suite?: string;
+  /** Serve this folder (relative to the evals dir) on 127.0.0.1 for the run; `{{url}}` in the task becomes its URL. */
+  serve?: string;
+  /** Skip the task unless this environment variable is set (live-site tasks: RECREATE_LIVE). */
+  requireEnv?: string;
+  /** Config merged into the run's config (e.g. recreate.allowLocal for a served fixture). */
+  config?: Partial<HarnessConfig>;
   checks: EvalCheck[];
   timeoutMs?: number;
   maxTurns?: number;
 }
 
 export const JUDGE_RUBRIC = [
-  "Visual design: deliberate hierarchy, typography and spacing; one coherent direction",
+  "Visual design: deliberate hierarchy, typography and spacing; one coherent direction that fits this subject (or the given design/reference) rather than a generic template look",
   "Restraint: free of generic AI-generated tropes (decorative gradients, emoji icons, shadowed card grids, filler copy)",
   "Responsiveness: works from a 320px phone to a wide desktop without overflow or cramped controls",
   "Functionality: every visible control works; state, persistence and edge cases are handled",
@@ -117,6 +132,9 @@ export interface EvalTaskResult {
   turns: number;
   inputTokens: number;
   outputTokens: number;
+  /** Context compactions across all agents of the run, and the largest context seen before one. */
+  compactions?: number;
+  peakContextTokens?: number;
   cost: number;
   wallMs: number;
   error?: string;
@@ -310,6 +328,8 @@ async function runCheck(root: string, c: EvalCheck, ctx?: CheckContext): Promise
       } catch (e) {
         return { passed: false, detail: `judge failed: ${(e as Error).message}` };
       }
+    case "recreateGate":
+      return recreateGateCheck(root, c);
     case "maxFiles": {
       const files = workspaceFiles(root);
       return {
@@ -381,112 +401,129 @@ export async function runEvals(o: {
   const results: EvalTaskResult[] = [];
   const workflow = o.workflow ?? "quick-fix";
   const repeat = Math.max(1, Math.floor(o.repeat ?? 1));
-  for (const t of tasks)
-    for (let run = 1; run <= repeat; run++) {
-      const label = repeat > 1 ? `${t.id} #${run}` : t.id;
-      const base = mkdtempSync(join(tmpdir(), `harness-eval-${t.id}-`));
-      let work = base;
-      const started = Date.now();
-      const res: EvalTaskResult = {
-        id: t.id,
-        ...(repeat > 1 ? { run } : {}),
-        ...(t.suite ? { suite: t.suite } : {}),
-        passed: false,
-        runStatus: "error",
-        checks: [],
-        turns: 0,
-        inputTokens: 0,
-        outputTokens: 0,
-        cost: 0,
-        wallMs: 0,
-      };
-      try {
-        const harness = new Harness({
-          // keep eval sessions out of the user's chat history
-          sessionsDir: join(base, ".harness", "sessions"),
-          ...o.harnessOptions,
-          skipGlobalConfig: o.harnessOptions?.skipGlobalConfig ?? true,
-          configOverrides: {
-            ...(o.configOverrides ?? {}),
-            ...(o.harnessOptions?.configOverrides ?? {}),
-            models: { executor: o.model, planner: o.model, reviewer: o.model, summarizer: o.model },
-            limits: { maxTurns: t.maxTurns ?? 40, timeoutMs: t.timeoutMs ?? 15 * 60_000 },
-          },
-        });
-        const autoApprove = { permissions: true, plan: true, questions: "Use your best judgement." };
-        let session;
-        if (t.sandbox) {
-          // Same code path as a new web chat: a fresh sandbox workspace (created inside the temp dir).
-          const previous = process.env.HARNESS_SANDBOXES;
-          process.env.HARNESS_SANDBOXES = join(base, "sandboxes");
-          try {
-            session = harness.createSession({ sandbox: { name: t.id }, autoApprove, title: t.id });
-          } finally {
-            if (previous === undefined) delete process.env.HARNESS_SANDBOXES;
-            else process.env.HARNESS_SANDBOXES = previous;
-          }
-          work = session.projectRoot;
-        } else {
-          if (!t.fixture) throw new Error(`Task ${t.id} needs a fixture or sandbox: true`);
-          cpSync(join(o.evalsDir, "fixtures", t.fixture), work, { recursive: true });
-          git(work, ["init", "-q"]);
-          git(work, ["-c", "user.email=eval@harness", "-c", "user.name=eval", "add", "-A"]);
-          git(work, ["-c", "user.email=eval@harness", "-c", "user.name=eval", "commit", "-qm", "fixture"]);
-          session = harness.createSession({
-            projectPath: work,
-            workflow: t.workflow && t.workflow !== "chat" ? t.workflow : workflow,
-            permissionMode: "auto",
-            autoApprove,
-          });
-        }
-        o.onProgress?.(`▶ ${label}`);
-        const mode = t.workflow ?? (t.sandbox ? "chat" : workflow);
-        if (mode === "chat") {
-          const r = await session.chat(t.task);
-          res.runStatus = r.status === "completed" ? "success" : r.status;
-        } else {
-          session.workflow = mode;
-          const r = await session.run(t.task);
-          res.runStatus = r.status;
-        }
-        res.turns = session.budget.turns;
-        res.inputTokens = session.budget.inputTokens;
-        res.outputTokens = session.budget.outputTokens;
-        res.cost = session.budget.cost;
-        const config = session.config;
-        const ctx: CheckContext = {
-          task: t,
-          probes: new Map(),
-          judge: {
-            ref: o.judgeModel ?? o.model,
-            providers: new ProviderRegistry(config, o.harnessOptions?.providers),
-          },
-        };
-        for (const c of t.checks) res.checks.push({ check: c, ...(await runCheck(work, c, ctx)) });
-        res.passed = res.checks.every((c) => c.passed);
-        if (t.sandbox) res.files = workspaceFiles(work);
-        session.close();
-        const errors = session.events.filter(
-          (e): e is HarnessEvent & { type: "error" } => e.type === "error",
-        );
-        if (errors.length)
-          res.error = errors
-            .map((e) => e.message)
-            .join("; ")
-            .slice(0, 500);
-      } catch (e) {
-        res.error = (e as Error).message;
-      } finally {
-        res.wallMs = Date.now() - started;
-        if (o.keep) o.onProgress?.(`  kept ${work}`);
-        else rmSync(base, { recursive: true, force: true });
-      }
-      const judged = res.checks.find((c) => c.score !== undefined);
-      o.onProgress?.(
-        `${res.passed ? "✔" : "✘"} ${label} (${res.runStatus}, ${res.turns} turns, ${(res.wallMs / 1000).toFixed(1)} s${judged ? `, judge ${judged.score}/5` : ""})`,
-      );
-      results.push(res);
+  for (const t0 of tasks) {
+    if (t0.requireEnv && !process.env[t0.requireEnv]) {
+      o.onProgress?.(`– ${t0.id} skipped (set ${t0.requireEnv}=1 to run it)`);
+      continue;
     }
+    const served = t0.serve ? await serveFolder(join(o.evalsDir, t0.serve)) : null;
+    const t: EvalTask = served ? { ...t0, task: t0.task.replaceAll("{{url}}", served.url) } : t0;
+    try {
+      for (let run = 1; run <= repeat; run++) {
+        const label = repeat > 1 ? `${t.id} #${run}` : t.id;
+        const base = mkdtempSync(join(tmpdir(), `harness-eval-${t.id}-`));
+        let work = base;
+        const started = Date.now();
+        const res: EvalTaskResult = {
+          id: t.id,
+          ...(repeat > 1 ? { run } : {}),
+          ...(t.suite ? { suite: t.suite } : {}),
+          passed: false,
+          runStatus: "error",
+          checks: [],
+          turns: 0,
+          inputTokens: 0,
+          outputTokens: 0,
+          cost: 0,
+          wallMs: 0,
+        };
+        try {
+          const harness = new Harness({
+            // keep eval sessions out of the user's chat history
+            sessionsDir: join(base, ".harness", "sessions"),
+            ...o.harnessOptions,
+            skipGlobalConfig: o.harnessOptions?.skipGlobalConfig ?? true,
+            configOverrides: {
+              ...(o.configOverrides ?? {}),
+              ...(o.harnessOptions?.configOverrides ?? {}),
+              ...(t.config ?? {}),
+              models: { executor: o.model, planner: o.model, reviewer: o.model, summarizer: o.model },
+              limits: { maxTurns: t.maxTurns ?? 40, timeoutMs: t.timeoutMs ?? 15 * 60_000 },
+            },
+          });
+          const autoApprove = { permissions: true, plan: true, questions: "Use your best judgement." };
+          let session;
+          if (t.sandbox) {
+            // Same code path as a new web chat: a fresh sandbox workspace (created inside the temp dir).
+            const previous = process.env.HARNESS_SANDBOXES;
+            process.env.HARNESS_SANDBOXES = join(base, "sandboxes");
+            try {
+              session = harness.createSession({ sandbox: { name: t.id }, autoApprove, title: t.id });
+            } finally {
+              if (previous === undefined) delete process.env.HARNESS_SANDBOXES;
+              else process.env.HARNESS_SANDBOXES = previous;
+            }
+            work = session.projectRoot;
+          } else {
+            if (!t.fixture) throw new Error(`Task ${t.id} needs a fixture or sandbox: true`);
+            cpSync(join(o.evalsDir, "fixtures", t.fixture), work, { recursive: true });
+            git(work, ["init", "-q"]);
+            git(work, ["-c", "user.email=eval@harness", "-c", "user.name=eval", "add", "-A"]);
+            git(work, ["-c", "user.email=eval@harness", "-c", "user.name=eval", "commit", "-qm", "fixture"]);
+            session = harness.createSession({
+              projectPath: work,
+              workflow: t.workflow && t.workflow !== "chat" ? t.workflow : workflow,
+              permissionMode: "auto",
+              autoApprove,
+            });
+          }
+          o.onProgress?.(`▶ ${label}`);
+          const mode = t.workflow ?? (t.sandbox ? "chat" : workflow);
+          if (mode === "chat") {
+            const r = await session.chat(t.task);
+            res.runStatus = r.status === "completed" ? "success" : r.status;
+          } else {
+            session.workflow = mode;
+            const r = await session.run(t.task);
+            res.runStatus = r.status;
+          }
+          res.turns = session.budget.turns;
+          res.inputTokens = session.budget.inputTokens;
+          res.outputTokens = session.budget.outputTokens;
+          const compacted = session.events.filter((e) => e.type === "context.compacted");
+          if (compacted.length) {
+            res.compactions = compacted.length;
+            res.peakContextTokens = Math.max(...compacted.map((e) => e.tokensBefore));
+          }
+          res.cost = session.budget.cost;
+          const config = session.config;
+          const ctx: CheckContext = {
+            task: t,
+            probes: new Map(),
+            judge: {
+              ref: o.judgeModel ?? o.model,
+              providers: new ProviderRegistry(config, o.harnessOptions?.providers),
+            },
+          };
+          for (const c of t.checks) res.checks.push({ check: c, ...(await runCheck(work, c, ctx)) });
+          res.passed = res.checks.every((c) => c.passed);
+          if (t.sandbox) res.files = workspaceFiles(work);
+          session.close();
+          const errors = session.events.filter(
+            (e): e is HarnessEvent & { type: "error" } => e.type === "error",
+          );
+          if (errors.length)
+            res.error = errors
+              .map((e) => e.message)
+              .join("; ")
+              .slice(0, 500);
+        } catch (e) {
+          res.error = (e as Error).message;
+        } finally {
+          res.wallMs = Date.now() - started;
+          if (o.keep) o.onProgress?.(`  kept ${work}`);
+          else rmSync(base, { recursive: true, force: true });
+        }
+        const judged = res.checks.find((c) => c.score !== undefined);
+        o.onProgress?.(
+          `${res.passed ? "✔" : "✘"} ${label} (${res.runStatus}, ${res.turns} turns, ${(res.wallMs / 1000).toFixed(1)} s${res.compactions ? `, ${res.compactions} compactions` : ""}${judged ? `, judge ${judged.score}/5` : ""})`,
+        );
+        results.push(res);
+      }
+    } finally {
+      await served?.close();
+    }
+  }
   const passed = results.filter((r) => r.passed).length;
   return {
     date: new Date().toISOString(),
@@ -508,4 +545,61 @@ export function saveEvalSummary(evalsDir: string, s: EvalSummary): string {
   const p = join(dir, `${s.date.replace(/[:.]/g, "-")}.json`);
   writeFileSync(p, JSON.stringify(s, null, 2));
   return p;
+}
+
+/** The newest recreation run's gates (and status) in a workspace. */
+export function recreateGateCheck(root: string, c: RecreateGateCheck): CheckResult {
+  const dir = join(root, ".harness", "recreate");
+  if (!existsSync(dir)) return { passed: false, detail: "no recreation run in the workspace" };
+  const runs = readdirSync(dir)
+    .filter((d) => existsSync(join(dir, d, "manifest.json")))
+    .map(
+      (d) =>
+        JSON.parse(readFileSync(join(dir, d, "manifest.json"), "utf8")) as {
+          id: string;
+          createdAt: string;
+          status?: string;
+          gates?: { name: string; pass: boolean; detail?: string }[];
+        },
+    )
+    .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+  const m = runs[0];
+  if (!m) return { passed: false, detail: "no recreation run in the workspace" };
+  const gates = (m.gates ?? []).filter((g) => !c.gates?.length || c.gates.includes(g.name));
+  const missing = (c.gates ?? []).filter((g) => !gates.some((x) => x.name === g));
+  const failing = gates.filter((g) => !g.pass);
+  const passed = !missing.length && !failing.length && gates.length > 0;
+  return {
+    passed,
+    detail: passed
+      ? `run ${m.id}: ${gates.map((g) => g.name).join(", ")} pass`
+      : `run ${m.id} (${m.status ?? "?"}): ${[...missing.map((g) => `${g} not measured`), ...failing.map((g) => `${g} failed: ${g.detail ?? ""}`)].join("; ") || "no gates recorded"}`,
+  };
+}
+
+/** A static file server for an eval fixture site (127.0.0.1, random port). */
+async function serveFolder(root: string): Promise<{ url: string; close(): Promise<void> }> {
+  const { createServer } = await import("node:http");
+  const { extname, normalize } = await import("node:path");
+  const types: Record<string, string> = {
+    ".html": "text/html; charset=utf-8",
+    ".css": "text/css",
+    ".js": "text/javascript",
+    ".png": "image/png",
+    ".svg": "image/svg+xml",
+    ".woff2": "font/woff2",
+    ".json": "application/json",
+  };
+  const server = createServer((req, res) => {
+    let file = normalize(join(root, decodeURIComponent(new URL(req.url ?? "/", "http://x").pathname)));
+    if (!file.startsWith(root)) return void res.writeHead(403).end();
+    if (existsSync(file) && statSync(file).isDirectory()) file = join(file, "index.html");
+    if (!existsSync(file)) return void res.writeHead(404).end("not found");
+    res
+      .writeHead(200, { "content-type": types[extname(file)] ?? "application/octet-stream" })
+      .end(readFileSync(file));
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  const port = (server.address() as { port: number }).port;
+  return { url: `http://127.0.0.1:${port}/`, close: () => new Promise<void>((r) => server.close(() => r())) };
 }

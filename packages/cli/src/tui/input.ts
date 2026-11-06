@@ -107,10 +107,23 @@ export class InputDecoder {
   constructor(
     onKey: (text: string, key: Key) => void,
     private onPaste: (text: string) => void,
+    private onWheel?: (direction: "up" | "down") => void,
   ) {
     emitKeypressEvents(this.stream);
     // Navigation/function keys have no text argument in Node's keypress events.
     this.stream.on("keypress", (text: string | undefined, key: Key) => onKey(text ?? "", key));
+  }
+  /** SGR mouse reports: wheel events scroll, clicks/releases are dropped so they never become keys. */
+  private mouse(text: string) {
+    return text.replace(/\x1b\[<(\d+);\d+;\d+[Mm]/g, (_, code: string) => {
+      const button = Number(code);
+      if (button & 64) this.onWheel?.((button & 3) === 0 ? "up" : "down");
+      return "";
+    });
+  }
+  private forward(text: string) {
+    const clean = this.mouse(text);
+    if (clean) this.stream.write(clean);
   }
   feed(text: string) {
     if (this.timer) clearTimeout(this.timer);
@@ -126,23 +139,25 @@ export class InputDecoder {
           this.paste = (this.paste + before).slice(0, 100_000);
           this.onPaste(this.paste.replace(/\r\n?/g, "\n"));
           this.paste = "";
-        } else if (before) this.stream.write(before);
+        } else if (before) this.forward(before);
         this.pasting = !this.pasting;
         this.pending = this.pending.slice(found + marker.length);
         continue;
       }
       let suffix = 0;
       for (let n = 1; n < marker.length; n++) if (this.pending.endsWith(marker.slice(0, n))) suffix = n;
+      // Keep a mouse report split across stdin chunks together.
+      if (!this.pasting) suffix = Math.max(suffix, /\x1b\[<[\d;]*$/.exec(this.pending)?.[0].length ?? 0);
       const ready = this.pending.slice(0, this.pending.length - suffix);
       if (this.pasting) this.paste = (this.paste + ready).slice(0, 100_000);
-      else if (ready) this.stream.write(ready);
+      else if (ready) this.forward(ready);
       this.pending = this.pending.slice(this.pending.length - suffix);
       break;
     }
     // A lone Escape is a key, not an unfinished paste marker.
     if (this.pending && !this.pasting)
       this.timer = setTimeout(() => {
-        this.stream.write(this.pending);
+        this.forward(this.pending);
         this.pending = "";
       }, 35);
   }

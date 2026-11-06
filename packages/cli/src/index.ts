@@ -21,12 +21,14 @@ import {
   currentBranch,
   resolveInProject,
   ATTACHMENT_LIMITS,
+  defaultOutputDir,
+  discoverSkills,
   type Session,
 } from "@harness/core";
 import { startServer, loadOrCreateToken } from "@harness/server";
 import { HARNESS_VERSION } from "@harness/protocol";
 import { runTui } from "./tui/index.js";
-import { REPL_HELP } from "./commands.js";
+import { REPL_HELP, parseSkillCommand, rewindCommand } from "./commands.js";
 import { Renderer, c, colorDiff } from "./render.js";
 import { attachPrompts, createTerminal, type Terminal } from "./interact.js";
 
@@ -49,6 +51,10 @@ Usage:
   cdr config                  print the effective config (secrets redacted)
   cdr init                    write cdr.config.json + AGENTS.md for this project
   cdr eval                    run the eval task set (evals/; --suite apps for app building)
+  cdr recreate <url>          recreate a live page 1:1 (asks for consent; see docs/recreate.md)
+      [--widths 390,768,1440] [--to static,react-vite,ds-react] [--style tailwind|css-modules|vanilla]
+      [--out ./site] [--repair] [--no-checks] [--build] [--from <stage> --run <id>] [--json] [--yes]
+  cdr mcp recreate            the recreate stages as an MCP server on stdio (capture needs consent: true; --yes)
 
 Options:
   -C, --cwd <dir>                 project directory (default: current directory)
@@ -59,6 +65,7 @@ Options:
   -y, --yes                       auto-approve plans and permission prompts
       --mode <ask|auto|yolo>      permission mode (default: config or "ask")
       --commit                    commit the result on a harness/<slug> branch
+      --skill <name>              give the agent this skill's instructions (repeatable; see /skills)
   -s, --sandbox                   work in a fresh sandbox folder (~/.harness/sandboxes) instead of the cwd
       --plain                     use the simple text interface (no full-screen UI)
       --json                      emit raw JSONL events on stdout (for scripting)
@@ -74,6 +81,7 @@ Options:
       --suite <name> --repeat <n> eval: task suite (code | apps | all, default code); runs per task
       --judge <provider/model>    eval: model that scores judge checks (default: the evaluated model)
       --label <text>              eval: name stored with the results (see scripts/evals/compare.mjs)
+      --max-context <tokens>      eval: context budget per agent (context.maxContext) to A/B test compaction
   -h, --help / --version
 `;
 
@@ -109,8 +117,20 @@ interface Flags {
   repeat?: string;
   judge?: string;
   label?: string;
+  "max-context"?: string;
   force?: boolean;
   sandbox?: boolean;
+  skill?: string[];
+  widths?: string;
+  to?: string;
+  style?: string;
+  out?: string;
+  from?: string;
+  run?: string;
+  repair?: boolean;
+  "no-repair"?: boolean;
+  "no-checks"?: boolean;
+  build?: boolean;
   help?: boolean;
   version?: boolean;
 }
@@ -152,8 +172,20 @@ function parse(argv: string[]) {
       repeat: { type: "string" },
       judge: { type: "string" },
       label: { type: "string" },
+      "max-context": { type: "string" },
       force: { type: "boolean" },
       sandbox: { type: "boolean", short: "s" },
+      skill: { type: "string", multiple: true },
+      widths: { type: "string" },
+      to: { type: "string" },
+      style: { type: "string" },
+      out: { type: "string" },
+      from: { type: "string" },
+      run: { type: "string" },
+      repair: { type: "boolean" },
+      "no-repair": { type: "boolean" },
+      "no-checks": { type: "boolean" },
+      build: { type: "boolean" },
       help: { type: "boolean", short: "h" },
       version: { type: "boolean" },
     },
@@ -266,7 +298,9 @@ export async function main(argv: string[], ctx: CliContext = {}): Promise<number
     return 0;
   }
   const cwd = resolve(f.cwd ?? process.cwd());
-  const harness = ctx.harness ?? new Harness();
+  // Only the terminal chat moves new files to ~/Documents/CDR; `serve` (web, desktop) shows no notice about it,
+  // so there the folder applies only when the config sets `outputDir`.
+  const harness = ctx.harness ?? new Harness(cmd === "serve" ? {} : { defaultOutputDir: defaultOutputDir() });
 
   try {
     switch (cmd) {
@@ -340,7 +374,7 @@ export async function main(argv: string[], ctx: CliContext = {}): Promise<number
           process.once("SIGINT", r);
           process.once("SIGTERM", r);
           // Sidecar watchdog: stop when the launching app is gone, even if it was killed.
-          const parent = Number(process.env.CDR_PARENT_PID ?? process.env.MORROW_PARENT_PID);
+          const parent = Number(process.env.CDR_PARENT_PID);
           if (Number.isInteger(parent) && parent > 0) {
             const timer = setInterval(() => {
               try {
@@ -396,6 +430,24 @@ export async function main(argv: string[], ctx: CliContext = {}): Promise<number
           out.write(`${c.dim("exists")} ${p} ${c.dim("(use --force to overwrite)")}\n`);
         return 0;
       }
+      case "recreate":
+        return await recreateCommand(harness, cwd, f, out, rest);
+      case "mcp": {
+        if (rest[0] !== "recreate") throw new Error("usage: cdr mcp recreate [--yes]");
+        // stdout carries JSON-RPC only: the session is not attached to a renderer
+        const session = createSession(harness, cwd, f, undefined, "mcp recreate");
+        try {
+          if (session.config.recreate?.enabled === false)
+            throw new Error("recreate is disabled in this project's config");
+          const { serveRecreateMcp } = await import("@harness/core");
+          await serveRecreateMcp(session, process.stdin, out, {
+            yes: f.yes,
+          });
+          return 0;
+        } finally {
+          session.close();
+        }
+      }
       case "eval": {
         const dir = findEvalsDir(cwd);
         if (!dir) throw new Error("No evals/ directory with tasks/ found");
@@ -413,6 +465,9 @@ export async function main(argv: string[], ctx: CliContext = {}): Promise<number
           judgeModel: f.judge,
           label: f.label,
           repeat: f.repeat ? Number(f.repeat) : undefined,
+          configOverrides: f["max-context"]
+            ? { context: { maxContext: maxContextFlag(f["max-context"]) } }
+            : undefined,
           onProgress: (m) => out.write(m + "\n"),
         });
         const path = saveEvalSummary(dir, summary);
@@ -541,6 +596,13 @@ async function goalCommand(
   }
 }
 
+function maxContextFlag(v: string): number {
+  const n = Number(v.replace(/k$/i, "000"));
+  if (!Number.isInteger(n) || n < 0)
+    throw new Error(`--max-context: ${v} is not a token count (e.g. 48000 or 48k)`);
+  return n;
+}
+
 function configOverrides(f: Flags): Partial<HarnessConfig> | undefined {
   const models = modelOverrides(f);
   const mode = permissionMode(f);
@@ -556,6 +618,91 @@ function createSession(harness: Harness, cwd: string, f: Flags, workflow?: strin
     permissionMode: permissionMode(f),
     autoApprove: f.yes ? { permissions: true, plan: true } : {},
   });
+}
+
+const STYLES = ["tailwind", "css-modules", "vanilla"] as const;
+
+/** `cdr recreate <url>`: the pipeline in a session (events rendered like a run); `capture` writes snapshots only. */
+async function recreateCommand(
+  harness: Harness,
+  cwd: string,
+  f: Flags,
+  out: NodeJS.WritableStream,
+  rest: string[],
+): Promise<number> {
+  const capturesOnly = rest[0] === "capture";
+  const url = capturesOnly ? rest[1] : rest[0];
+  if (!url && !f.run) throw new Error("usage: cdr recreate <url> [options] (cdr --help)");
+  // a run id is one folder name under .harness/recreate (never a path)
+  if (f.run !== undefined && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(f.run))
+    throw new Error(`--run: "${f.run}" is not a run id`);
+  const widths = f.widths
+    ? f.widths.split(",").map((w) => {
+        const n = Number(w.trim());
+        if (!Number.isFinite(n) || n < 320 || n > 2560)
+          throw new Error(`--widths: ${w} is not a width (320–2560)`);
+        return Math.round(n);
+      })
+    : undefined;
+  // a resumed run keeps its own targets unless --to names new ones
+  const to = (f.to ?? (f.run ? "" : "static"))
+    .split(",")
+    .map((t) => (t.trim() === "react" ? "react-vite" : t.trim()))
+    .filter(Boolean);
+  if (f.style && !(STYLES as readonly string[]).includes(f.style))
+    throw new Error(`--style must be ${STYLES.join(", ")}`);
+  const session = createSession(harness, cwd, f, undefined, `recreate ${url ?? f.run}`);
+  if (session.config.recreate?.enabled === false)
+    throw new Error("recreate is disabled in this project's config");
+  const term = createTerminal(f.json ? process.stderr : out);
+  const a = attach(session, f, term, out, true);
+  try {
+    const { recreateInSession } = await import("@harness/core");
+    const r = await recreateInSession(
+      session,
+      {
+        url: url ?? "",
+        ...(widths ? { widths } : {}),
+        ...(to.length ? { to } : {}),
+        ...(f.style ? { style: f.style as (typeof STYLES)[number] } : {}),
+        ...(f.repair && !f["no-repair"] ? { repair: true } : {}),
+        ...(f.from ? { from: f.from as never } : {}),
+        ...(f.run ? { run: f.run } : {}),
+        ...(f.out && !capturesOnly ? { out: f.out } : {}),
+      },
+      {
+        yes: f.yes,
+        sectionChecks: !f["no-checks"],
+        ...(capturesOnly ? { stopAfter: "capture" as const } : {}),
+        ...(f.build ? { runBuilds: (dir: string) => npmBuild(dir) } : {}),
+      },
+    );
+    if (capturesOnly && f.out && r.status !== "cancelled") {
+      const { cpSync, existsSync } = await import("node:fs");
+      const captured = join(session.projectRoot, r.dir, "capture");
+      if (!existsSync(captured)) {
+        if (!f.json) out.write(`nothing captured to copy to ${f.out} (${r.summary})\n`);
+        return 1;
+      }
+      cpSync(captured, resolve(cwd, f.out), { recursive: true });
+      if (!f.json) out.write(`snapshots and live shots copied to ${f.out}\n`);
+    }
+    return r.status === "success" ? 0 : r.status === "cancelled" ? 130 : 1;
+  } finally {
+    a.detach();
+    term.close();
+    session.close();
+  }
+}
+
+/** `npm install && npm run build` in a converted project (the build gate; needs the network). */
+async function npmBuild(dir: string): Promise<{ ok: boolean; output: string }> {
+  const { spawnSync } = await import("node:child_process");
+  const run = (args: string[]) => spawnSync("npm", args, { cwd: dir, encoding: "utf8", timeout: 600_000 });
+  const i = run(["install", "--no-audit", "--no-fund"]);
+  if (i.status !== 0) return { ok: false, output: `npm install failed:\n${i.stderr || i.stdout}` };
+  const b = run(["run", "build"]);
+  return { ok: b.status === 0, output: (b.stdout ?? "") + (b.stderr ?? "") };
 }
 
 async function runOnce(
@@ -577,7 +724,7 @@ async function runOnce(
       ),
     );
   try {
-    const r = await session.run(task, { workflow, noPlan: f["no-plan"], commit: f.commit });
+    const r = await session.run(task, { workflow, noPlan: f["no-plan"], commit: f.commit, skills: f.skill });
     if (!f.json && r.plan && workflow === "plan-only") out.write(`\n${r.plan}\n`);
     if (!f.json && r.branch) out.write(c.green(`committed on branch ${r.branch}\n`));
     return r.status === "success" ? 0 : r.status === "cancelled" ? 130 : 1;
@@ -586,6 +733,22 @@ async function runOnce(
     term.close();
     session.close();
   }
+}
+
+function skillNames(session: Session): string[] {
+  return discoverSkills(session.projectRoot, session.config).map((s) => s.name);
+}
+
+function skillList(session: Session): string {
+  const skills = discoverSkills(session.projectRoot, session.config);
+  if (!skills.length) return "No skills available.\n";
+  const w = Math.max(...skills.map((s) => s.name.length)) + 1;
+  return `\n${skills
+    .map(
+      (s) =>
+        `  /${s.name.padEnd(w)} ${c.dim(s.description.length > 90 ? s.description.slice(0, 89) + "…" : s.description)}`,
+    )
+    .join("\n")}\n\n  /<skill> <message> sends the message with that skill's instructions.\n`;
 }
 
 async function interactive(
@@ -611,10 +774,13 @@ async function interactive(
     return runTui(harness, session, {
       version: VERSION,
       verbose: f.verbose,
+      skills: f.skill,
       output: out as NodeJS.WriteStream,
     });
   }
   let attachments: Attachment[] = [];
+  // --skill applies to the first message of an interactive session.
+  let firstSkills = f.skill;
   const display = f.json ? process.stderr : out;
   const userIds = new Set(
     session.events.flatMap((e) => (e.type === "message.start" && e.role === "user" ? [e.id] : [])),
@@ -622,7 +788,7 @@ async function interactive(
   const history = session.events.flatMap((e) =>
     e.type === "message.end" && userIds.has(e.id) ? [e.text] : [],
   );
-  const term = createTerminal(display, { history });
+  const term = createTerminal(display, { history, skills: skillNames(session) });
   let a = attach(session, f, term, out);
   const header = () => {
     const branch = currentBranch(session.projectRoot);
@@ -679,6 +845,10 @@ async function interactive(
           header();
           display.write(`  session ${session.id}\n`);
           usage();
+          continue;
+        }
+        if (command === "/terminal-design") {
+          display.write("/terminal-design changes the full-screen terminal app; run cdr without --plain.\n");
           continue;
         }
         if (command === "/clear") {
@@ -745,6 +915,10 @@ async function interactive(
         }
         if (command === "/continue") {
           await session.continueJob();
+          continue;
+        }
+        if (command === "/rewind") {
+          display.write(await rewindCommand(session, arg));
           continue;
         }
         if (command === "/model") {
@@ -824,10 +998,19 @@ async function interactive(
           const r = await session.run(task, { workflow, attachments });
           attachments = [];
           if (r.plan && workflow === "plan-only") display.write(`\n${r.plan}\n`);
+        } else if (command === "/skills") {
+          display.write(skillList(session));
         } else if (line.startsWith("/")) {
-          display.write(c.red(`Unknown command ${command}. Type /help or press Tab.\n`));
+          const picked = parseSkillCommand(line, skillNames(session));
+          if (!picked) {
+            display.write(c.red(`Unknown command ${command}. Type /help or /skills, or press Tab.\n`));
+            continue;
+          }
+          await session.chat(picked.text, attachments, { skills: picked.skills });
+          attachments = [];
         } else {
-          await session.chat(line, attachments);
+          await session.chat(line, attachments, { skills: firstSkills });
+          firstSkills = undefined;
           attachments = [];
         }
       } catch (e) {

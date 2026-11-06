@@ -1,6 +1,6 @@
 # Contributing to CDR
 
-Thanks for your interest. Bug reports, ideas, and pull requests are welcome.
+Thanks for your interest. Bug reports, ideas, and pull requests are welcome. Please follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Setup
 
@@ -49,7 +49,7 @@ The README images are generated from the real apps with a scripted demo model, s
 
 ```bash
 pnpm build && cargo build -p studio-app --features tauri/custom-protocol
-pnpm screenshots            # or: node scripts/screenshots/capture.mjs web terminal desktop
+pnpm screenshots            # or name targets: node scripts/screenshots/capture.mjs web terminal terminal-classic terminal-approval desktop
 ```
 
 ## Releasing

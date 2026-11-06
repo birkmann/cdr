@@ -3,7 +3,7 @@
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { isTauri } from "./ipc";
 
-const KEY = "morrow.studio.zoom";
+const KEY = "cdr.studio.zoom";
 const EVENT = "studio:zoom";
 export const ZOOM_LEVELS = [0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.2, 1.33, 1.5, 1.7, 2, 2.4, 3];
 

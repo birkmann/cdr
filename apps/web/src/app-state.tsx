@@ -12,7 +12,20 @@ export interface Settings {
   permissionMode: PermissionMode;
   model: string; // "" = config default
   recentProjects: string[];
+  /** Projects removed from the list; picking one again brings it back. */
+  hiddenProjects: string[];
+  /** AI-generated titles and summaries, cached per project path. */
+  projectSummaries: Record<string, ProjectSummary>;
   theme: Theme;
+}
+
+export interface ProjectSummary {
+  title: string;
+  summary: string;
+  /** When it was generated (ISO). */
+  at: string;
+  /** Conversation count at that time; a different count triggers a fresh summary. */
+  conversations?: number;
 }
 
 const KEY = "harness.settings.v1";
@@ -24,6 +37,8 @@ const DEFAULTS: Settings = {
   permissionMode: "ask",
   model: "",
   recentProjects: [],
+  hiddenProjects: [],
+  projectSummaries: {},
   theme: "dark",
 };
 
@@ -48,7 +63,7 @@ function saveSettings(s: Settings) {
   }
 }
 
-/** Pick up `#token=...&server=...` from the login link printed by `harness serve`. */
+/** Pick up `#token=...&server=...` from the login link printed by `cdr serve`. */
 function consumeHashLogin(s: Settings): Settings {
   const hash = window.location.hash.slice(1);
   if (!hash.includes("token=")) return s;
@@ -62,13 +77,15 @@ function consumeHashLogin(s: Settings): Settings {
 
 export type Route =
   | { name: "home"; projectPath?: string }
-  | { name: "chat"; id: string; preview?: boolean }
+  | { name: "chat"; id: string; preview?: boolean; history?: boolean }
   | { name: "projects" | "chats" | "artifacts" };
 
 function parseRoute(): Route {
   const m = /^\/c\/([\w.-]+)/.exec(window.location.pathname);
-  if (m)
-    return { name: "chat", id: m[1], preview: new URLSearchParams(window.location.search).has("preview") };
+  if (m) {
+    const q = new URLSearchParams(window.location.search);
+    return { name: "chat", id: m[1], preview: q.has("preview"), history: q.has("history") };
+  }
   const name = window.location.pathname.slice(1);
   if (name === "projects" || name === "chats" || name === "artifacts") return { name };
   return {
@@ -81,14 +98,19 @@ function parseRoute(): Route {
 
 interface AppState {
   settings: Settings;
-  updateSettings(patch: Partial<Settings>): void;
+  /** Merge a patch, or a function computing one from the newest settings. */
+  updateSettings(patch: Partial<Settings> | ((s: Settings) => Partial<Settings>)): void;
   client: HarnessClient | null;
   connection: "unknown" | "ok" | "unauthorized" | "offline";
   sessions: SessionInfo[];
+  /** True once the session list has been fetched at least once. */
+  sessionsLoaded: boolean;
   refreshSessions(): Promise<void>;
   route: Route;
   navigate(route: Route): void;
   rememberProject(path: string): void;
+  /** Remove a project from the list (its folder on disk is never touched). */
+  forgetProject(path: string): void;
 }
 
 const Ctx = createContext<AppState | null>(null);
@@ -101,11 +123,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   });
   const [connection, setConnection] = useState<AppState["connection"]>("unknown");
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
+  const [sessionsLoaded, setSessionsLoaded] = useState(false);
   const [route, setRoute] = useState<Route>(parseRoute);
 
-  const updateSettings = useCallback((patch: Partial<Settings>) => {
+  const updateSettings = useCallback((patch: Partial<Settings> | ((s: Settings) => Partial<Settings>)) => {
     setSettings((s) => {
-      const next = { ...s, ...patch };
+      const next = { ...s, ...(typeof patch === "function" ? patch(s) : patch) };
       saveSettings(next);
       return next;
     });
@@ -126,6 +149,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
     try {
       setSessions(await client.listSessions());
+      setSessionsLoaded(true);
       setConnection("ok");
     } catch (e) {
       const status = (e as { status?: number }).status;
@@ -162,7 +186,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const navigate = useCallback((r: Route) => {
     const path =
       r.name === "chat"
-        ? `/c/${r.id}${r.preview ? "?preview=1" : ""}`
+        ? `/c/${r.id}${r.preview ? "?preview=1" : r.history ? "?history=1" : ""}`
         : r.name === "home"
           ? r.projectPath
             ? `/?project=${encodeURIComponent(r.projectPath)}`
@@ -174,11 +198,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const rememberProject = useCallback(
     (path: string) => {
-      updateSettings({
-        recentProjects: [path, ...settings.recentProjects.filter((p) => p !== path)].slice(0, 12),
+      updateSettings((s) => ({
+        recentProjects: [path, ...s.recentProjects.filter((p) => p !== path)].slice(0, 12),
+        hiddenProjects: s.hiddenProjects.filter((p) => p !== path),
+      }));
+    },
+    [updateSettings],
+  );
+
+  const forgetProject = useCallback(
+    (path: string) => {
+      updateSettings((s) => {
+        const projectSummaries = { ...s.projectSummaries };
+        delete projectSummaries[path];
+        return {
+          recentProjects: s.recentProjects.filter((p) => p !== path),
+          hiddenProjects: [path, ...s.hiddenProjects.filter((p) => p !== path)].slice(0, 200),
+          projectSummaries,
+        };
       });
     },
-    [settings.recentProjects, updateSettings],
+    [updateSettings],
   );
 
   const value: AppState = {
@@ -187,10 +227,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     client,
     connection,
     sessions,
+    sessionsLoaded,
     refreshSessions,
     route,
     navigate,
     rememberProject,
+    forgetProject,
   };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
@@ -208,10 +250,11 @@ export function useKnownProjects(): string[] {
     const out: string[] = [];
     const live = sessions.filter((s) => !s.projectMissing && !s.sandbox).map((s) => s.projectPath);
     const sandboxes = new Set(sessions.filter((s) => s.sandbox).map((s) => s.projectPath));
+    const hidden = new Set(settings.hiddenProjects);
     for (const p of [...settings.recentProjects, ...live])
-      if (p && !out.includes(p) && !sandboxes.has(p)) out.push(p);
+      if (p && !out.includes(p) && !sandboxes.has(p) && !hidden.has(p)) out.push(p);
     return out;
-  }, [settings.recentProjects, sessions]);
+  }, [settings.recentProjects, settings.hiddenProjects, sessions]);
 }
 
 export function basename(p: string): string {

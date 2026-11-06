@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeAll } from "vitest";
-import { existsSync, readFileSync, writeFileSync, mkdtempSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, writeFileSync, mkdtempSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { spawn, spawnSync } from "node:child_process";
@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { Writable } from "node:stream";
 import { Harness, MockProvider } from "@harness/core";
 import { main } from "../src/index.js";
+import { completeCommand, parseSkillCommand } from "../src/commands.js";
 
 const MODELS = {
   providers: { mock: { type: "mock" } },
@@ -171,7 +172,8 @@ describe("cli (subprocess)", () => {
 
   it("interactive chat answers permission prompts from stdin and can be resumed", async () => {
     const home = mkdtempSync(join(tmpdir(), "cli-home-"));
-    const dir = project({ "harness.config.json": JSON.stringify(MODELS) });
+    // overwriting an existing project file asks; new files go to the output folder without asking
+    const dir = project({ "harness.config.json": JSON.stringify(MODELS), "w.txt": "old" });
     const r = await runBin(
       [],
       "please write\ny\n/exit\n",
@@ -184,7 +186,7 @@ describe("cli (subprocess)", () => {
     expect(r.code).toBe(0);
     expect(r.out).toContain("Allow write_file");
     expect(r.out).toContain("wrote it");
-    expect(existsSync(join(dir, "w.txt"))).toBe(true);
+    expect(readFileSync(join(dir, "w.txt"), "utf8")).toBe("w");
     const id = /cdr resume (\S+)\)/.exec(r.out)?.[1];
     expect(id).toBeTruthy();
     const r2 = await runBin(["resume", id!], "again\n", env(home, [{ text: "second answer" }]), dir);
@@ -261,6 +263,30 @@ describe("cli (subprocess)", () => {
     expect(result.stderr).toContain("CDR");
   });
 
+  it("chat creates new files in the output folder, not in the project", async () => {
+    const home = mkdtempSync(join(tmpdir(), "cli-home-"));
+    const output = mkdtempSync(join(tmpdir(), "cli-docs-"));
+    const dir = project({ "harness.config.json": JSON.stringify(MODELS) });
+    const r = await runBin(
+      [],
+      "write me a poem about dogs\n/exit\n",
+      {
+        ...env(home, [
+          { toolCalls: [{ name: "write_file", args: { path: "poems/dogs-poem.md", content: "Dogs\n" } }] },
+          { text: "saved" },
+        ]),
+        CDR_OUTPUT_DIR: output,
+      },
+      dir,
+    );
+    expect(r.code).toBe(0);
+    expect(r.out).not.toContain("Allow write_file");
+    expect(existsSync(join(dir, "poems"))).toBe(false);
+    const [chat] = readdirSync(output);
+    expect(chat).toMatch(/^write-me-a-poem-about-dogs-/);
+    expect(readFileSync(join(output, chat, "poems/dogs-poem.md"), "utf8")).toBe("Dogs\n");
+  });
+
   it("denied permission keeps the file untouched", async () => {
     const home = mkdtempSync(join(tmpdir(), "cli-home-"));
     const dir = project({ "harness.config.json": JSON.stringify(MODELS) });
@@ -326,7 +352,9 @@ describe("CLI and server produce identical event logs (M3)", () => {
       const norm = (events: { type: string; seq: number }[], root: string) =>
         events.map((e) =>
           JSON.stringify(e, (k, v) =>
-            ["ts", "sessionId", "id", "reportPath", "runId", "toolCallId"].includes(k) ? undefined : v,
+            ["ts", "sessionId", "id", "reportPath", "runId", "toolCallId", "commit", "messageId"].includes(k)
+              ? undefined
+              : v,
           )
             .split(realpathSync(root))
             .join("<root>"),
@@ -396,14 +424,14 @@ describe("cli: goals and sidecar serve", () => {
         "--port",
         "0",
         "--token-env",
-        "MORROW_SIDECAR_TOKEN",
+        "CDR_SIDECAR_TOKEN",
         "--ready-json",
         "--origin",
         "tauri://localhost",
         "--origin",
         "http://tauri.localhost",
       ],
-      { cwd: home, env: { ...process.env, HARNESS_HOME: home, NO_COLOR: "1", MORROW_SIDECAR_TOKEN: token } },
+      { cwd: home, env: { ...process.env, HARNESS_HOME: home, NO_COLOR: "1", CDR_SIDECAR_TOKEN: token } },
     );
     let stdout = "";
     let stderr = "";
@@ -438,7 +466,7 @@ describe("cli: goals and sidecar serve", () => {
     expect(stdout + stderr).not.toContain(token);
   });
 
-  it("serve stops when the process in MORROW_PARENT_PID exits (sidecar watchdog)", async () => {
+  it("serve stops when the process in CDR_PARENT_PID exits (sidecar watchdog)", async () => {
     const home = mkdtempSync(join(tmpdir(), "cli-watchdog-"));
     const parent = spawn(process.execPath, ["-e", "setTimeout(() => {}, 1500)"]);
     const p = spawn(process.execPath, [bin, "serve", "--port", "0", "--token-env", "T", "--ready-json"], {
@@ -448,7 +476,7 @@ describe("cli: goals and sidecar serve", () => {
         HARNESS_HOME: home,
         NO_COLOR: "1",
         T: "watchdog-token",
-        MORROW_PARENT_PID: String(parent.pid),
+        CDR_PARENT_PID: String(parent.pid),
       },
     });
     const exited = new Promise<number | null>((r) => p.on("exit", (code) => r(code)));
@@ -465,5 +493,25 @@ describe("cli: goals and sidecar serve", () => {
       p.kill("SIGTERM");
       parent.kill();
     }
+  });
+});
+
+describe("skill commands", () => {
+  const skills = ["tdd", "grill-me", "review"];
+  it("selects leading /skill words and leaves built-in commands alone", () => {
+    expect(parseSkillCommand("/tdd fix the parser", skills)).toEqual({
+      skills: ["tdd"],
+      text: "fix the parser",
+    });
+    expect(parseSkillCommand("/grill-me /tdd", skills)).toEqual({
+      skills: ["grill-me", "tdd"],
+      text: "Use the grill-me and tdd skills.",
+    });
+    expect(parseSkillCommand("/review the diff", skills)).toBeUndefined();
+    expect(parseSkillCommand("/unknown x", skills)).toBeUndefined();
+    expect(parseSkillCommand("plain /tdd", skills)).toBeUndefined();
+  });
+  it("completes skills after commands", () => {
+    expect(completeCommand("/gr", skills)[0]).toEqual(["/grill-me"]);
   });
 });

@@ -10,10 +10,18 @@ import {
   Editor,
   InputDecoder,
   renderView,
+  formatBalance,
   transcript,
+  contentWidth,
+  BANNER_ROWS,
+  Canvas,
+  loadDesign,
   width,
   type View,
 } from "@harness/cli/tui";
+
+/** The full suite runs dozens of forks in parallel; a turn can take a second or two under load. */
+const waitFor = (assert: () => void) => vi.waitFor(assert, { timeout: 15_000, interval: 25 });
 
 const models = { executor: "mock/m", planner: "mock/m", reviewer: "mock/m", summarizer: "mock/m" };
 const apps: TerminalApp[] = [];
@@ -22,7 +30,7 @@ afterEach(() => {
 });
 
 function setup(provider = new MockProvider({ handler: () => ({ text: "Hello from CDR." }) })) {
-  const root = mkdtempSync(join(tmpdir(), "morrow-tui-"));
+  const root = mkdtempSync(join(tmpdir(), "cdr-tui-"));
   const harness = new Harness({
     providers: { mock: provider },
     sessionsDir: join(root, ".sessions"),
@@ -197,6 +205,61 @@ describe("terminal input and rendering", () => {
     }
   });
 
+  it("shows the provider account balance and run spend in the sidebar", () => {
+    const v = view();
+    v.state.messages.a = { id: "a", role: "user", text: "hi" } as View["state"]["messages"][string];
+    v.state.timeline = [{ kind: "message", id: "a" }];
+    expect(renderView(v, 160, 48).plain().join("\n")).not.toContain("ACCOUNT");
+    v.balance = {
+      items: [{ currency: "USD", total: 17.96, granted: 0, toppedUp: 17.96 }],
+      start: [{ currency: "USD", total: 18.03 }],
+    };
+    v.state.todos = [{ id: "1", text: "write tests", status: "in_progress" }] as View["state"]["todos"];
+    const screen = renderView(v, 160, 48).plain().join("\n");
+    expect(screen).toContain("ACCOUNT");
+    expect(screen).toContain("$17.96");
+    expect(screen).toContain("spent $0.07 this run");
+    expect(screen).toContain("TASKS");
+    for (const [columns, rows] of [
+      [80, 24],
+      [40, 14],
+      [30, 10],
+    ]) {
+      const c = renderView(v, columns, rows);
+      expect(c.plain()).toHaveLength(rows);
+      for (const row of c.plain()) expect(width(row)).toBe(columns);
+    }
+  });
+
+  it("formats balances: multiple currencies, low balance, and failed refreshes", () => {
+    expect(formatBalance(undefined)).toEqual([]);
+    expect(formatBalance({ items: [] })).toEqual([]);
+    expect(formatBalance({ items: [], error: true })).toEqual([{ text: "balance unavailable", fg: "faint" }]);
+    const lines = formatBalance({
+      items: [
+        { currency: "USD", total: 1.5, granted: 1, toppedUp: 0.5 },
+        { currency: "CNY", total: 6.07 },
+      ],
+      error: true,
+    });
+    expect(lines).toEqual([
+      { text: "$1.50", fg: "red" },
+      { text: "¥6.07", fg: "red" },
+      { text: "granted $1.00", fg: "faint" },
+      { text: "topped up $0.50", fg: "faint" },
+      { text: "refresh failed", fg: "faint" },
+    ]);
+  });
+
+  it("fetches the provider balance into the sidebar when the TUI starts", async () => {
+    const provider = Object.assign(new MockProvider({ handler: () => ({ text: "ok" }) }), {
+      getBalance: vi.fn(async () => [{ currency: "USD", total: 12.34 }]),
+    });
+    const { app } = setup(provider);
+    await waitFor(() => expect(app.snapshot().balance?.items[0]?.total).toBe(12.34));
+    expect(provider.getBalance).toHaveBeenCalled();
+  });
+
   it("shows all approval choices on a narrow terminal and strips terminal control sequences", () => {
     const v = view();
     v.dialog = {
@@ -227,11 +290,11 @@ describe("full-screen session integration", () => {
       }),
     );
     x.send("Finish the timer");
-    await vi.waitFor(() => expect(x.app.state.status).toBe("failed"));
+    await waitFor(() => expect(x.app.state.status).toBe("failed"));
     fail = false;
     const id = x.session.id;
     x.send("/continue");
-    await vi.waitFor(() => expect(x.app.state.done?.status).toBe("success"));
+    await waitFor(() => expect(x.app.state.done?.status).toBe("success"));
     expect(x.app.snapshot().sessionId).toBe(id);
     expect(x.provider.calls[1].messages.some((m) => m.content === "Finish the timer")).toBe(true);
     expect(x.app.state.errors).toEqual([]);
@@ -253,13 +316,13 @@ describe("full-screen session integration", () => {
         }),
       );
       x.send("write");
-      await vi.waitFor(() => expect(x.app.snapshot().dialog).toBeDefined());
+      await waitFor(() => expect(x.app.snapshot().dialog).toBeDefined());
       expect(x.app.snapshot().elapsed).toBe(2);
       now += 2 * 60 * 60_000;
       expect(x.app.snapshot().elapsed).toBe(2);
       expect(renderView(x.app.snapshot(), 120, 38).plain().join("\n")).toContain("Waiting for you");
       x.input.write("y");
-      await vi.waitFor(() => expect(x.app.snapshot().busy).toBe(false));
+      await waitFor(() => expect(x.app.snapshot().busy).toBe(false));
       expect(x.app.state.done?.status).toBe("success");
       expect(x.app.snapshot().elapsed).toBe(3);
     } finally {
@@ -279,7 +342,7 @@ describe("full-screen session integration", () => {
       }),
     );
     x.send("write the file");
-    await vi.waitFor(() => expect(x.app.snapshot().dialog?.selected).toBe(2));
+    await waitFor(() => expect(x.app.snapshot().dialog?.selected).toBe(2));
     x.input.write(left);
     expect(x.app.snapshot().dialog?.selected).toBe(1);
     x.input.write(right);
@@ -299,7 +362,7 @@ describe("full-screen session integration", () => {
     expect(existsSync(join(x.root, "arrow.txt"))).toBe(false);
     expect(x.app.snapshot().notice || "").not.toContain("Cannot read");
     x.input.write("\r");
-    await vi.waitFor(() => expect(x.app.snapshot().busy).toBe(false));
+    await waitFor(() => expect(x.app.snapshot().busy).toBe(false));
     expect(readFileSync(join(x.root, "arrow.txt"), "utf8")).toBe("approved");
   });
 
@@ -317,9 +380,9 @@ describe("full-screen session integration", () => {
       }),
     );
     x.send("write");
-    await vi.waitFor(() => expect(x.app.snapshot().dialog).toBeDefined());
+    await waitFor(() => expect(x.app.snapshot().dialog).toBeDefined());
     x.input.write(key);
-    await vi.waitFor(() => expect(x.app.snapshot().busy).toBe(false));
+    await waitFor(() => expect(x.app.snapshot().busy).toBe(false));
     expect(x.session.events.some((e) => e.type === "permission.resolved" && e.decision === decision)).toBe(
       true,
     );
@@ -333,16 +396,16 @@ describe("full-screen session integration", () => {
     const x = setup(new MockProvider({ handler: () => reply }));
     try {
       x.send("think about this");
-      await vi.waitFor(() => expect(x.outputText).toContain("Thinking"));
+      await waitFor(() => expect(x.outputText).toContain("Thinking"));
       const first = x.app.snapshot();
       const outputLength = x.outputText.length;
-      await vi.waitFor(() => expect(x.app.snapshot().frame).toBeGreaterThan(first.frame + 2));
+      await waitFor(() => expect(x.app.snapshot().frame).toBeGreaterThan(first.frame + 2));
       expect(x.app.state.lastSeq).toBe(first.state.lastSeq);
       expect(x.outputText.slice(outputLength)).toContain("Thinking");
     } finally {
       release({ text: "Ready." });
     }
-    await vi.waitFor(() => expect(x.app.snapshot().busy).toBe(false));
+    await waitFor(() => expect(x.app.snapshot().busy).toBe(false));
     const frame = x.app.snapshot().frame;
     await new Promise((resolve) => setTimeout(resolve, 200));
     expect(x.app.snapshot().frame).toBeLessThanOrEqual(frame + 1);
@@ -352,7 +415,7 @@ describe("full-screen session integration", () => {
     expect(x.input.isRaw).toBe(true);
     expect(x.outputText).toContain("\x1b[?1049h");
     x.send("hello");
-    await vi.waitFor(() => expect(x.app.snapshot().state.done?.status).toBe("success"));
+    await waitFor(() => expect(x.app.snapshot().state.done?.status).toBe("success"));
     expect(Object.values(x.app.state.messages).some((m) => m.text === "Hello from CDR.")).toBe(true);
     x.app.key("", { name: "d", ctrl: true });
     expect(await x.result).toBe(0);
@@ -370,7 +433,7 @@ describe("full-screen session integration", () => {
     expect(p.title).toBe("Choose a model");
     x.app.key("mock/new", { sequence: "mock/new" });
     x.app.key("\r", { name: "return" });
-    await vi.waitFor(() => expect(x.session.config.models.executor).toBe("mock/new"));
+    await waitFor(() => expect(x.session.config.models.executor).toBe("mock/new"));
     expect(x.app.editor.text).toBe("Keep this draft");
     expect(
       x.session.events.some((e) => e.type === "session.settings" && e.models?.executor === "mock/new"),
@@ -399,14 +462,14 @@ describe("full-screen session integration", () => {
       }),
     );
     x.send("write it");
-    await vi.waitFor(() => expect(x.app.snapshot().dialog?.title).toContain("Permission required"));
+    await waitFor(() => expect(x.app.snapshot().dialog?.title).toContain("Permission required"));
     x.app.key("n", { name: "n" });
-    await vi.waitFor(() => expect(x.app.snapshot().busy).toBe(false));
+    await waitFor(() => expect(x.app.snapshot().busy).toBe(false));
     expect(existsSync(join(x.root, "result.txt"))).toBe(false);
     x.send("write it again");
-    await vi.waitFor(() => expect(x.app.snapshot().dialog?.title).toContain("Permission required"));
+    await waitFor(() => expect(x.app.snapshot().dialog?.title).toContain("Permission required"));
     x.app.key("y", { name: "y" });
-    await vi.waitFor(() => expect(x.app.snapshot().busy).toBe(false));
+    await waitFor(() => expect(x.app.snapshot().busy).toBe(false));
     expect(readFileSync(join(x.root, "result.txt"), "utf8")).toBe("approved");
   });
 
@@ -417,9 +480,9 @@ describe("full-screen session integration", () => {
       }),
     );
     x.send("write");
-    await vi.waitFor(() => expect(x.app.snapshot().dialog).toBeDefined());
+    await waitFor(() => expect(x.app.snapshot().dialog).toBeDefined());
     x.app.key("", { name: "c", ctrl: true });
-    await vi.waitFor(() => expect(x.app.snapshot().busy).toBe(false));
+    await waitFor(() => expect(x.app.snapshot().busy).toBe(false));
     expect(x.app.state.done?.status).toBe("cancelled");
     expect(x.app.snapshot().dialog).toBeUndefined();
     expect(existsSync(join(x.root, "no.txt"))).toBe(false);
@@ -439,13 +502,13 @@ describe("full-screen session integration", () => {
       }),
     );
     x.send("/run create a greeting");
-    await vi.waitFor(() => expect(x.app.snapshot().dialog?.title).toBe("Review the plan"));
+    await waitFor(() => expect(x.app.snapshot().dialog?.title).toBe("Review the plan"));
     x.input.write("\x1b[D");
     x.input.write("\r");
     expect(x.app.snapshot().dialog?.title).toBe("Edit plan before approval");
     x.app.snapshot().dialog!.editor!.set("# Revised plan\n## Steps\n1. Explain a greeting");
     x.app.key("", { name: "s", ctrl: true });
-    await vi.waitFor(() => expect(x.app.snapshot().busy).toBe(false));
+    await waitFor(() => expect(x.app.snapshot().busy).toBe(false));
     expect(
       x.session.events.some(
         (e) => e.type === "plan.decision" && e.decision === "edit" && e.markdown?.includes("Revised plan"),
@@ -457,15 +520,15 @@ describe("full-screen session integration", () => {
   it("switches sessions from the picker and replays their transcript", async () => {
     const x = setup();
     x.send("Remember this conversation");
-    await vi.waitFor(() => expect(x.app.snapshot().busy).toBe(false));
+    await waitFor(() => expect(x.app.snapshot().busy).toBe(false));
     const original = x.session.id;
     x.send("/new");
-    await vi.waitFor(() => expect(x.app.snapshot().sessionId).not.toBe(original));
+    await waitFor(() => expect(x.app.snapshot().sessionId).not.toBe(original));
     expect(Object.values(x.app.state.messages)).toHaveLength(0);
     x.app.key("", { name: "r", ctrl: true });
     x.app.key("Remember this conversation", {});
     x.app.key("\r", { name: "return" });
-    await vi.waitFor(() => expect(x.app.snapshot().sessionId).toBe(original));
+    await waitFor(() => expect(x.app.snapshot().sessionId).toBe(original));
     expect(Object.values(x.app.state.messages).some((m) => m.text === "Hello from CDR.")).toBe(true);
   });
 
@@ -483,10 +546,196 @@ describe("full-screen session integration", () => {
       }),
     );
     x.send("Choose");
-    await vi.waitFor(() => expect(x.app.snapshot().dialog?.title).toBe("CDR needs your input"));
+    await waitFor(() => expect(x.app.snapshot().dialog?.title).toBe("CDR needs your input"));
     x.app.key("2", { name: "2" });
     x.app.key("\r", { name: "return" });
-    await vi.waitFor(() => expect(x.app.snapshot().busy).toBe(false));
+    await waitFor(() => expect(x.app.snapshot().busy).toBe(false));
     expect(x.session.events.some((e) => e.type === "question.answered" && e.answer === "Green")).toBe(true);
+  });
+
+  describe("Claude Code style layout", () => {
+    function chat() {
+      const v = view();
+      v.sidebar = false;
+      v.state.messages = {
+        u: { id: "u", role: "user", text: "read the file" },
+        a: { id: "a", role: "assistant", text: "Here it is.", streaming: false },
+      } as typeof v.state.messages;
+      v.state.tools = {
+        t: { id: "t", name: "read_file", args: { path: "a.ts" }, status: "ok", output: "one\ntwo\nthree" },
+      } as typeof v.state.tools;
+      v.state.timeline = [
+        { kind: "message", id: "u" },
+        { kind: "message", id: "a" },
+        { kind: "tool", id: "t" },
+      ];
+      return v;
+    }
+    it("renders a flowing single column with a banner, markers, rules and one status line", () => {
+      const v = chat();
+      const screen = renderView(v, 100, 30).plain();
+      const text = screen.join("\n");
+      expect(text).not.toContain("WORKSPACE");
+      expect(text).not.toContain("── FINISH");
+      expect(screen[0]).toContain("╭");
+      expect(text).toContain("Welcome to CDR");
+      expect(text).toMatch(/^ > read the file/m);
+      expect(text).toMatch(/^ ● Here it is\./m);
+      expect(text).toMatch(/● ReadFile\(path="a\.ts"\)\s*\n\s+⎿  one/);
+      const rules = screen.flatMap((row, i) => (/^─+\s*$/.test(row) ? [i] : []));
+      expect(rules).toHaveLength(2);
+      expect(rules[1] - rules[0]).toBe(2);
+      expect(screen.at(-1)).toContain("ask before changes");
+      expect(screen.at(-1)).toContain("deepseek-flash");
+    });
+    it("scrolls the banner away and clamps the scroll range", () => {
+      const v = chat();
+      for (let i = 0; i < 40; i++) {
+        v.state.messages[`m${i}`] = {
+          id: `m${i}`,
+          role: "assistant",
+          text: `line ${i}`,
+          streaming: false,
+        } as never;
+        v.state.timeline.push({ kind: "message", id: `m${i}` });
+      }
+      expect(renderView(v, 100, 24).plain().join("\n")).not.toContain("Welcome to CDR");
+      v.scroll = transcript(v.state, contentWidth(100), false).length + BANNER_ROWS;
+      expect(renderView(v, 100, 24).plain().join("\n")).toContain("Welcome to CDR");
+    });
+    it("shows an animated activity line while busy and keeps the sidebar optional", () => {
+      const v = chat();
+      v.busy = true;
+      v.elapsed = 7;
+      v.state.status = "running";
+      v.state.messages.b = { id: "b", role: "assistant", text: "", streaming: true } as never;
+      v.state.timeline.push({ kind: "message", id: "b" });
+      expect(renderView(v, 100, 30).plain().join("\n")).toContain("Thinking… (7s · esc to interrupt)");
+      expect(contentWidth(160, true)).toBeLessThan(contentWidth(160, false));
+      expect(contentWidth(100, true)).toBe(contentWidth(100, false));
+      v.sidebar = true;
+      expect(renderView(v, 160, 40).plain().join("\n")).toContain("WORKSPACE");
+    });
+    it("uses the terminal's default colours instead of painted ones", () => {
+      const c = new Canvas(10, 2);
+      c.text(0, 0, "hi");
+      const line = c.lines(true)[0];
+      expect(line).toContain("39;49");
+      expect(line).not.toContain("NaN");
+      expect(c.lines(true)[1]).not.toContain("NaN");
+    });
+  });
+
+  describe("mouse wheel", () => {
+    const up = "\x1b[<64;10;5M";
+    const down = "\x1b[<65;10;5M";
+    async function longChat() {
+      const x = setup();
+      for (let i = 0; i < 5; i++) {
+        x.send(`message ${i}`);
+        await waitFor(() => expect(x.app.snapshot().busy).toBe(false));
+      }
+      return x;
+    }
+
+    it("scrolls the transcript and leaves the input and history alone", async () => {
+      const x = await longChat();
+      expect(x.app.snapshot().scroll).toBe(0);
+      x.input.write(up);
+      expect(x.app.snapshot().scroll).toBe(3);
+      x.input.write(up);
+      expect(x.app.snapshot().scroll).toBe(6);
+      expect(x.app.editor.text).toBe("");
+      x.input.write(down);
+      x.input.write(down);
+      x.input.write(down);
+      expect(x.app.snapshot().scroll).toBe(0);
+      // Plain arrows still recall prompt history.
+      x.input.write("\x1b[A");
+      expect(x.app.editor.text).toBe("message 4");
+    }, 30_000);
+
+    it("handles reports split across chunks, modifiers, clicks and pastes", async () => {
+      const x = await longChat();
+      x.input.write("\x1b[<6");
+      x.input.write("4;10;5M");
+      expect(x.app.snapshot().scroll).toBe(3);
+      x.input.write("\x1b[<68;10;5M"); // shift+wheel up
+      expect(x.app.snapshot().scroll).toBe(6);
+      x.input.write("\x1b[<0;10;5M\x1b[<0;10;5m"); // click + release
+      expect(x.app.snapshot().scroll).toBe(6);
+      expect(x.app.editor.text).toBe("");
+      x.input.write(`\x1b[200~${up}\x1b[201~`);
+      expect(x.app.snapshot().scroll).toBe(6);
+      // Pasted as text (the editor strips the control character), never treated as a wheel event.
+      expect(x.app.editor.text).toContain("64;10;5M");
+    }, 30_000);
+
+    it("enables mouse reporting on open and releases it on exit unless CDR_NO_MOUSE is set", async () => {
+      const x = setup();
+      expect(x.outputText).toContain("\x1b[?1000h\x1b[?1006h");
+      x.app.key("d", { name: "d", ctrl: true });
+      await x.result;
+      expect(x.outputText).toContain("\x1b[?1006l\x1b[?1000l");
+      process.env.CDR_NO_MOUSE = "1";
+      try {
+        const y = setup();
+        expect(y.outputText).not.toContain("\x1b[?1000h");
+      } finally {
+        delete process.env.CDR_NO_MOUSE;
+      }
+    });
+  });
+
+  describe("terminal designs", () => {
+    function chatView(): View {
+      const v = view();
+      v.sidebar = false;
+      v.state.messages = {
+        u: { id: "u", role: "user", text: "read the file" },
+        a: { id: "a", role: "assistant", text: "Here it is.", streaming: false },
+      } as typeof v.state.messages;
+      v.state.timeline = [
+        { kind: "message", id: "u" },
+        { kind: "message", id: "a" },
+      ];
+      return v;
+    }
+    it("draws the default design unless the view asks for classic", () => {
+      const v = chatView();
+      const flowing = renderView(v, 100, 30).plain().join("\n");
+      expect(flowing).toContain("Welcome to CDR");
+      expect(flowing).not.toContain("▸  CDR");
+      v.design = "classic";
+      const boxed = renderView(v, 100, 30);
+      const text = boxed.plain().join("\n");
+      expect(text).toContain("▸  CDR");
+      expect(text).toContain("YOU");
+      expect(text).not.toContain("Welcome to CDR");
+      // The classic look paints its own graphite background instead of inheriting the terminal's.
+      expect(boxed.cells[0][0].bg).toBe("#1c1c1c");
+      expect(
+        renderView({ ...view(), design: "classic" }, 100, 30)
+          .plain()
+          .join("\n"),
+      ).toContain("████");
+    });
+    it("switches with /terminal-design, remembers the choice and starts in the default design", async () => {
+      expect(loadDesign()).toBe("default");
+      const x = setup();
+      expect(x.app.snapshot().design).toBe("default");
+      x.send("/terminal-design classic");
+      await waitFor(() => expect(x.app.snapshot().design).toBe("classic"));
+      expect(x.app.snapshot().notice).toContain("Classic");
+      expect(loadDesign()).toBe("classic");
+      x.send("/terminal-design nope");
+      await waitFor(() => expect(x.app.snapshot().notice).toContain("default | classic"));
+      expect(x.app.snapshot().design).toBe("classic");
+      x.send("/terminal-design");
+      await waitFor(() => expect(x.app.snapshot().picker?.title).toBe("Terminal design"));
+      x.app.key("\r", { name: "return", sequence: "\r" });
+      await waitFor(() => expect(x.app.snapshot().design).toBe("default"));
+      expect(loadDesign()).toBe("default");
+    });
   });
 });

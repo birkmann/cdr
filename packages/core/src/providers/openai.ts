@@ -1,8 +1,9 @@
-import type { ChatMessage, ModelInfo, ToolCall } from "@harness/protocol";
+import type { ChatMessage, ModelCapability, ModelDetail, ModelInfo, ToolCall } from "@harness/protocol";
 import {
   ProviderError,
   parseSSE,
   type Provider,
+  type ProviderBalance,
   type ProviderCapabilities,
   type ProviderEvent,
   type ProviderRequest,
@@ -65,13 +66,136 @@ export class OpenAICompatibleProvider implements Provider {
   }
 
   async listModels(signal?: AbortSignal): Promise<string[]> {
-    const res = await this.fetchImpl(`${this.opts.baseURL.replace(/\/$/, "")}/models`, {
+    return (await this.listModelDetails(signal)).map((m) => m.id);
+  }
+
+  /**
+   * Models with their capabilities where the server reports them. Ollama (local or cloud) exposes
+   * `capabilities` and `context_length` on its native /api/tags; other servers only list ids.
+   * Config overrides (`models.<id>`) always win over what the server reports.
+   */
+  async listModelDetails(signal?: AbortSignal): Promise<ModelDetail[]> {
+    const base = this.opts.baseURL.replace(/\/$/, "");
+    const native = await this.ollamaTags(base, signal);
+    const details: ModelDetail[] = native ?? (await this.openAIModelIds(base, signal)).map((id) => ({ id }));
+    return details
+      .map((d) => {
+        const override = this.opts.models?.[d.id];
+        const caps = new Set<ModelCapability>(d.capabilities ?? []);
+        if (override?.tools === true) caps.add("tools");
+        if (override?.tools === false) caps.delete("tools");
+        if (override?.vision === true) caps.add("vision");
+        if (override?.vision === false) caps.delete("vision");
+        if (override?.reasoning === true) caps.add("thinking");
+        if (override?.reasoning === false) caps.delete("thinking");
+        const contextWindow = override?.contextWindow ?? d.contextWindow;
+        return {
+          id: d.id,
+          ...(caps.size ? { capabilities: [...caps].sort() } : {}),
+          ...(contextWindow ? { contextWindow } : {}),
+        };
+      })
+      .sort((a, b) => a.id.localeCompare(b.id));
+  }
+
+  private async openAIModelIds(base: string, signal?: AbortSignal): Promise<string[]> {
+    const res = await this.fetchImpl(`${base}/models`, { headers: this.headers(), signal });
+    if (!res.ok) throw new ProviderError(`${this.id}: GET /models -> ${res.status}`, res.status);
+    const json = (await res.json()) as { data?: { id: string }[] };
+    return (json.data ?? []).map((m) => m.id);
+  }
+
+  /** Ollama's native model list with capabilities, or undefined when the server is not Ollama (or does not answer it). */
+  private async ollamaTags(base: string, signal?: AbortSignal): Promise<ModelDetail[] | undefined> {
+    // Ollama serves its native API next to the OpenAI-compatible /v1 path. Only probe hosts that look like
+    // Ollama, so other providers neither pay for a failed request nor receive their key on a guessed URL.
+    if (!/\/v1$/.test(base) || !looksLikeOllama(base)) return undefined;
+    const root = base.replace(/\/v1$/, "");
+    try {
+      const res = await this.fetchImpl(`${root}/api/tags`, { headers: this.headers(), signal });
+      if (!res.ok) return undefined;
+      const json = (await res.json()) as {
+        models?: {
+          name?: string;
+          model?: string;
+          capabilities?: string[];
+          details?: { context_length?: number };
+        }[];
+      };
+      if (!Array.isArray(json.models)) return undefined;
+      const listed = json.models.flatMap((m) => {
+        const id = m.model || m.name;
+        return id ? [{ id, capabilities: m.capabilities, contextWindow: m.details?.context_length }] : [];
+      });
+      // /api/tags carries no capabilities on a stock Ollama; /api/show does.
+      return await Promise.all(
+        listed.map(async (m) => {
+          const shown =
+            m.capabilities || m.contextWindow ? m : { ...m, ...(await this.ollamaShow(root, m.id, signal)) };
+          const caps = toCapabilities(shown.capabilities);
+          return {
+            id: m.id,
+            ...(caps.length ? { capabilities: caps } : {}),
+            ...(shown.contextWindow ? { contextWindow: shown.contextWindow } : {}),
+          };
+        }),
+      );
+    } catch (e) {
+      if (isAbortError(e)) throw e;
+      return undefined;
+    }
+  }
+
+  private async ollamaShow(
+    root: string,
+    model: string,
+    signal?: AbortSignal,
+  ): Promise<{ capabilities?: string[]; contextWindow?: number }> {
+    try {
+      const res = await this.fetchImpl(`${root}/api/show`, {
+        method: "POST",
+        headers: this.headers(),
+        body: JSON.stringify({ model }),
+        signal,
+      });
+      if (!res.ok) return {};
+      const json = (await res.json()) as { capabilities?: string[]; model_info?: Record<string, unknown> };
+      // The context length is stored under an architecture-specific key such as "llama.context_length".
+      const key = Object.keys(json.model_info ?? {}).find((k) => k.endsWith(".context_length"));
+      const ctx = key ? Number(json.model_info?.[key]) : undefined;
+      return { capabilities: json.capabilities, ...(ctx && ctx > 0 ? { contextWindow: ctx } : {}) };
+    } catch (e) {
+      if (isAbortError(e)) throw e;
+      return {};
+    }
+  }
+
+  async getBalance(signal?: AbortSignal): Promise<ProviderBalance[] | null> {
+    if (new URL(this.opts.baseURL).hostname !== "api.deepseek.com") return null;
+    const res = await this.fetchImpl(`${this.opts.baseURL.replace(/\/$/, "")}/user/balance`, {
       headers: this.headers(),
       signal,
     });
-    if (!res.ok) throw new ProviderError(`${this.id}: GET /models -> ${res.status}`, res.status);
-    const json = (await res.json()) as { data?: { id: string }[] };
-    return (json.data ?? []).map((m) => m.id).sort();
+    if (!res.ok) throw new ProviderError(`${this.id}: GET /user/balance -> ${res.status}`, res.status);
+    const json = (await res.json()) as {
+      balance_infos?: {
+        currency?: string;
+        total_balance?: string;
+        granted_balance?: string;
+        topped_up_balance?: string;
+      }[];
+    };
+    const num = (v: string | undefined) => {
+      const n = Number(v);
+      return v !== undefined && Number.isFinite(n) ? n : undefined;
+    };
+    return (json.balance_infos ?? []).flatMap((b) => {
+      const total = num(b.total_balance);
+      if (!b.currency || total === undefined) return [];
+      return [
+        { currency: b.currency, total, granted: num(b.granted_balance), toppedUp: num(b.topped_up_balance) },
+      ];
+    });
   }
 
   async *stream(req: ProviderRequest): AsyncIterable<ProviderEvent> {
@@ -280,4 +404,21 @@ function toOpenAIMessage(m: ChatMessage): Record<string, unknown> {
     default:
       return { role: m.role, content: m.content };
   }
+}
+
+/** Local Ollama (default port 11434) or Ollama's cloud; other hosts are not asked for the native API. */
+function looksLikeOllama(base: string): boolean {
+  try {
+    const u = new URL(base);
+    return u.port === "11434" || /(^|\.)ollama\./i.test(u.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function toCapabilities(raw: string[] | undefined): ModelCapability[] {
+  const out: ModelCapability[] = [];
+  for (const c of raw ?? [])
+    if (c === "tools" || c === "vision" || c === "thinking" || c === "embedding") out.push(c);
+  return out;
 }

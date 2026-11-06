@@ -25,7 +25,7 @@ pub fn init(app: &AppHandle) {
     let config = app
         .path()
         .app_config_dir()
-        .unwrap_or_else(|_| std::path::PathBuf::from(".morrow-studio"));
+        .unwrap_or_else(|_| std::path::PathBuf::from(".cdr-studio"));
     let fallback = app
         .path()
         .app_data_dir()

@@ -15,7 +15,7 @@ import { BottomPanel } from "./BottomPanel";
 import { AgentPanel } from "./AgentPanel";
 import { StatusBar } from "./StatusBar";
 import { Palette, type PaletteMode } from "./Palette";
-import { SettingsDialog } from "./SettingsDialog";
+import { SettingsDialog, type SettingsSection } from "./SettingsDialog";
 import { CloneDialog } from "./CloneDialog";
 import { Toasts } from "./Toasts";
 import { useApprovals } from "./approvals";
@@ -35,9 +35,18 @@ export function Shell({ harnessStatus }: { harnessStatus: HarnessStatus }) {
   const st = useStudio();
   const [palette, setPalette] = useState<PaletteMode | null>(null);
   const [dialog, setDialog] = useState<Dialog>(null);
-  const sideSize = usePanelSize("morrow.studio.side", 280, 180, 560);
-  const agentSize = usePanelSize("morrow.studio.agent", 460, 320, 900);
-  const bottomSize = usePanelSize("morrow.studio.bottom", 260, 120, 700);
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>();
+  useEffect(() => {
+    const open = (e: Event) => {
+      setSettingsSection((e as CustomEvent<SettingsSection | undefined>).detail);
+      setDialog("settings");
+    };
+    window.addEventListener("cdr:open-settings", open);
+    return () => window.removeEventListener("cdr:open-settings", open);
+  }, []);
+  const sideSize = usePanelSize("cdr.studio.side", 280, 180, 560);
+  const agentSize = usePanelSize("cdr.studio.agent", 460, 320, 900);
+  const bottomSize = usePanelSize("cdr.studio.bottom", 260, 120, 700);
   const approvals = useApprovals();
   const chordUntil = useRef(0);
 
@@ -204,7 +213,11 @@ export function Shell({ harnessStatus }: { harnessStatus: HarnessStatus }) {
         />
       )}
       {dialog === "settings" && (
-        <SettingsDialog onClose={() => setDialog(null)} harnessStatus={harnessStatus} />
+        <SettingsDialog
+          onClose={() => (setDialog(null), setSettingsSection(undefined))}
+          harnessStatus={harnessStatus}
+          initialSection={settingsSection}
+        />
       )}
       {dialog === "clone" && <CloneDialog onClose={() => setDialog(null)} />}
       <Toasts />

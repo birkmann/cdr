@@ -1,9 +1,12 @@
 import { useState } from "react";
 import { basename, relativeTime, useApp } from "../app-state";
-import { Composer, type PendingFile } from "./Composer";
+import { Composer, useSkills, type PendingFile } from "./Composer";
 import { EffortPicker, ModelPicker, ModePicker, PermissionPicker, ProjectPicker, type Mode } from "./Pickers";
 import { CDRMark } from "./Brand";
-import { IconFolder, IconCode, IconTerminal, IconFile, IconChevronRight } from "./icons";
+import { ModelNotice } from "./ModelNotice";
+import { useStartRecreate } from "../recreate";
+import { IconFolder, IconCode, IconTerminal, IconFile, IconChevronRight, IconRefresh } from "./icons";
+import { useProjectSummaries } from "./Projects";
 
 function greeting(): string {
   const h = new Date().getHours();
@@ -30,8 +33,11 @@ export function Home({ projectPath }: { projectPath?: string }) {
   const [mode, setMode] = useState<Mode>("chat");
   const [error, setError] = useState<string>();
   const [seed, setSeed] = useState<string>();
+  const startRecreate = useStartRecreate();
 
-  const start = async (text: string, files: PendingFile[]) => {
+  const skills = useSkills(project);
+
+  const start = async (text: string, files: PendingFile[], skillNames: string[]) => {
     if (!client) return false;
     setError(undefined);
     try {
@@ -45,6 +51,7 @@ export function Home({ projectPath }: { projectPath?: string }) {
       });
       if (project) rememberProject(info.projectPath);
       await client.send(info.id, text, {
+        ...(skillNames.length ? { skills: skillNames } : {}),
         mode: mode === "chat" ? "chat" : "task",
         workflow: mode === "chat" ? undefined : mode,
         attachments: files.map(({ name, mimeType, data }) => ({ name, mimeType, data })),
@@ -57,10 +64,13 @@ export function Home({ projectPath }: { projectPath?: string }) {
     }
   };
 
-  const recent = [...sessions]
-    .sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""))
-    .filter((s) => !s.projectMissing)
-    .slice(0, 3);
+  const byNewest = [...sessions].sort((a, b) =>
+    (b.updatedAt || b.createdAt).localeCompare(a.updatedAt || a.createdAt),
+  );
+  const recent = byNewest.filter((s) => !s.projectMissing).slice(0, 3);
+  const projectChats = project ? byNewest.filter((s) => s.projectPath === project) : [];
+  const projectInfo = useProjectSummaries(project ? [project] : []);
+  const summary = project ? projectInfo.summaries[project] : undefined;
 
   return (
     <div className="home">
@@ -71,19 +81,55 @@ export function Home({ projectPath }: { projectPath?: string }) {
         </span>
       </div>
       <div className="home-center">
-        <div className="home-eyebrow">CODE. BUILD. SHIP.</div>
-        <h1 className="greeting">
-          <span className="greeting-mark" aria-hidden="true">
-            <CDRMark size={42} />
-          </span>
-          {greeting()}
-        </h1>
+        {project ? (
+          <header className="project-hero">
+            <button className="ghost tiny project-back" onClick={() => navigate({ name: "projects" })}>
+              <IconChevronRight size={12} className="flip" /> All projects
+            </button>
+            <div className="home-eyebrow">PROJECT</div>
+            <h1>
+              <IconFolder size={30} /> {summary?.title || basename(project)}
+            </h1>
+            <p className="project-hero-summary">
+              {projectInfo.pending.has(project)
+                ? "Summarising what this project is about…"
+                : summary?.summary || "No summary yet."}
+              <button
+                className="ghost icon"
+                disabled={projectInfo.pending.has(project)}
+                onClick={() => projectInfo.regenerate(project)}
+                aria-label="Regenerate the AI summary"
+                title="Regenerate AI title and summary"
+              >
+                <IconRefresh size={13} />
+              </button>
+            </p>
+            <code className="project-hero-path" title={project}>
+              {project}
+            </code>
+          </header>
+        ) : (
+          <>
+            <div className="home-eyebrow">CODE. BUILD. SHIP.</div>
+            <h1 className="greeting">
+              <span className="greeting-mark" aria-hidden="true">
+                <CDRMark size={42} />
+              </span>
+              {greeting()}
+            </h1>
+          </>
+        )}
         <Composer
           draft={seed}
           large
           autoFocus
-          placeholder="What would you like to build?"
+          placeholder={project ? "What should CDR do in this project?" : "What would you like to build?"}
           onSend={start}
+          skills={skills}
+          onRecreate={async (url) => {
+            setError(undefined);
+            await startRecreate(url, { projectPath: project || undefined });
+          }}
           left={
             <>
               <ProjectPicker
@@ -117,6 +163,7 @@ export function Home({ projectPath }: { projectPath?: string }) {
             </>
           }
         />
+        <ModelNotice model={settings.model} projectPath={project || undefined} />
         {error && <div className="home-error">{error}</div>}
         <div className="suggestions">
           {(project ? PROJECT_SUGGESTIONS : SANDBOX_SUGGESTIONS).map((t) => (
@@ -130,8 +177,35 @@ export function Home({ projectPath }: { projectPath?: string }) {
             </button>
           ))}
         </div>
-        <p className="composer-hint">Start something new, or choose a project to work with your files.</p>
-        {recent.length > 0 && (
+        {!project && (
+          <p className="composer-hint">Start something new, or choose a project to work with your files.</p>
+        )}
+        {project && (
+          <div className="recent project-chats">
+            <div className="recent-head">
+              <span>
+                Conversations in this project{projectChats.length ? ` (${projectChats.length})` : ""}
+              </span>
+            </div>
+            {projectChats.length ? (
+              <ul>
+                {projectChats.map((s) => (
+                  <li key={s.id}>
+                    <button className="project-chat" onClick={() => navigate({ name: "chat", id: s.id })}>
+                      <IconFile size={16} />
+                      <span className="recent-title">{s.title ?? "Untitled"}</span>
+                      <time>{relativeTime(s.updatedAt || s.createdAt)}</time>
+                      <IconChevronRight size={14} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="muted small">No conversations yet. Ask something above to start the first one.</p>
+            )}
+          </div>
+        )}
+        {!project && recent.length > 0 && (
           <div className="recent">
             <div className="recent-head">
               <span>Pick up where you left off</span>
@@ -160,7 +234,7 @@ export function Home({ projectPath }: { projectPath?: string }) {
             </div>
           </div>
         )}
-        {!recent.length && (
+        {!project && !recent.length && (
           <div className="first-step">
             <CDRMark size={20} />
             <div>

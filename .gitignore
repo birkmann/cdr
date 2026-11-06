@@ -4,12 +4,12 @@ dist/
 .env
 .env.*
 !.env.example
-.harness/sessions/
-.harness/locks/
+# Agent runtime output: sessions, plans, reports, memory, previews, worktrees
+.harness/
 evals/results/*.json
 !evals/results/.gitkeep
 coverage/
-opencode-dev/
+*.log
 
 # Rust
 /target
@@ -17,7 +17,10 @@ crates/studio-app/gen/
 dist-harness/
 apps/desktop/e2e/*.png
 
-# Local notes and editor settings
-_input/
+# Editor, agent and OS files
 .vscode/
+.idea/
+.claude/
+.cursor/
+.DS_Store
 dist-release/

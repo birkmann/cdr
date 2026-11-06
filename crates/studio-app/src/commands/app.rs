@@ -102,9 +102,7 @@ pub async fn app_info(state: State<'_, AppState>) -> CmdResult<AppInfo> {
         config_dir: state.config_dir.to_string_lossy().to_string(),
         default_clone_dir: s.default_clone_dir().to_string_lossy().to_string(),
         platform: std::env::consts::OS.into(),
-        github_client_id: std::env::var("CDR_GITHUB_CLIENT_ID")
-            .or_else(|_| std::env::var("MORROW_GITHUB_CLIENT_ID"))
-            .is_ok(),
+        github_client_id: std::env::var("CDR_GITHUB_CLIENT_ID").is_ok(),
     })
 }
 
@@ -299,7 +297,7 @@ pub async fn github_create_pr(
 }
 
 fn client_id() -> CmdResult<String> {
-    std::env::var("CDR_GITHUB_CLIENT_ID").or_else(|_| std::env::var("MORROW_GITHUB_CLIENT_ID"))
+    std::env::var("CDR_GITHUB_CLIENT_ID")
         .map_err(|_| "Browser sign-in needs CDR_GITHUB_CLIENT_ID (a GitHub OAuth app). Paste a personal access token instead.".to_string())
 }
 

@@ -20,17 +20,37 @@
           },
           "type": "object"
         },
+        "checkpoints": {
+          "additionalProperties": false,
+          "description": "Workspace checkpoints before every turn, restorable from the UIs (default enabled).",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        },
         "context": {
           "additionalProperties": false,
           "properties": {
             "compactAt": {
+              "description": "Fraction of the context budget at which compaction starts (default 0.7).",
               "type": "number"
             },
             "keepRecent": {
+              "description": "Most recent messages kept verbatim when compacting (default 6).",
+              "type": "number"
+            },
+            "maxContext": {
+              "description": "Absolute working-context budget in tokens. The agent compacts at `compactAt` × min(model context window, maxContext). Default 64000; 0 uses the model's context window alone. Smaller budgets keep the per-call cost of long jobs flat with little accuracy loss on frontier models.",
               "type": "number"
             },
             "maxToolOutput": {
               "type": "number"
+            },
+            "reasoningSummaries": {
+              "description": "Summarise long thinking into short decision lines for the user (summarizer model). Default true.",
+              "type": "boolean"
             },
             "repoMapDepth": {
               "type": "number"
@@ -86,6 +106,18 @@
           },
           "type": "object"
         },
+        "outputDir": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "const": false,
+              "type": "boolean"
+            }
+          ],
+          "description": "Folder for files a chat creates (poems, notes, drafts), so Chat mode does not add files to the repository. Each chat gets its own subfolder; edits to files that already exist in the project still go to the project. Absolute or `~/` path. The terminal app defaults to `$CDR_OUTPUT_DIR` or `~/Documents/CDR`; other front ends leave it unset. `false` turns it off, so new files go into the project."
+        },
         "permissions": {
           "$ref": "#/definitions/PermissionsConfig"
         },
@@ -97,6 +129,10 @@
         },
         "reasoningEffort": {
           "$ref": "#/definitions/ReasoningEffort"
+        },
+        "recreate": {
+          "$ref": "#/definitions/RecreateConfig",
+          "description": "1:1 recreation of live web pages"
         },
         "sandbox": {
           "enum": [
@@ -234,6 +270,10 @@
           "type": "array"
         },
         "tools": {
+          "type": "boolean"
+        },
+        "vision": {
+          "description": "Accepts image input.",
           "type": "boolean"
         }
       },
@@ -385,6 +425,151 @@
         "max"
       ],
       "type": "string"
+    },
+    "RecreateConfig": {
+      "additionalProperties": false,
+      "description": "`recreate` section of the config.",
+      "properties": {
+        "allowLocal": {
+          "description": "allow capturing localhost / private-network URLs (your own site; default false)",
+          "type": "boolean"
+        },
+        "assets": {
+          "description": "run-dir: captured assets stay in the gitignored run folder; project: copied into the output; none: placeholders",
+          "enum": [
+            "run-dir",
+            "project",
+            "none"
+          ],
+          "type": "string"
+        },
+        "budgets": {
+          "additionalProperties": false,
+          "properties": {
+            "altMs": {
+              "type": "number"
+            },
+            "menuMs": {
+              "type": "number"
+            },
+            "rasters": {
+              "type": "number"
+            },
+            "regionMs": {
+              "type": "number"
+            },
+            "submenuMs": {
+              "type": "number"
+            },
+            "submenus": {
+              "type": "number"
+            },
+            "totalMs": {
+              "type": "number"
+            }
+          },
+          "type": "object"
+        },
+        "captureParallel": {
+          "description": "capture sessions (device classes) run at once, each in its own browser (default 3)",
+          "type": "number"
+        },
+        "driver": {
+          "description": "capture driver: cdp (local Chrome, default) or remote (POST to a capture service)",
+          "enum": [
+            "cdp",
+            "remote"
+          ],
+          "type": "string"
+        },
+        "emitters": {
+          "description": "extra emitter modules (paths relative to the project root)",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "enabled": {
+          "description": "false hides the tools, the command and the UI entry points (default true)",
+          "type": "boolean"
+        },
+        "fonts": {
+          "description": "embed: font files in the output (default; most sites refuse cross-origin font loads); reference:",
+          "enum": [
+            "reference",
+            "embed",
+            "system"
+          ],
+          "type": "string"
+        },
+        "gates": {
+          "additionalProperties": false,
+          "properties": {
+            "heightPct": {
+              "type": "number"
+            },
+            "pixel": {
+              "type": "number"
+            },
+            "responsivePixel": {
+              "type": "number"
+            },
+            "singleUse": {
+              "type": "number"
+            },
+            "text": {
+              "type": "number"
+            }
+          },
+          "type": "object"
+        },
+        "models": {
+          "additionalProperties": false,
+          "description": "model roles (or model refs) per stage",
+          "properties": {
+            "naming": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/ModelRole"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "repair": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/ModelRole"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "vision": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/ModelRole"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "type": "object"
+        },
+        "remoteUrl": {
+          "description": "remote driver endpoint",
+          "type": "string"
+        },
+        "respectRobots": {
+          "description": "do not capture URLs robots.txt disallows for every crawler (default true)",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
     },
     "VerifyConfig": {
       "additionalProperties": false,

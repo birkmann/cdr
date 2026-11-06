@@ -12,6 +12,12 @@ export default defineConfig({
       "@harness/server": src("server"),
       "@harness/client": src("client"),
       "@harness/react": src("react"),
+      "@harness/capture": src("capture"),
+      "@harness/scene": src("scene"),
+      "@harness/extract": src("extract"),
+      "@harness/codegen": src("codegen"),
+      "@harness/measure": src("measure"),
+      "@harness/recreate": src("recreate"),
     },
   },
   test: {

@@ -17,6 +17,19 @@ node packages/cli/dist/bin.js eval --model local/qwen3.8:latest --filter 02
 
 Runs are non-interactive: permissions mode `auto`, plans auto-approved.
 
+## Context compaction A/B
+
+`06-long-horizon-api` is a six-step task with a global rule stated once at the start (the error body shape), so it fails when compaction loses an early instruction. Run the code suite with and without a tight context budget and compare pass rate, tokens and compactions (each result records `compactions` and `peakContextTokens`):
+
+```bash
+node packages/cli/dist/bin.js eval --model <model> --label baseline --repeat 3
+node packages/cli/dist/bin.js eval --model <model> --max-context 48k --label ctx-48k --repeat 3
+node packages/cli/dist/bin.js eval --model <model> --max-context 16k --label ctx-16k --repeat 3
+node scripts/evals/compare.mjs evals/results/*.json
+```
+
+Make 48K the default only if `ctx-48k` passes within one task of `baseline` and uses fewer tokens on the long tasks.
+
 ## App suite
 
 `20-…` to `24-…` build a store, a landing page, a dashboard, a snake game and a todo app. Each task has `sandbox: true`, so it runs exactly like a new web chat: an empty sandbox, the sandbox prompt, matching skills, and a single chat turn (`workflow` defaults to `"chat"`).
@@ -33,4 +46,4 @@ node scripts/evals/compare.mjs evals/results/*.json   # task × run table: passe
 
 Set `HARNESS_BUILTIN_SKILLS` to an empty folder to measure the harness without built-in skills.
 
-Latest results (2026-11-05, `deepseek/deepseek-flash`, judge `deepseek/deepseek-v4-pro`): with the `web-app` skill all five app tasks pass with judge scores of 4.14 to 5.00 and about 1.9M tokens in total. Without skills the scores are 4.43 to 4.71 at 5.5M tokens. Details are in [docs/app-quality-plan.md](../docs/app-quality-plan.md#implementation-status-2026-11-05).
+Latest results (2026-11-05, `deepseek/deepseek-flash`, judge `deepseek/deepseek-v4-pro`): with the `web-app` skill all five app tasks pass with judge scores of 4.14 to 5.00 and about 1.9M tokens in total. Without skills the scores are 4.43 to 4.71 at 5.5M tokens.

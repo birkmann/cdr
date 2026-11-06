@@ -1,0 +1,28 @@
+{
+  "id": "06-long-horizon-api",
+  "fixture": "node-api",
+  "task": "Extend the API in src/app.js step by step. Global rule for every step: every error response body must have exactly the shape {\"error\": <message string>, \"code\": <HTTP status number>} — this includes the existing 404 for unknown routes.\n\n1. Change `handle(method, url)` to `handle(method, url, body)` (body is an already-parsed object or undefined); keep the server working by parsing JSON request bodies in createApp.\n2. GET /users/:id returns the user (200) or a 404 error.\n3. POST /users with {name} creates a user with the next id and returns it with status 201; a missing or empty name is a 400 error.\n4. GET /users?name=<text> filters users by case-insensitive substring of the name.\n5. DELETE /users/:id removes the user (204, no body) or returns a 404 error.\n6. GET /stats returns {users: <current user count>, requests: <number of handle() calls so far, including this one>}.\n\nAdd tests for every step in test/app.test.js and keep the existing tests passing. Run the tests after each step.",
+  "maxTurns": 60,
+  "checks": [
+    {
+      "type": "command",
+      "command": "npm test"
+    },
+    {
+      "type": "command",
+      "command": "node --input-type=module -e \"const { handle: h } = await import('./src/app.js');\nconst ok = (c, m) => { if (!c) { console.error('failed: ' + m); process.exit(1); } };\nlet r = h('GET', '/users/1'); ok(r.status === 200 && r.body.name === 'Ada', 'GET /users/:id');\nr = h('GET', '/users/99'); ok(r.status === 404 && typeof r.body.error === 'string' && r.body.code === 404, 'missing user error shape');\nr = h('POST', '/users', { name: 'Grace' }); ok(r.status === 201 && r.body.id === 3 && r.body.name === 'Grace', 'POST /users');\nr = h('POST', '/users', {}); ok(r.status === 400 && r.body.code === 400 && typeof r.body.error === 'string', 'POST validation');\nr = h('GET', '/users?name=gRa'); ok(r.status === 200 && r.body.length === 1 && r.body[0].name === 'Grace', 'name filter');\nr = h('DELETE', '/users/3'); ok(r.status === 204, 'DELETE');\nr = h('GET', '/users/3'); ok(r.status === 404 && r.body.code === 404, 'deleted user');\nr = h('GET', '/nope'); ok(r.status === 404 && r.body.code === 404, 'unknown route error shape');\nr = h('GET', '/stats'); ok(r.status === 200 && r.body.users === 2 && r.body.requests >= 8, 'GET /stats');\""
+    },
+    {
+      "type": "fileContains",
+      "path": "test/app.test.js",
+      "pattern": "stats"
+    },
+    {
+      "type": "onlyChanged",
+      "paths": [
+        "src/**",
+        "test/**"
+      ]
+    }
+  ]
+}

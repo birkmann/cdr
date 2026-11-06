@@ -97,12 +97,10 @@ impl Sidecar {
         self.inner.lock().await.extra_env = env;
     }
 
-    /// Start (or restart) the server. Uses an external server when MORROW_STUDIO_SERVER is set.
+    /// Start (or restart) the server. Uses an external server when CDR_STUDIO_SERVER is set.
     pub async fn start(&self, app: AppHandle) {
-        if let (Ok(url), Ok(token)) = (
-            std::env::var("CDR_STUDIO_SERVER").or_else(|_| std::env::var("MORROW_STUDIO_SERVER")),
-            std::env::var(TOKEN_ENV).or_else(|_| std::env::var("MORROW_STUDIO_TOKEN")),
-        ) {
+        if let (Ok(url), Ok(token)) = (std::env::var("CDR_STUDIO_SERVER"), std::env::var(TOKEN_ENV))
+        {
             let mut g = self.inner.lock().await;
             g.status = HarnessStatus {
                 state: HarnessState::Attached,
@@ -356,9 +354,9 @@ pub fn parse_ready(line: &str) -> Option<String> {
     re.captures(trimmed).map(|c| c[1].to_string())
 }
 
-/// MORROW_NODE, then `node` on PATH, then the login shell's PATH (desktop launchers often lack nvm).
+/// CDR_NODE, then `node` on PATH, then the login shell's PATH (desktop launchers often lack nvm).
 pub fn find_node() -> Option<PathBuf> {
-    if let Ok(p) = std::env::var("CDR_NODE").or_else(|_| std::env::var("MORROW_NODE")) {
+    if let Ok(p) = std::env::var("CDR_NODE") {
         let p = PathBuf::from(p);
         if p.exists() {
             return Some(p);
@@ -400,11 +398,9 @@ pub fn find_node() -> Option<PathBuf> {
     None
 }
 
-/// MORROW_HARNESS_ENTRY, then the bundled resource, then the repository checkout (development).
+/// CDR_HARNESS_ENTRY, then the bundled resource, then the repository checkout (development).
 pub fn find_entry(app: &AppHandle) -> Option<PathBuf> {
-    if let Ok(p) =
-        std::env::var("CDR_HARNESS_ENTRY").or_else(|_| std::env::var("MORROW_HARNESS_ENTRY"))
-    {
+    if let Ok(p) = std::env::var("CDR_HARNESS_ENTRY") {
         let p = PathBuf::from(p);
         if p.exists() {
             return Some(p);

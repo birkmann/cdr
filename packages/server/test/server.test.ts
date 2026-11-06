@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { HarnessEvent } from "@harness/protocol";
@@ -63,6 +63,56 @@ describe("server + client", () => {
       headers: { origin: "https://evil.example", "access-control-request-method": "POST" },
     });
     expect(no.headers.get("access-control-allow-origin")).toBeNull();
+  });
+
+  it("tells the user to connect a model instead of starting a chat without an API key", async () => {
+    vi.stubEnv("DEEPSEEK_API_KEY", "");
+    try {
+      const c = createClient({ baseUrl: srv.url, token: "test-token" });
+      const before = (await c.listSessions()).length;
+      const noKey = { executor: "deepseek/deepseek-flash" };
+      for (const req of [
+        { projectPath: project, models: noKey },
+        { sandbox: { name: "nokey" }, models: noKey },
+      ]) {
+        const err = await c.createSession(req).catch((e: unknown) => e);
+        expect(err).toBeInstanceOf(HarnessApiError);
+        expect((err as HarnessApiError).status).toBe(400);
+        expect((err as Error).message).toMatch(/No model is connected.*DEEPSEEK_API_KEY/);
+      }
+      expect((await c.listSessions()).length).toBe(before);
+
+      // an existing chat switched to a provider without a key: refused before any user message is recorded
+      const info = await c.createSession({ projectPath: project });
+      await c.updateSettings(info.id, { models: noKey });
+      await expect(c.send(info.id, "hello")).rejects.toThrow(/No model is connected/);
+      const s = await c.getSession(info.id);
+      expect(s.events?.some((e) => e.type === "message.start")).toBe(false);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("shows where a conversation is stored, its raw log and the files it used", async () => {
+    const c = createClient({ baseUrl: srv.url, token: "test-token" });
+    const storage = await c.storage();
+    expect(storage.sessionsDir).toBeTruthy();
+    const info = await c.createSession({ projectPath: project, permissionMode: "yolo" });
+    const done = (async () => {
+      for await (const _ of c.events(info.id, { untilDone: true })) void _;
+    })();
+    await c.send(info.id, "create hello.txt");
+    await done;
+    const log = await c.sessionLog(info.id);
+    expect(log.path).toBe(join(storage.sessionsDir, `${info.id}.jsonl`));
+    expect(log.content).toBe(readFileSync(log.path, "utf8"));
+    expect(log.bytes).toBe(Buffer.byteLength(log.content));
+    expect(log.truncated).toBe(false);
+    const lines = log.content.trim().split("\n");
+    expect(log.records).toBe(lines.length);
+    expect(lines.map((l) => JSON.parse(l).type)).toContain("session.created");
+    expect(log.files).toEqual([{ path: "hello.txt", uses: ["write_file"], viewable: true }]);
+    await expect(c.sessionLog("nope")).rejects.toMatchObject({ status: 404 });
   });
 
   it("runs a full task with plan approval and permissions via HTTP + SSE", async () => {
@@ -140,6 +190,45 @@ describe("server + client", () => {
     const d = await c.getSession(info.id, { events: false });
     expect(d.status).toBe("cancelled");
     expect(d.events).toBeUndefined();
+  });
+
+  it("previews and restores a turn checkpoint, and undoes the restore", async () => {
+    const c = createClient({ baseUrl: srv.url, token: "test-token" });
+    const root = mkdtempSync(join(tmpdir(), "srv-cp-"));
+    writeFileSync(join(root, "README.md"), "x\n");
+    const info = await c.createSession({ projectPath: root, permissionMode: "yolo" });
+    const events: HarnessEvent[] = [];
+    const consumer = (async () => {
+      for await (const e of c.events(info.id, { untilDone: true })) events.push(e);
+    })();
+    await c.send(info.id, "write it");
+    await consumer;
+    expect(readFileSync(join(root, "hello.txt"), "utf8")).toBe("hi\n");
+    const cp = events.find((e) => e.type === "checkpoint.created");
+    if (cp?.type !== "checkpoint.created") throw new Error("no checkpoint");
+    expect(await c.previewCheckpoint(info.id, cp.id)).toEqual([{ path: "hello.txt", status: "deleted" }]);
+    const r = await c.restoreCheckpoint(info.id, cp.id);
+    expect(r.changed).toBe(1);
+    expect(existsSync(join(root, "hello.txt"))).toBe(false);
+    await c.restoreCheckpoint(info.id, r.backupId);
+    expect(readFileSync(join(root, "hello.txt"), "utf8")).toBe("hi\n");
+    await expect(c.restoreCheckpoint(info.id, "cp_missing")).rejects.toMatchObject({ status: 409 });
+    const d = await c.getSession(info.id);
+    expect(d.events?.filter((e) => e.type === "checkpoint.restored")).toHaveLength(2);
+  });
+
+  it("lists skills and sends a message with selected skills", async () => {
+    const c = createClient({ baseUrl: srv.url, token: "test-token" });
+    const skills = await c.skills(project);
+    expect(skills.find((s) => s.name === "grill-me")).toMatchObject({ source: "builtin", userOnly: true });
+    expect((await c.skills()).some((s) => s.name === "tdd")).toBe(true);
+    const info = await c.createSession({ projectPath: project, permissionMode: "yolo" });
+    await expect(c.send(info.id, "x", { skills: ["no-such-skill"] })).rejects.toMatchObject({ status: 400 });
+    await c.send(info.id, "grill my plan", { skills: ["grill-me"] });
+    let state = initialSessionState();
+    for await (const e of c.events(info.id, { untilDone: true })) state = reduceSession(state, e);
+    const user = Object.values(state.messages).find((m) => m.role === "user");
+    expect(user).toMatchObject({ text: "grill my plan", skills: ["grill-me"] });
   });
 
   it("validates and persists thinking effort through the API and reducer", async () => {
@@ -352,6 +441,58 @@ describe("server: web app support", () => {
       await c.deleteSession(info.id);
       expect((await c.listSessions()).some((x) => x.id === info.id)).toBe(false);
       await expect(c.deleteSession(info.id)).rejects.toMatchObject({ status: 404 });
+    } finally {
+      await s2.close();
+    }
+  });
+});
+
+describe("server: uploaded document viewing", () => {
+  it("serves PDF attachments inline so the UI can frame them, and lists them as viewable", async () => {
+    const proj = mkdtempSync(join(tmpdir(), "srv-pdf-"));
+    const harness = new Harness({
+      providers: { mock: new MockProvider({ handler: () => ({ text: "seen" }) }) },
+      skipGlobalConfig: true,
+      loadEnv: false,
+      configOverrides: MODELS,
+    });
+    const s2 = await startServer({ harness, port: 0, token: "tk", allowedRoots: [tmpdir()] });
+    try {
+      const c = createClient({ baseUrl: s2.url, token: "tk" });
+      const info = await c.createSession({ projectPath: proj });
+      const done = (async () => {
+        for await (const _ of c.events(info.id, { untilDone: true }));
+      })();
+      await c.send(info.id, "summarise", {
+        attachments: [
+          {
+            name: "r.pdf",
+            mimeType: "application/pdf",
+            data: Buffer.from("%PDF-1.4 test").toString("base64"),
+          },
+          { name: "n.txt", mimeType: "text/plain", data: Buffer.from("hello").toString("base64") },
+        ],
+      });
+      await done;
+      const d = await c.getSession(info.id);
+      const end = d.events!.find((e) => e.type === "message.end" && e.attachments);
+      const pdf =
+        end && end.type === "message.end" ? end.attachments!.find((a) => a.name === "r.pdf")! : undefined;
+      expect(pdf?.mimeType).toBe("application/pdf");
+      const raw = await fetch(c.rawUrl(info.id, pdf!.path));
+      expect(raw.status).toBe(200);
+      expect(raw.headers.get("content-type")).toBe("application/pdf");
+      expect(raw.headers.get("content-disposition")).toBe("inline");
+      expect(raw.headers.get("content-security-policy")).toMatch(
+        /^frame-ancestors 'self' http:\/\/127\.0\.0\.1:\*/,
+      );
+      expect(raw.headers.get("x-content-type-options")).toBe("nosniff");
+      // other attachments keep the strict policy
+      const txt =
+        end && end.type === "message.end" ? end.attachments!.find((a) => a.name === "n.txt")! : undefined;
+      const rawTxt = await fetch(c.rawUrl(info.id, txt!.path));
+      expect(rawTxt.headers.get("content-security-policy")).toContain("default-src 'none'");
+      expect(rawTxt.headers.get("content-disposition")).toBeNull();
     } finally {
       await s2.close();
     }

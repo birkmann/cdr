@@ -2,7 +2,14 @@ import { describe, expect, it } from "vitest";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { Harness, MockProvider, harnessHome, checkPreviewTool, findChrome } from "@harness/core";
+import {
+  Harness,
+  MockProvider,
+  SANDBOX_PROMPT,
+  harnessHome,
+  checkPreviewTool,
+  findChrome,
+} from "@harness/core";
 import { MOCK_MODELS, tempProject, toolCtx } from "./helpers.js";
 
 describe("sandbox sessions", () => {
@@ -16,6 +23,11 @@ describe("sandbox sessions", () => {
     expect(a.projectRoot).not.toBe(homedir());
     expect(h.createSession({ projectPath: tempProject() }).isSandbox).toBe(false);
   });
+  it("tells the agent not to build a page for plain questions", () => {
+    expect(SANDBOX_PROMPT).toContain("only build when the user asks");
+    expect(SANDBOX_PROMPT).toContain("text answer only");
+  });
+
   it("creates a fresh git workspace, uses auto permissions, sandbox prompt and set_preview", async () => {
     const mock = new MockProvider({
       replies: [
@@ -151,7 +163,10 @@ describe("check_preview and auto preview", () => {
           '<!doctype html><meta name="viewport" content="width=device-width"><title>Good</title><h1>Shop</h1>' +
           '<button aria-label="Open bag"><svg width="10" height="10"></svg></button><label>Email <input></label>',
       });
-      const bad = await checkPreviewTool.execute({ path: "bad.html", viewports: ["small", "desktop"] }, toolCtx(root));
+      const bad = await checkPreviewTool.execute(
+        { path: "bad.html", viewports: ["small", "desktop"] },
+        toolCtx(root),
+      );
       expect(bad.ok).toBe(false);
       expect(bad.output).toContain("small 320×740, desktop 1280×900");
       expect(bad.output).toMatch(/Horizontal overflow at small 320px: page is 2\d\dpx wider.*div\.hero/);
@@ -172,10 +187,10 @@ describe("check_preview and auto preview", () => {
     "passes the web-app skill's reference store at every viewport",
     async () => {
       const root = tempProject({
-        "index.html": readFileSync(
-          join(__dirname, "../skills/web-app/reference/form.html"),
-          "utf8",
-        ).replace(/https:\/\/images\.unsplash\.com\/[^"'`\s)]+/g, "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"),
+        "index.html": readFileSync(join(__dirname, "../skills/web-app/reference/form.html"), "utf8").replace(
+          /https:\/\/images\.unsplash\.com\/[^"'`\s)]+/g,
+          "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7",
+        ),
       });
       const r = await checkPreviewTool.execute(
         { viewports: ["small", "phone", "tablet", "desktop"] },

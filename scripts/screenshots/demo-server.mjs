@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // `cdr serve` with the scripted demo model. Accepts the sidecar flags CDR Studio passes
-// (serve --host --port --token-env --ready-json --origin), so it can stand in via MORROW_HARNESS_ENTRY.
+// (serve --host --port --token-env --ready-json --origin), so it can stand in via CDR_HARNESS_ENTRY.
 import { parseArgs } from "node:util";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -33,7 +33,7 @@ const s = await startServer({
 });
 if (values["ready-json"]) process.stdout.write(JSON.stringify({ ready: true, url: s.url, port: s.port }) + "\n");
 else process.stdout.write(`demo server: ${s.url}/#token=${token}\n`);
-const parent = Number(process.env.CDR_PARENT_PID ?? process.env.MORROW_PARENT_PID);
+const parent = Number(process.env.CDR_PARENT_PID);
 const stop = () => s.close().then(() => process.exit(0));
 if (parent > 0)
   setInterval(() => {

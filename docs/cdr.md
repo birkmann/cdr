@@ -1,22 +1,14 @@
 # CDR
 
-CDR is the product name for this provider-independent coding workspace. The console command is `cdr`; the web app is served by `cdr serve` (also `cdr web`). The `harness` binary, internal package names, existing event logs, and data directories remain compatible.
+CDR is the product name for this provider-independent coding workspace. The console command is `cdr`; the web app is served by `cdr serve` (also `cdr web`).
 
-## Reference review
+## Terminal experience
 
-The local `opencode-dev` checkout was inspected as a reference, particularly:
-
-- `packages/tui/src/mini/prompt.shared.ts`: draft/history navigation and command handling.
-- `packages/tui/src/mini/footer.command.tsx`: discoverable commands, model selection, keyboard navigation.
-- `packages/tui/src/mini/turn-summary.ts`: agent/model/duration summaries.
-- `packages/tui/src/config/keybind.ts`: terminal command and input shortcuts.
-- `packages/tui/src/routes/home.tsx`, `mini/splash.ts`, and `mini/theme.ts`: full-screen welcome layout, branding, and terminal colors.
-
-CDR implements its own full-screen terminal interface in `packages/cli/src/tui`. The welcome screen uses an original block wordmark, graphite background, and mode-colored composer (lime for Build, blue for Plan). Conversations render streamed messages, code blocks, tool results, diffs, workflow phases, usage, and tasks. Wide terminals show a workspace sidebar; smaller terminals keep the conversation and composer. Command, model, and session pickers are searchable. Permission, question, and plan dialogs connect to the existing session APIs, including editing a plan before approval.
+CDR implements its own full-screen terminal interface in `packages/cli/src/tui`. The default design is a flowing single column: a small welcome banner that scrolls away with the conversation, `>` user messages, `●` assistant messages and tool calls with `⎿` results, an animated `✻ Thinking…` line while a turn runs, and a rule-bordered prompt with one status line (permission mode, task mode, model, usage and balance). It uses your terminal's own background and a single accent colour, so it is designed for dark terminals. Conversations render streamed messages, code blocks, tool results, diffs, workflow phases, usage, and tasks. Ctrl+B shows an optional workspace sidebar on wide terminals; it is off by default. Command, model, and session pickers are searchable. Permission, question, and plan dialogs connect to the existing session APIs, including editing a plan before approval. `/terminal-design` switches to the Classic design (wordmark home screen, centered composer box, graphite and lime); see [cli.md](cli.md).
 
 The terminal and web clients use the same event reducer. Input editing, scrolling, pickers, and other presentation state stay in the terminal client. Model and permission changes are persisted as session events. The terminal renderer sanitizes untrusted escape sequences, handles bracketed paste without submitting its contents, repaints changed rows, responds to resizing, and restores raw mode and the alternate screen when it exits. `--plain`, piped input, and JSONL output retain the simpler console.
 
-This is not a claim of full OpenCode feature parity: CDR does not yet have LSP integration or its plugin ecosystem. Model quality is determined by the configured provider and model. Automated validation uses mock providers; no model-quality benchmark is implied.
+The terminal interface has no language-server integration and no plugin system; the desktop app provides diagnostics. Model quality is determined by the configured provider and model. Automated validation uses mock providers; no model-quality benchmark is implied.
 
 ## Terminal shortcuts
 
@@ -24,7 +16,7 @@ Use Enter to send and Ctrl+J for a newline. Tab cycles Chat, Build, Plan, Quick 
 
 ## Web experience
 
-The supplied Claude screenshot informed the narrow sidebar, sans-serif greeting, generous central workspace, and restrained composer. The default Graphite palette follows the supplied DeepSeek usage screenshot: neutral charcoal backgrounds, lighter gray cards, bright text and primary buttons, and lime accents. CDR has its own angular C-and-cursor mark, monospace wordmark, and name. Navigation connects to real session and project data; the Creations view derives entries from persisted `preview.ready` events. No generated sample history or fake artifact thumbnails are shown.
+The web app has a narrow sidebar, a sans-serif greeting, a wide central workspace, and a compact composer. The default Graphite palette uses neutral charcoal backgrounds, lighter gray cards, bright text and primary buttons, and lime accents. CDR has its own angular C-and-cursor mark, monospace wordmark, and name. Navigation connects to real session and project data; the Creations view derives entries from persisted `preview.ready` events. No generated sample history or fake artifact thumbnails are shown.
 
 Settings → Appearance offers Graphite (the default), Paper light, Midnight, Forest, High contrast, and a System option. Theme changes apply immediately, persist across reloads, and load before the first paint. System mode follows device changes. Main text, secondary text, accents, and code comments are checked for at least 4.5:1 contrast against their relevant surfaces in the browser suite.
 

@@ -1,11 +1,12 @@
 {
   "name": "@harness/core",
   "version": "0.1.0",
+  "private": true,
   "description": "CDR's agent loop, workflows, tools, permissions, providers, sessions, subagents and goals.",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/birkmann/harness-engineering.git",
+    "url": "git+https://github.com/birkmann/cdr.git",
     "directory": "packages/core"
   },
   "type": "module",
@@ -25,6 +26,9 @@
     "build": "tsc -b"
   },
   "dependencies": {
-    "@harness/protocol": "workspace:*"
+    "@harness/protocol": "workspace:*",
+    "@harness/recreate": "workspace:*",
+    "@harness/capture": "workspace:*",
+    "@harness/measure": "workspace:*"
   }
 }

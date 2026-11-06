@@ -1,0 +1,32 @@
+{
+  "name": "@harness/scene",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Snapshot → Scene: conversion, fluid geometry, layout plan, sections (recreate pipeline).",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/birkmann/cdr.git",
+    "directory": "packages/scene"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@harness/capture": "workspace:*",
+    "@harness/protocol": "workspace:*",
+    "polygon-clipping": "^0.15.7"
+  }
+}

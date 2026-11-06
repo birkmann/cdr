@@ -1,0 +1,33 @@
+{
+  "about": "Personalisation / A-B testing endpoints a capture blocks (fig-server's Network.setBlockedURLs, scripts/import-url.mjs): once the capture accepts the cookie banner they swap headlines, teasers and CTAs for a variant a visitor of the live site does not see (ibm.com/de-de: Adobe Target replaces the hero). Blocked, the page keeps its own, server-rendered copy. Chrome URL wildcards: * matches anything. Also marketing-automation embeds (Marketo forms / Munchkin) that a visitor's tracker blocker (Brave, uBlock) never loads and that come and go with timing and consent: blocked, capture and live shots agree on the page without them.",
+  "urls": [
+    "*/ee/*v1/interact*",
+    "*/ee/*v2/interact*",
+    "*.tt.omtrdc.net/*",
+    "*://cdn.optimizely.com/*",
+    "*://cdn-pci.optimizely.com/*",
+    "*.visualwebsiteoptimizer.com/*",
+    "*://try.abtasty.com/*",
+    "*.kameleoon.eu/*",
+    "*.kameleoon.io/*",
+    "*.dynamicyield.com/*",
+    "*.monetate.net/*",
+    "*://www.googleoptimize.com/*",
+    "*.convertexperiments.com/*",
+    "*.evergage.com/*",
+    "*.evgnet.com/*",
+    "*.goqubit.com/*",
+    "*.mutinycdn.com/*",
+    "*.mutinyhq.com/*",
+    "*.useinsider.com/*",
+    "*.conductrics.com/*",
+    "*.webtrends-optimize.com/*",
+    "*.ninetailed.co/*",
+    "*.demandbase.com/*",
+    "*.marketo.com/*",
+    "*.marketo.net/*",
+    "*.mktoresp.com/*",
+    "*.mktoweb.com/*",
+    "*/index.php/form/getForm*"
+  ]
+}

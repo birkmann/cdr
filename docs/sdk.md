@@ -13,3 +13,7 @@ for await (const e of client.events(s.id, { untilDone: true })) {
 ```
 
 React: `useSession(client, sessionId)` from `@harness/react` returns `{ messages, tools, timeline, pendingPermissions, pendingPlan, status, send, cancel, … }`. [apps/web](../apps/web) is the complete reference UI.
+
+## Embedding the harness
+
+`new Harness(options)` from `@harness/core` runs sessions in your own process. Chats write files into the project unless an output folder is set: pass `defaultOutputDir` (an absolute path) so files a chat creates go to a per-chat subfolder there instead, as the terminal app does with `~/Documents/CDR`. A configured `outputDir` (or `"outputDir": false`) overrides it. Sandboxes, subagents and read-only sessions ignore it. See [configuration.md](configuration.md).

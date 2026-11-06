@@ -3,6 +3,9 @@
  * No runtime dependencies. Event schema version: 1.
  */
 
+export * from "./scene.js";
+export * from "./brand.js";
+
 export const PROTOCOL_VERSION = 1 as const;
 
 /** CDR release version (kept in sync by `pnpm release:version`). */
@@ -105,7 +108,16 @@ export type EventBody =
   | { type: "message.start"; id: string; role: "assistant" | "user"; agent?: string }
   | { type: "message.delta"; id: string; text: string }
   | { type: "reasoning.delta"; id: string; text: string }
-  | { type: "message.end"; id: string; text: string; attachments?: AttachmentInfo[] }
+  /** A short line naming a decision the model made while thinking (written by the summarizer model). */
+  | { type: "reasoning.summary"; id: string; text: string }
+  | {
+      type: "message.end";
+      id: string;
+      text: string;
+      attachments?: AttachmentInfo[];
+      /** Skills the user selected for this message (user messages only). */
+      skills?: string[];
+    }
   | { type: "tool.call"; id: string; name: string; args: unknown }
   | {
       type: "tool.result";
@@ -135,13 +147,32 @@ export type EventBody =
   | { type: "usage"; inputTokens: number; outputTokens: number; cost?: number; model?: string }
   | { type: "context.append"; agent: string; message: ChatMessage }
   | { type: "context.replace"; agent: string; messages: ChatMessage[]; reason: string }
-  | { type: "memory.saved"; scope: "project" | "user"; path: string; fact: string }
-  /** A skill was injected into the system prompt because its triggers matched the task. */
+  /** An agent's working context was shrunk (old tool output trimmed, or history condensed into a brief). */
+  | {
+      type: "context.compacted";
+      agent: string;
+      /** "prune": old tool output/images trimmed only; "brief": older history replaced by an execution brief. */
+      method: "prune" | "brief";
+      /** Estimated context tokens before and after. */
+      tokensBefore: number;
+      tokensAfter: number;
+      /** How many times this agent's context has been compacted so far in this run. */
+      count: number;
+      /** Project-relative file holding the raw history that was removed (searchable by the agent). */
+      historyPath?: string;
+    }
+  /** A fact was added to memory; `replaced` is the fact it superseded, if any. */
+  | { type: "memory.saved"; scope: "project" | "user"; path: string; fact: string; replaced?: string }
+  /** A fact was removed from memory (the `forget` tool). */
+  | { type: "memory.removed"; scope: "project" | "user"; path: string; fact: string }
+  /** A skill was injected into the prompt: its triggers matched the task, or the user selected it. */
   | {
       type: "skill.activated";
       name: string;
       description: string;
       source: "project" | "config" | "user" | "builtin";
+      /** Why it was injected (default "matched"). */
+      reason?: "matched" | "selected";
       /** The skill's Markdown instructions as the model received them. */
       content: string;
       /** Reference files inside the skill folder, readable with load_skill. */
@@ -153,6 +184,31 @@ export type EventBody =
   | { type: "log"; level: "debug" | "info" | "warn"; message: string }
   | { type: "error"; message: string; recoverable: boolean }
   | { type: "done"; status: RunStatus; summary?: string; reportPath?: string }
+  // ---------------------------------------------------------------- workspace checkpoints
+  /** A snapshot of the workspace files (taken before each turn, and before a restore). */
+  | {
+      type: "checkpoint.created";
+      id: string;
+      /** "turn": before a user turn; "restore": the state just before a checkpoint was restored. */
+      reason: "turn" | "restore";
+      /** Snapshot commit in the project's checkpoint store. */
+      commit: string;
+      /** Files in the snapshot. */
+      files: number;
+      /** The user message whose turn this checkpoint precedes ("turn" checkpoints; older logs omit it
+       * and emit the checkpoint just before that message instead). */
+      messageId?: string;
+    }
+  /** The workspace files were reset to checkpoint `id`; `backupId` holds the state before (to undo). */
+  | {
+      type: "checkpoint.restored";
+      id: string;
+      backupId: string;
+      /** Changed files (at most 200 listed); `changed` is the full count. */
+      files: CheckpointChange[];
+      changed: number;
+    }
+  | { type: "checkpoint.failed"; reason: "turn" | "restore"; message: string }
   // ---------------------------------------------------------------- subagents (in the parent's log)
   | {
       type: "agent.spawned";
@@ -198,7 +254,180 @@ export type EventBody =
       prUrl?: string;
       branch: string;
       summary: string;
+    }
+  // ---------------------------------------------------------------- 1:1 recreation
+  | {
+      type: "recreate.started";
+      runId: string;
+      url: string;
+      finalUrl?: string;
+      widths: number[];
+      targets: RecreateTarget[];
+      /** the consent recorded earlier (a resumed run); a new run's consent arrives as recreate.consent */
+      consent?: RecreateConsent;
+      /** run folder relative to the project root */
+      dir: string;
+    }
+  | {
+      type: "recreate.stage";
+      runId: string;
+      stage: RecreateStage;
+      status: "running" | "done" | "failed" | "skipped";
+      ms?: number;
+      detail?: string;
+      /** parts the budgets dropped (resumable) */
+      skipped?: string[];
+    }
+  | {
+      type: "recreate.section";
+      runId: string;
+      index: number;
+      total: number;
+      id: string;
+      kind: string;
+      label: string;
+      status: "building" | "checking" | "ok" | "below-threshold" | "repaired";
+      /** worst pixel mismatch of the section's band over the widths */
+      pixel?: number;
+      /** visible strings of the band missing / extra */
+      text?: number;
+      /** the section's band on the live page per captured width (px from the top of the full-page shot) */
+      bands?: { width: number; y: number; h: number }[];
+    }
+  | {
+      /** a screenshot of the live page, written to the run folder while it is captured (shown while waiting) */
+      type: "recreate.shot";
+      runId: string;
+      /** peek: the first screen right after load; live: a full-page reference shot */
+      kind: "peek" | "live";
+      width: number;
+      height: number;
+      /** image relative to the project root */
+      path: string;
+    }
+  | {
+      type: "recreate.measured";
+      runId: string;
+      target: RecreateTarget;
+      widths: RecreateWidthResult[];
+      interactions?: string;
+      gates: { name: string; pass: boolean; detail?: string }[];
+      comparePath?: string;
+    }
+  | {
+      type: "recreate.components";
+      runId: string;
+      sets: RecreateSetSummary[];
+      lint: { pass: boolean; issues: string[] };
+    }
+  | {
+      type: "recreate.consent";
+      runId: string;
+      url: string;
+      consent: RecreateConsent;
+    }
+  | {
+      type: "recreate.finished";
+      runId: string;
+      status: RunStatus;
+      outputs: { target: RecreateTarget; path: string }[];
+      comparePath?: string;
+      summary?: string;
     };
+
+/** Output of a recreation run: the static page, a converted project, design-system packages, tokens, brand guide. */
+export type RecreateTarget =
+  "static" | "react-vite" | "ds-react" | "ds-lit" | "ds-angular" | "tokens" | "design-md" | (string & {});
+
+export type RecreateStage =
+  | "consent"
+  | "probe"
+  | "capture"
+  | "scene"
+  | "build"
+  | "measure"
+  | "components"
+  | "system"
+  | "convert"
+  | "ds-export"
+  | "repair";
+
+export interface RecreateConsent {
+  /** who answered: the user, or the permission mode / --yes on their behalf */
+  by: "user" | "auto";
+  at: string;
+  mode: "ask" | "auto" | "yolo" | "yes";
+}
+
+export interface RecreateWidthResult {
+  width: number;
+  pixel: number;
+  textReal: number;
+  textDrift: number;
+  height: { live: number; out: number };
+  hscroll: number;
+}
+
+export interface RecreateSetSummary {
+  id: string;
+  name: string;
+  kind?: string;
+  variants: number;
+  props: string[];
+  uses: number;
+}
+
+/** What a recreation run is asked to do (CLI flags, tool arguments, POST /recreate). */
+export interface RecreateRequest {
+  url: string;
+  /** capture widths (default: the page's own layout ranges, else 390, 768, 1440) */
+  widths?: number[];
+  /** outputs (default ["static"]) */
+  to?: RecreateTarget[];
+  /** react-vite styling */
+  style?: "tailwind" | "css-modules" | "vanilla";
+  /** bounded repair of sections below their threshold by the model (opt-in; needs a configured model) */
+  repair?: boolean;
+  /** re-run from this stage of an existing run (`run` required) */
+  from?: RecreateStage;
+  run?: string;
+  /** copy the outputs into this project folder when done */
+  out?: string;
+}
+
+/** `recreate` section of the config. */
+export interface RecreateConfig {
+  /** false hides the tools, the command and the UI entry points (default true) */
+  enabled?: boolean;
+  /** run-dir: captured assets stay in the gitignored run folder; project: copied into the output; none: placeholders */
+  assets?: "run-dir" | "project" | "none";
+  /** embed: font files in the output (default; most sites refuse cross-origin font loads); reference: @font-face pointing at the site; system: fallback stacks */
+  fonts?: "reference" | "embed" | "system";
+  /** do not capture URLs robots.txt disallows for every crawler (default true) */
+  respectRobots?: boolean;
+  /** allow capturing localhost / private-network URLs (your own site; default false) */
+  allowLocal?: boolean;
+  budgets?: {
+    totalMs?: number;
+    menuMs?: number;
+    submenuMs?: number;
+    submenus?: number;
+    regionMs?: number;
+    altMs?: number;
+    rasters?: number;
+  };
+  gates?: { pixel?: number; text?: number; heightPct?: number; responsivePixel?: number; singleUse?: number };
+  /** model roles (or model refs) per stage */
+  models?: { naming?: ModelRole | string; vision?: ModelRole | string; repair?: ModelRole | string };
+  /** extra emitter modules (paths relative to the project root) */
+  emitters?: string[];
+  /** capture driver: cdp (local Chrome, default) or remote (POST to a capture service) */
+  driver?: "cdp" | "remote";
+  /** remote driver endpoint */
+  remoteUrl?: string;
+  /** capture sessions (device classes) run at once, each in its own browser (default 3) */
+  captureParallel?: number;
+}
 
 /** Result of checking one acceptance criterion (autonomous workflow review). */
 export interface CriterionResult {
@@ -245,9 +474,28 @@ export interface ModelInfo {
   contextWindow?: number;
   tools?: boolean;
   reasoning?: boolean;
+  /** Accepts image input. */
+  vision?: boolean;
   inputPrice?: number;
   outputPrice?: number;
   maxTokens?: number;
+}
+
+/** What a model can do, as reported by the provider or set in config. */
+export type ModelCapability = "tools" | "vision" | "thinking" | "embedding";
+
+/** A model a provider offers, with whatever metadata is known about it. */
+export interface ModelDetail {
+  id: string;
+  capabilities?: ModelCapability[];
+  contextWindow?: number;
+}
+
+/** One provider's entry in `GET /models?remote=true`. `details` is absent for providers that list ids only. */
+export interface AvailableModels {
+  models: string[];
+  details?: ModelDetail[];
+  error?: string;
 }
 
 export type ModelRole = "executor" | "planner" | "reviewer" | "summarizer";
@@ -316,10 +564,32 @@ export interface HarnessConfig {
     /** Active run time in milliseconds; excludes time waiting for human input. */
     timeoutMs?: number;
   };
-  context?: { compactAt?: number; keepRecent?: number; maxToolOutput?: number; repoMapDepth?: number };
+  context?: {
+    /**
+     * Absolute working-context budget in tokens. The agent compacts at `compactAt` × min(model context
+     * window, maxContext). Default 64000; 0 uses the model's context window alone. Smaller budgets keep the
+     * per-call cost of long jobs flat with little accuracy loss on frontier models.
+     */
+    maxContext?: number;
+    /** Fraction of the context budget at which compaction starts (default 0.7). */
+    compactAt?: number;
+    /** Most recent messages kept verbatim when compacting (default 6). */
+    keepRecent?: number;
+    maxToolOutput?: number;
+    repoMapDepth?: number;
+    /** Summarise long thinking into short decision lines for the user (summarizer model). Default true. */
+    reasoningSummaries?: boolean;
+  };
   sandbox?: "none" | "bwrap";
   /** Allow network access inside the bwrap sandbox (package installs). */
   sandboxNetwork?: boolean;
+  /**
+   * Folder for files a chat creates (poems, notes, drafts), so Chat mode does not add files to the repository.
+   * Each chat gets its own subfolder; edits to files that already exist in the project still go to the project.
+   * Absolute or `~/` path. The terminal app defaults to `$CDR_OUTPUT_DIR` or `~/Documents/CDR`; other front ends
+   * leave it unset. `false` turns it off, so new files go into the project.
+   */
+  outputDir?: string | false;
   /** Skills (SKILL.md folders) offered to agents. Built-in, ~/.harness/skills and <project>/.harness/skills are always searched. */
   skills?: {
     /** Set to false to disable skills entirely. */
@@ -330,6 +600,12 @@ export interface HarnessConfig {
     disabled?: string[];
   };
   mcpServers?: Record<string, McpServerConfig>;
+  /** 1:1 recreation of live web pages */
+  recreate?: RecreateConfig;
+  /** Workspace checkpoints before every turn, restorable from the UIs (default enabled). */
+  checkpoints?: {
+    enabled?: boolean;
+  };
   temperature?: number;
   /** Subagent limits (spawn_agent). */
   agents?: {
@@ -338,6 +614,12 @@ export interface HarnessConfig {
     /** Maximum nesting depth; a session at this depth cannot spawn (default 2). */
     maxDepth?: number;
   };
+}
+
+/** One file a checkpoint restore changes: back to its old content, deleted (it did not exist yet) or recreated. */
+export interface CheckpointChange {
+  path: string;
+  status: "modified" | "deleted" | "added";
 }
 
 // ---------------------------------------------------------------- HTTP API
@@ -447,10 +729,23 @@ export type UpdateGoalRequest = Partial<Omit<GoalDef, "id" | "repo">>;
 
 export interface SendMessageRequest {
   text: string;
+  /** Skill names (see GET /skills) whose instructions are given to the agent with this message. */
+  skills?: string[];
   /** "chat" continues the conversation with the executor; "task" runs the full workflow. */
   mode?: "chat" | "task";
   workflow?: string;
   attachments?: Attachment[];
+}
+
+/** GET /skills?projectPath= – skills available in a project (built-in, user, config and project skills). */
+export interface SkillInfo {
+  name: string;
+  description: string;
+  source: "project" | "config" | "user" | "builtin";
+  /** Only the user can start it; the agent does not see it in its skill index. */
+  userOnly?: boolean;
+  /** What to type after selecting the skill, e.g. "What would you like to learn about?". */
+  argumentHint?: string;
 }
 
 export interface SessionSettingsRequest {
@@ -458,6 +753,38 @@ export interface SessionSettingsRequest {
   models?: Partial<Record<ModelRole, string>>;
   permissionMode?: "ask" | "auto" | "yolo";
   title?: string;
+}
+
+/** GET /storage: where the server keeps conversation history. */
+export interface StorageInfo {
+  /** The harness home (CDR_HOME / HARNESS_HOME, default ~/.harness). */
+  home: string;
+  /** One `<session id>.jsonl` event log per conversation. */
+  sessionsDir: string;
+}
+
+/** A project file a conversation referenced through a tool call or an attachment. */
+export interface SessionLogFile {
+  /** Project-relative path. */
+  path: string;
+  /** Tool names (or "attachment") that referenced it, in first-use order. */
+  uses: string[];
+  /** It still exists and this session may open it through GET /sessions/:id/files. */
+  viewable: boolean;
+}
+
+/** GET /sessions/:id/log: the conversation's stored event log. */
+export interface SessionLogResponse {
+  /** Absolute path of the JSONL file. */
+  path: string;
+  bytes: number;
+  modifiedAt: string;
+  /** Number of records in the whole file. */
+  records: number;
+  /** Raw JSONL; when `truncated`, only the most recent complete records that fit. */
+  content: string;
+  truncated: boolean;
+  files: SessionLogFile[];
 }
 
 export interface BrowseResponse {

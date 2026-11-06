@@ -1,4 +1,13 @@
-import type { EventBody, HarnessConfig, Risk, RunStatus, TodoItem } from "@harness/protocol";
+import type {
+  ChatMessage,
+  EventBody,
+  HarnessConfig,
+  ImagePart,
+  PermissionDecision,
+  Risk,
+  RunStatus,
+  TodoItem,
+} from "@harness/protocol";
 import type { ToolSpec } from "../providers/types.js";
 import type { VerifyRunner } from "../verify.js";
 
@@ -8,10 +17,16 @@ export interface ToolResult {
   diff?: string;
   /** Files changed by this call (relative to project root). */
   edited?: string[];
+  /** Label for `diff` when the file is outside the project (so `edited` stays empty). */
+  diffPath?: string;
+  /** Images for the model (sent after this turn's tool results, where the model has vision). */
+  images?: ImagePart[];
 }
 
 export interface ToolContext {
   projectRoot: string;
+  /** Chat turns: folder where new files are created instead of the project (see `outputDir` in the config). */
+  outputDir?: string;
   config: HarnessConfig;
   signal: AbortSignal;
   emit(e: EventBody): void;
@@ -24,6 +39,14 @@ export interface ToolContext {
   toolCallId?: string;
   /** Subagent support, provided by the Session when spawning is allowed. */
   agents?: AgentSpawner;
+  /** Raise a permission request (self-gated tools: recreate_capture's consent). */
+  requestPermission?(tool: string, args: unknown, risk: Risk, reason?: string): Promise<PermissionDecision>;
+  /** The session's current permission mode. */
+  permissionMode?(): "ask" | "auto" | "yolo";
+  /** True when the session answers permission requests itself (`autoApprove.permissions`, `cdr run --yes`). */
+  autoApprovesPermissions?(): boolean;
+  /** One model call with a role ("executor", "planner"…) or a model ref; returns the text answer. */
+  complete?(role: string, messages: ChatMessage[], o?: { maxTokens?: number }): Promise<string>;
 }
 
 export interface SpawnAgentRequest {
@@ -64,6 +87,11 @@ export interface Tool {
   parameters: Record<string, unknown>;
   /** Tool never mutates anything – allowed in the plan/review phases and without asking. */
   readOnly: boolean;
+  /**
+   * The tool raises its own permission request in every mode (a consent gate the policy must not pre-empt or turn
+   * into an "always" grant); the policy only applies deny rules to it.
+   */
+  selfGated?: boolean;
   /** Optional per-call risk assessment (defaults: readOnly → low, otherwise medium). */
   risk?(args: any, ctx: ToolContext): Risk;
   execute(args: any, ctx: ToolContext): Promise<ToolResult>;

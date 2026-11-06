@@ -6,12 +6,14 @@ import {
   Harness,
   MockProvider,
   builtinSkillsDir,
+  delegatedSkills,
   discoverSkills,
   estimateTokens,
   harnessHome,
   loadSkillTool,
   matchSkills,
   parseFrontmatter,
+  skillReferences,
   skillsIndex,
 } from "@harness/core";
 import { MOCK_MODELS, tempProject, toolCtx } from "./helpers.js";
@@ -196,5 +198,97 @@ describe("skills in sessions", () => {
     mkdirSync(join(root, ".harness", "skills"), { recursive: true });
     symlinkSync(join(root, "missing"), join(root, ".harness", "skills", "dangling"));
     expect(skillsIndex(discoverSkills(root))).toContain("web-app");
+  });
+});
+
+describe("user-selected skills", () => {
+  const harness = (mock: MockProvider) =>
+    new Harness({
+      providers: { mock },
+      skipGlobalConfig: true,
+      loadEnv: false,
+      configOverrides: MOCK_MODELS,
+    });
+
+  it("ships the mattpocock/skills set with valid frontmatter and user-only flags", () => {
+    const all = discoverSkills(tempProject());
+    const names = all.map((s) => s.name);
+    for (const n of ["tdd", "grill-me", "grilling", "diagnosing-bugs", "to-spec", "handoff", "code-review"])
+      expect(names).toContain(n);
+    expect(all.find((s) => s.name === "grill-me")).toMatchObject({ userOnly: true, auto: "never" });
+    expect(all.find((s) => s.name === "tdd")).toMatchObject({ userOnly: false });
+    expect(all.find((s) => s.name === "teach")?.argumentHint).toBe("What would you like to learn about?");
+    // escaped quotes inside a double-quoted description
+    expect(all.find((s) => s.name === "code-review")?.description).toContain('"review since X"');
+    // user-only skills stay out of the agent's index
+    const index = skillsIndex(all);
+    expect(index).toContain("**tdd**");
+    expect(index).not.toContain("**grill-me**");
+    expect(skillsIndex(all, ["grill-me"])).toContain("**grill-me** (already loaded below)");
+  });
+
+  it("injects selected skills into a fresh system prompt and records them", async () => {
+    const mock = new MockProvider({ replies: [{ text: "Done." }] });
+    const s = harness(mock).createSession({ projectPath: tempProject({ "a.txt": "a" }) });
+    await s.chat("Plan the new cache", undefined, { skills: ["grill-me"] });
+    const system = mock.calls[0].messages[0].content;
+    expect(system).toContain('<skill name="grill-me">');
+    expect(system).toContain("**grill-me** (already loaded below)");
+    const end = s.events.find((e) => e.type === "message.end");
+    expect(end).toMatchObject({ text: "Plan the new cache", skills: ["grill-me"] });
+    expect(s.events).toContainEqual(
+      expect.objectContaining({ type: "skill.activated", name: "grill-me", reason: "selected" }),
+    );
+  });
+
+  it("brings the skills a selected redirect skill hands off to, in load_skill terms", async () => {
+    const mock = new MockProvider({ replies: [{ text: "Done." }] });
+    const s = harness(mock).createSession({ projectPath: tempProject({ "a.txt": "a" }) });
+    await s.chat("Plan the new cache", undefined, { skills: ["grill-with-docs"] });
+    const system = mock.calls[0].messages[0].content;
+    expect(system).toContain('<skill name="grilling">');
+    expect(system).toContain('<skill name="domain-modeling">');
+    expect(system).toContain("Interview the user relentlessly");
+    expect(system).not.toContain("Skill tool");
+    expect(system).toContain("Call `load_skill` twice");
+    expect(s.events).toContainEqual(
+      expect.objectContaining({ type: "skill.activated", name: "grilling", reason: "matched" }),
+    );
+    // the user's selection is recorded as is
+    expect(s.events.find((e) => e.type === "message.end")).toMatchObject({ skills: ["grill-with-docs"] });
+  });
+
+  it("only inlines hand-offs of pure redirect skills", () => {
+    const all = discoverSkills(tempProject());
+    const pick = (...n: string[]) => all.filter((s) => n.includes(s.name));
+    expect(delegatedSkills(pick("grill-me"), all).map((s) => s.name)).toEqual(["grilling"]);
+    // grilling is already selected: not duplicated
+    expect(delegatedSkills(pick("grill-me", "grilling"), all)).toEqual([]);
+    // wayfinder mentions several skills conditionally; those stay on demand via load_skill
+    expect(delegatedSkills(pick("wayfinder"), all)).toEqual([]);
+    expect(skillReferences(pick("wayfinder")[0], all)).toEqual(
+      expect.arrayContaining(["research", "prototype", "grilling", "domain-modeling"]),
+    );
+  });
+
+  it("attaches selected skills to the user message of a continued conversation, for that turn only", async () => {
+    const mock = new MockProvider({ replies: [{ text: "One." }, { text: "Two." }, { text: "Three." }] });
+    const s = harness(mock).createSession({ projectPath: tempProject({ "a.txt": "a" }) });
+    await s.chat("hello");
+    await s.chat("fix the parser", undefined, { skills: ["tdd"] });
+    const user = mock.calls[1].messages.at(-1)!;
+    expect(user.role).toBe("user");
+    expect(user.content).toMatch(/^<skill name="tdd">/);
+    expect(user.content).toContain("fix the parser");
+    await s.chat("thanks");
+    expect(mock.calls[2].messages.at(-1)!.content).toBe("thanks");
+  });
+
+  it("rejects unknown skills before the turn starts", async () => {
+    const mock = new MockProvider({ replies: [{ text: "Done." }] });
+    const s = harness(mock).createSession({ projectPath: tempProject({ "a.txt": "a" }) });
+    await expect(s.chat("x", undefined, { skills: ["nope"] })).rejects.toThrow("Unknown skill: nope");
+    expect(s.status).not.toBe("running");
+    expect(mock.calls).toHaveLength(0);
   });
 });

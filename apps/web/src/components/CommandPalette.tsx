@@ -1,6 +1,8 @@
+import { alertDialog } from "./Dialogs";
 import { useEffect, useRef, useState } from "react";
 import { basename, useApp } from "../app-state";
-import { IconSearch, IconPlus, IconFolder, IconCode, IconSettings, IconFile, IconX } from "./icons";
+import { findUrl, useStartRecreate } from "../recreate";
+import { IconSearch, IconPlus, IconFolder, IconCode, IconSettings, IconFile, IconX, IconCopy } from "./icons";
 
 /** Trap keyboard focus and restore it when a modal closes. */
 export function useDialog(onClose: () => void) {
@@ -42,10 +44,36 @@ export function useDialog(onClose: () => void) {
 }
 
 export function CommandPalette({ onClose, onSettings }: { onClose(): void; onSettings(): void }) {
-  const { sessions, navigate } = useApp();
+  const { sessions, navigate, route } = useApp();
   const ref = useDialog(onClose);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
+  const startRecreate = useStartRecreate();
+  const url = findUrl(query);
+  const current = route.name === "chat" ? sessions.find((s) => s.id === route.id) : undefined;
+  const recreate = {
+    id: "recreate",
+    label: url ? `Recreate ${url} 1:1` : "Recreate a web page 1:1",
+    detail: url
+      ? current
+        ? "In this conversation · asks for your consent first"
+        : "In a new sandbox · asks for your consent first"
+      : "Paste a URL to rebuild the page from its live DOM",
+    icon: IconCopy,
+    keepOpen: !url,
+    always: true,
+    run: () => {
+      if (!url) {
+        setQuery("https://");
+        return;
+      }
+      void startRecreate(url, current ? { sessionId: current.id } : {}).catch(
+        (e: Error) =>
+          // the palette is closed by now; surface the error where the user looks next
+          void alertDialog(e.message, { title: "Could not start the recreation" }),
+      );
+    },
+  };
   const actions = [
     {
       id: "new",
@@ -75,6 +103,7 @@ export function CommandPalette({ onClose, onSettings }: { onClose(): void; onSet
       icon: IconSettings,
       run: onSettings,
     },
+    recreate,
     ...[...sessions]
       .filter((s) => !s.projectMissing)
       .sort((a, b) => (b.updatedAt || b.createdAt).localeCompare(a.updatedAt || a.createdAt))
@@ -86,14 +115,16 @@ export function CommandPalette({ onClose, onSettings }: { onClose(): void; onSet
         run: () => navigate({ name: "chat", id: s.id }),
       })),
   ]
-    .filter((a) => `${a.label} ${a.detail}`.toLowerCase().includes(query.toLowerCase()))
+    .filter(
+      (a: { label: string; detail: string; always?: boolean }) =>
+        (a.always && url) || `${a.label} ${a.detail}`.toLowerCase().includes(query.toLowerCase()),
+    )
     .slice(0, 30);
   const choose = (index: number) => {
-    const item = actions[index];
-    if (item) {
-      onClose();
-      item.run();
-    }
+    const item: { run(): void; keepOpen?: boolean } | undefined = actions[index];
+    if (!item) return;
+    if (!item.keepOpen) onClose();
+    item.run();
   };
   return (
     <div

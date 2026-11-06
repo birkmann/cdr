@@ -3,10 +3,10 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Readable, Writable } from "node:stream";
+import { Cdp } from "@harness/capture";
 
 /**
- * Dependency-free page probe: headless Chrome driven over the DevTools protocol on a pipe
- * (--remote-debugging-pipe, fd 3 in / fd 4 out, NUL-separated JSON). Loads a page at several
+ * Page probe: headless Chrome driven over the DevTools protocol on a pipe (the transport is @harness/capture's Cdp). Loads a page at several
  * viewport sizes and reports what a reviewer would notice: script errors, failed loads,
  * horizontal overflow, broken images and controls without an accessible name.
  */
@@ -52,87 +52,6 @@ export interface PageReport {
   viewports: ViewportReport[];
   /** Interaction smoke test (opts.exercise): buttons clicked and errors raised while clicking or after a reload. */
   exercise?: { clicked: number; errors: string[] };
-}
-
-class Cdp {
-  private nextId = 1;
-  private buf = Buffer.alloc(0);
-  private readonly waiting = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void }>();
-  private readonly listeners: ((method: string, params: any, sessionId?: string) => void)[] = [];
-  closed = false;
-
-  constructor(
-    private readonly input: Writable,
-    output: Readable,
-  ) {
-    output.on("data", (chunk: Buffer) => {
-      this.buf = Buffer.concat([this.buf, chunk]);
-      let i: number;
-      while ((i = this.buf.indexOf(0)) >= 0) {
-        const raw = this.buf.subarray(0, i).toString("utf8");
-        this.buf = this.buf.subarray(i + 1);
-        let msg: any;
-        try {
-          msg = JSON.parse(raw);
-        } catch {
-          continue;
-        }
-        if (msg.id && this.waiting.has(msg.id)) {
-          const w = this.waiting.get(msg.id)!;
-          this.waiting.delete(msg.id);
-          if (msg.error) w.reject(new Error(msg.error.message ?? "CDP error"));
-          else w.resolve(msg.result);
-        } else if (msg.method) for (const l of this.listeners) l(msg.method, msg.params, msg.sessionId);
-      }
-    });
-    output.on("close", () => this.fail(new Error("Browser closed unexpectedly.")));
-    input.on("error", () => this.fail(new Error("Browser pipe closed.")));
-  }
-
-  private fail(e: Error) {
-    this.closed = true;
-    for (const w of this.waiting.values()) w.reject(e);
-    this.waiting.clear();
-  }
-
-  on(l: (method: string, params: any, sessionId?: string) => void) {
-    this.listeners.push(l);
-  }
-
-  send(
-    method: string,
-    params: Record<string, unknown> = {},
-    sessionId?: string,
-    timeoutMs = 20_000,
-  ): Promise<any> {
-    if (this.closed) return Promise.reject(new Error("Browser is not running."));
-    const id = this.nextId++;
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.waiting.delete(id);
-        reject(new Error(`${method} timed out`));
-      }, timeoutMs);
-      this.waiting.set(id, {
-        resolve: (v) => (clearTimeout(timer), resolve(v)),
-        reject: (e) => (clearTimeout(timer), reject(e)),
-      });
-      this.input.write(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }) + "\0");
-    });
-  }
-
-  waitFor(method: string, sessionId: string, timeoutMs: number): Promise<boolean> {
-    return new Promise((resolve) => {
-      let done = false;
-      const timer = setTimeout(() => ((done = true), resolve(false)), timeoutMs);
-      this.on((m, _p, s) => {
-        if (!done && m === method && s === sessionId) {
-          done = true;
-          clearTimeout(timer);
-          resolve(true);
-        }
-      });
-    });
-  }
 }
 
 /** Runs inside the page: waits for images, then measures. Must be self-contained. */
@@ -256,6 +175,7 @@ export async function probePage(
   const viewports = opts.viewports?.length ? opts.viewports : [VIEWPORTS.phone, VIEWPORTS.desktop];
   const profile = mkdtempSync(join(tmpdir(), "harness-chrome-"));
   let child: ChildProcess | undefined;
+  let closing = false;
   const kill = () => {
     try {
       child?.kill("SIGKILL");
@@ -383,6 +303,7 @@ export async function probePage(
       await new Promise((r) => setTimeout(r, 500));
       exercise = { clicked: res.result?.value ?? 0, errors: errors.slice(before) };
     }
+    closing = true;
     await cdp.send("Browser.close").catch(() => undefined);
     const ok =
       errors.length === 0 &&
@@ -397,8 +318,27 @@ export async function probePage(
     };
   } finally {
     opts.signal?.removeEventListener("abort", kill);
-    kill();
-    rmSync(profile, { recursive: true, force: true });
+    // Wait for Chrome to exit before deleting its profile: it keeps writing into
+    // the profile while shutting down, which makes rmdir fail with ENOTEMPTY.
+    if (child && child.exitCode === null && child.signalCode === null) {
+      const exited = new Promise<void>((r) => child!.once("exit", () => r()));
+      const graceful =
+        closing &&
+        (await Promise.race([
+          exited.then(() => true),
+          new Promise<boolean>((r) => setTimeout(() => r(false), 2_000)),
+        ]));
+      if (!graceful) {
+        kill();
+        await Promise.race([exited, new Promise((r) => setTimeout(r, 2_000))]);
+      }
+    }
+    // Cleanup is best effort and must never replace the probe's result.
+    try {
+      rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    } catch {
+      /* leftover temp dir is harmless */
+    }
   }
 }
 

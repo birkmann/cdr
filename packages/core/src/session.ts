@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { homedir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import type {
   Attachment,
   AttachmentInfo,
@@ -21,16 +22,34 @@ import type {
   TodoItem,
 } from "@harness/protocol";
 import { PROTOCOL_VERSION } from "@harness/protocol";
-import { harnessHome, loadConfig, loadDotEnv, parseModelRef, resolveModelRef } from "./config.js";
+import {
+  harnessHome,
+  loadConfig,
+  loadDotEnv,
+  outputBaseDir,
+  parseModelRef,
+  resolveModelRef,
+} from "./config.js";
 import { processAttachments } from "./attachments.js";
 import { SANDBOX_PROMPT, bwrapAvailable, createSandboxDir, isWorkspaceContainer } from "./sandbox.js";
-import { ProviderRegistry, type Provider } from "./providers/index.js";
+import { ProviderRegistry, modelConnectionProblem, type Provider } from "./providers/index.js";
+import { collect } from "./providers/types.js";
+import { recreateTools } from "./recreate/tools.js";
 import { SessionStore, rebuildMessages, summarize } from "./session-store.js";
 import { Budget, runAgent, type AgentHooks, type AgentHost, type AgentResult } from "./loop.js";
 import { PermissionPolicy } from "./permissions.js";
 import { VerifyRunner } from "./verify.js";
-import { buildSystemPrompt } from "./context.js";
-import { discoverSkills, listSkillFiles, matchSkills, renderSkill, skillsIndex } from "./skills.js";
+import { buildSystemPrompt, outputPrompt, type HistoryLog } from "./context.js";
+import {
+  discoverSkills,
+  listSkillFiles,
+  matchSkills,
+  renderSkill,
+  selectSkills,
+  delegatedSkills,
+  skillsIndex,
+  type Skill,
+} from "./skills.js";
 import { bashTool, builtinTools } from "./tools/builtin.js";
 import type { Tool } from "./tools/types.js";
 import { resolveInProject } from "./tools/paths.js";
@@ -38,10 +57,18 @@ import { UNSPLASH_SECRET_ENV } from "./tools/unsplash.js";
 import { configHooks } from "./hooks.js";
 import { connectMcpServers, type McpClient } from "./mcp.js";
 import { acquireProjectLock, sessionHasProjectLock } from "./lock.js";
+import { CheckpointStore, type CheckpointChange } from "./checkpoints.js";
 import { runWorkflow, type RunOptions, type RunResult } from "./workflow.js";
 import { AgentManager, maxAgentDepth, type SessionFactory } from "./agents.js";
 import { spawnAgentTool, waitAgentsTool } from "./tools/agents.js";
-import { abortError, newId, redactValue, registerSecret, sessionId as makeSessionId } from "./util.js";
+import {
+  abortError,
+  newId,
+  redactValue,
+  registerSecret,
+  sessionId as makeSessionId,
+  slugify,
+} from "./util.js";
 
 type Listener = (e: HarnessEvent) => void;
 
@@ -72,6 +99,8 @@ export interface SessionOptions {
   persist?: boolean;
   /** Harness-managed sandbox workspace (adds sandbox guidance to prompts). */
   sandbox?: boolean;
+  /** Output folder for chats when the config sets no `outputDir` (the terminal app passes ~/Documents/CDR). */
+  defaultOutputDir?: string;
   /** Creates child sessions for spawn_agent (provided by the Harness). */
   spawnSession?: SessionFactory;
   /** Every agent of this session gets the read-only tool set and runs skip the per-project lock. */
@@ -104,9 +133,11 @@ export class Session {
   readonly todos: TodoItem[] = [];
   readonly policy: PermissionPolicy;
   readonly snapshots = new Map<string, string>();
+  private checkpoints?: CheckpointStore;
   autoApprove: AutoApprove;
   status: SessionStatus = "idle";
   readonly isSandbox: boolean;
+  private readonly defaultOutputDir?: string;
   budget: Budget;
   readonly depth: number;
   readonly readOnly: boolean;
@@ -120,6 +151,10 @@ export class Session {
   private readonly pending = new Map<string, Pending>();
   private abort = new AbortController();
   private running = false;
+  /** A checkpoint preview is staging the shadow index (restores hold `running` instead). */
+  private checkpointBusy = false;
+  /** Skills the user selected for the current turn (injected into every agent of the turn). */
+  private selectedSkills: Skill[] = [];
   private tailOffset = 0;
   private observedExternalRun = false;
   private tailTimer?: ReturnType<typeof setInterval>;
@@ -147,6 +182,7 @@ export class Session {
     const todos = [...this.events].reverse().find((e) => e.type === "todo.update");
     if (todos?.type === "todo.update") this.todos.push(...todos.items.map((item) => ({ ...item })));
     this.isSandbox = !!o.sandbox;
+    this.defaultOutputDir = o.defaultOutputDir;
     this.depth = o.depth ?? 0;
     this.readOnly = !!o.readOnly;
     this.toolRestriction = o.toolNames?.length ? [...o.toolNames] : undefined;
@@ -397,11 +433,143 @@ export class Session {
     this.abort.abort();
   }
 
+  // ------------------------------------------------------------------ checkpoints
+
+  /** Whether turns of this session snapshot the workspace (top-level, writable, real project folders). */
+  get checkpointsEnabled(): boolean {
+    return (
+      this.config.checkpoints?.enabled !== false &&
+      !this.readOnly &&
+      this.depth === 0 &&
+      !isWorkspaceContainer(this.projectRoot)
+    );
+  }
+
+  private checkpointStore(): CheckpointStore {
+    this.checkpoints ??= new CheckpointStore(this.projectRoot, join(dirname(this.store.dir), "checkpoints"));
+    return this.checkpoints;
+  }
+
+  /** Snapshot the workspace; a failure is reported as an event and never blocks the turn. */
+  private async takeCheckpoint(reason: "turn" | "restore", messageId?: string): Promise<string | undefined> {
+    if (!this.checkpointsEnabled) return undefined;
+    const id = newId("cp_");
+    try {
+      const cp = await this.checkpointStore().create(
+        `${this.id}/${id}`,
+        `${reason === "turn" ? "Before turn" : "Before restore"} · session ${this.id}`,
+      );
+      this.emit({
+        type: "checkpoint.created",
+        id,
+        reason,
+        commit: cp.commit,
+        files: cp.files,
+        ...(messageId ? { messageId } : {}),
+      });
+      return id;
+    } catch (e) {
+      this.emit({ type: "checkpoint.failed", reason, message: (e as Error).message });
+      return undefined;
+    }
+  }
+
+  private checkpointCommit(id: string): string {
+    const e = this.events.find((e) => e.type === "checkpoint.created" && e.id === id);
+    if (e?.type !== "checkpoint.created") throw new Error(`No checkpoint ${id} in this session`);
+    return e.commit;
+  }
+
+  /** Files restoring checkpoint `id` would change, compared with the workspace now. */
+  async previewCheckpoint(id: string): Promise<CheckpointChange[]> {
+    this.syncFromStore();
+    // Staging the preview would contend with a running turn's checkpoint for the shadow index.lock.
+    if (this.isRunning) throw new Error("Stop the session before previewing a checkpoint");
+    if (!this.checkpointsEnabled) throw new Error("Checkpoints are disabled for this session");
+    const commit = this.checkpointCommit(id);
+    if (this.checkpointBusy) throw new Error("A checkpoint operation is already in progress");
+    this.checkpointBusy = true;
+    try {
+      const store = this.checkpointStore();
+      if (!(await store.exists(commit))) throw new Error("This checkpoint is no longer available");
+      return await store.preview(commit);
+    } finally {
+      this.checkpointBusy = false;
+    }
+  }
+
+  /**
+   * Reset the workspace files to checkpoint `id`. The current state is checkpointed first, so the
+   * restore can be undone by restoring the `backupId` of the emitted `checkpoint.restored` event.
+   */
+  async restoreCheckpoint(id: string): Promise<{ backupId: string; files: CheckpointChange[] }> {
+    this.syncFromStore();
+    if (this.isRunning) throw new Error("Stop the session before restoring a checkpoint");
+    if (!this.checkpointsEnabled) throw new Error("Checkpoints are disabled for this session");
+    if (this.checkpointBusy) throw new Error("A checkpoint operation is already in progress");
+    const commit = this.checkpointCommit(id);
+    const store = this.checkpointStore();
+    // Take `running` before the first await so a chat or second restore cannot start in between; it
+    // also keeps emit() from mistaking our own project lock for another process's run.
+    this.running = true;
+    let release: (() => void) | undefined;
+    try {
+      if (!(await store.exists(commit))) throw new Error("This checkpoint is no longer available");
+      release = acquireProjectLock(this.projectRoot, this.id);
+      const backupId = await this.takeCheckpoint("restore");
+      if (!backupId)
+        throw new Error("Could not save the current files before restoring; nothing was changed");
+      const files = await store.restore(commit, this.checkpointCommit(backupId));
+      this.emit({
+        type: "checkpoint.restored",
+        id,
+        backupId,
+        files: files.slice(0, 200),
+        changed: files.length,
+      });
+      return { backupId, files };
+    } finally {
+      release?.();
+      this.running = false;
+    }
+  }
+
+  /** Context for the model after the user restored a checkpoint since the last message. */
+  private restoreNote(): string {
+    let restored: Extract<HarnessEvent, { type: "checkpoint.restored" }> | undefined;
+    for (const e of this.events) {
+      if (e.type === "checkpoint.restored") restored = e;
+      if (e.type === "message.start" && e.role === "user") restored = undefined;
+    }
+    if (!restored?.changed) return "";
+    const list = restored.files.map((f) => `- ${f.path}`).join("\n");
+    return `[The user restored the workspace files to an earlier checkpoint. ${restored.changed} file(s) changed since your last turn and earlier edits may be undone, so re-read files before editing them:\n${list}${restored.changed > restored.files.length ? "\n- …" : ""}]\n\n`;
+  }
+
   // ------------------------------------------------------------------ running
+
+  /** Run work that is not an agent run (e.g. `recreateInSession`) as this session's run: lock, status, cancel(). */
+  runExclusive<T>(fn: () => Promise<T>): Promise<T> {
+    return this.exclusive(async () => {
+      await this.startTurn();
+      return fn();
+    });
+  }
+
+  /**
+   * Turn setup after the user message is in the log: snapshot the workspace (files are untouched until
+   * the agent runs, so taking it after the message is equivalent) and connect MCP servers. Emitting
+   * the message first keeps the slow `git add` from delaying it (session titles derive from it).
+   */
+  private async startTurn(messageId?: string): Promise<void> {
+    await this.takeCheckpoint("turn", messageId);
+    await this.ensureMcp();
+  }
 
   private async exclusive<T>(fn: () => Promise<T>): Promise<T> {
     this.syncFromStore();
     if (this.isRunning) throw new Error("Session is already running");
+    if (this.checkpointBusy) throw new Error("A checkpoint operation is in progress");
     this.running = true;
     this.abort = new AbortController();
     this.budget = new Budget(this.config.limits);
@@ -410,7 +578,6 @@ export class Session {
       // Read-only subagents share their parent's checkout and must not take its lock.
       if (!this.readOnly) release = acquireProjectLock(this.projectRoot, this.id);
       this.setStatus("running");
-      await this.ensureMcp();
       return await fn();
     } finally {
       // Children never outlive their parent's run.
@@ -448,9 +615,10 @@ export class Session {
     this.mcp = undefined;
   }
 
-  private host(): AgentHost {
+  private host(chat = false): AgentHost {
     return {
       projectRoot: this.projectRoot,
+      outputDir: chat ? this.chatOutputDir() : undefined,
       config: this.config,
       signal: this.signal,
       emit: (e) => this.emit(e),
@@ -460,12 +628,76 @@ export class Session {
       secretEnv: this.secretEnv,
       budget: this.budget,
       agents: this.agents,
+      permissionMode: () => this.policy.mode,
+      autoApprovesPermissions: () => !!this.autoApprove.permissions,
+      complete: (role, messages, o) => this.complete(role, messages, o),
+      historyLog: (agent) => this.historyLog(agent),
     };
+  }
+
+  /**
+   * Folder for the files a chat creates, so Chat mode does not add files to the user's repository. Not used in
+   * sandboxes (the whole folder belongs to the chat), by subagents or by read-only sessions. One subfolder per
+   * chat, named after its first message so it is easy to find in ~/Documents/CDR.
+   */
+  chatOutputDir(): string | undefined {
+    if (this.isSandbox || this.readOnly || this.parentSessionId) return undefined;
+    const base =
+      this.config.outputDir === false ? undefined : (outputBaseDir(this.config) ?? this.defaultOutputDir);
+    if (!base) return undefined;
+    return join(base, `${(this.outputSlug ??= this.firstMessageSlug()) ?? "chat"}-${this.id.slice(-6)}`);
+  }
+
+  private outputSlug?: string;
+
+  /** Slug of the first user message (undefined before it ends, or when it has no Latin letters or digits). */
+  private firstMessageSlug(): string | undefined {
+    let userId: string | undefined;
+    for (const e of this.events) {
+      if (e.type === "message.start" && e.role === "user") userId ??= e.id;
+      else if (e.type === "message.end" && e.id === userId) {
+        // slugify falls back to "task" for text such as Chinese or emoji; "chat" names those folders.
+        return /[a-z0-9]/i.test(e.text) ? slugify(e.text, 32) : "chat";
+      }
+    }
+    return undefined;
+  }
+
+  /** Raw history removed by compaction, kept inside the project so the agent's grep/read_file can reach it. */
+  private historyLog(agent: string): HistoryLog | undefined {
+    if (this.readOnly) return undefined;
+    const ref = `.harness/history/${this.id}-${agent.replace(/[^\w.-]+/g, "_")}.log`;
+    return { file: join(this.projectRoot, ref), ref };
+  }
+
+  /** One model call outside the agent loop (recreate naming / vision / repair), usage counted. */
+  async complete(
+    roleOrRef: string,
+    messages: ChatMessage[],
+    o: { maxTokens?: number } = {},
+  ): Promise<string> {
+    const m = this.model(roleOrRef);
+    const res = await collect(
+      m.provider.stream({ model: m.model, messages, signal: this.signal, maxTokens: o.maxTokens ?? 8000 }),
+    );
+    const cost =
+      ((m.pricing?.inputPrice ?? 0) * res.usage.input + (m.pricing?.outputPrice ?? 0) * res.usage.output) /
+      1_000_000;
+    this.budget.add(res.usage.input, res.usage.output, cost);
+    this.emit({
+      type: "usage",
+      inputTokens: res.usage.input,
+      outputTokens: res.usage.output,
+      cost: cost || undefined,
+      model: m.ref,
+    });
+    return res.text;
   }
 
   allTools(): Tool[] {
     return [
       ...builtinTools(),
+      ...recreateTools(this.config.recreate?.enabled !== false),
       ...(this.agents ? [spawnAgentTool, waitAgentsTool] : []),
       ...(this.mcp?.tools ?? []),
     ];
@@ -533,9 +765,14 @@ export class Session {
         (t) => allowed.has(t.name) || (t.name.startsWith("mcp__") && (!o.readOnly || t.readOnly)),
       );
     }
+    // A continued conversation keeps its system prompt, so selected skills travel with the user message.
+    const content =
+      o.continueFrom && this.selectedSkills.length
+        ? [...this.selectedSkills.map(renderSkill), o.user].join("\n\n")
+        : o.user;
     const userMsg: ChatMessage = o.images?.length
-      ? { role: "user", content: o.user, images: o.images }
-      : { role: "user", content: o.user };
+      ? { role: "user", content, images: o.images }
+      : { role: "user", content };
     const messages: ChatMessage[] = o.continueFrom
       ? [...o.continueFrom, userMsg]
       : [
@@ -546,7 +783,12 @@ export class Session {
               phase: o.phase,
               config: this.config,
               extra:
-                [o.extraSystem, this.isSandbox ? SANDBOX_PROMPT : "", this.skillPrompt(o.user, tools)]
+                [
+                  o.extraSystem,
+                  this.isSandbox ? SANDBOX_PROMPT : "",
+                  o.phase === "chat" ? outputPrompt(this.chatOutputDir()) : "",
+                  this.skillPrompt(o.user, tools),
+                ]
                   .filter(Boolean)
                   .join("\n\n") || undefined,
               includeRepoMap: o.includeRepoMap,
@@ -565,15 +807,22 @@ export class Session {
           emit: (e) => this.emit(e),
         }),
       );
-    let summarizer: { provider: Provider; model: string } | undefined;
+    let summarizer:
+      | {
+          provider: Provider;
+          model: string;
+          ref?: string;
+          pricing?: { inputPrice?: number; outputPrice?: number };
+        }
+      | undefined;
     try {
       const s = this.model("summarizer");
-      summarizer = { provider: s.provider, model: s.model };
+      summarizer = { provider: s.provider, model: s.model, ref: s.ref, pricing: s.pricing };
     } catch {
       summarizer = undefined;
     }
     return runAgent({
-      host: this.host(),
+      host: this.host(o.phase === "chat"),
       agent: o.agent,
       provider: m.provider,
       model: m.model,
@@ -601,10 +850,14 @@ export class Session {
       this.emit({ type: "log", level: "warn", message: `Skills unavailable: ${(e as Error).message}` });
       return "";
     }
-    if (!skills.length) return "";
-    const active = matchSkills(skills, task, { sandbox: this.isSandbox });
+    if (!skills.length && !this.selectedSkills.length) return "";
+    const selected = this.selectedSkills;
+    const matched = matchSkills(skills, task, { sandbox: this.isSandbox }).filter(
+      (s) => !selected.some((x) => x.name === s.name),
+    );
+    const active = [...selected, ...matched];
     const canLoad = tools.some((t) => t.name === "load_skill");
-    for (const s of active) {
+    for (const s of matched) {
       this.emit({ type: "log", level: "info", message: `Skill ${s.name} activated` });
       const files = listSkillFiles(s);
       this.emit({
@@ -629,10 +882,51 @@ export class Session {
       .join("\n\n");
   }
 
-  private emitUserMessage(text: string, attachments?: AttachmentInfo[]) {
+  private emitUserMessage(text: string, attachments?: AttachmentInfo[], skills?: Skill[]): string {
     const id = newId("msg_");
     this.emit({ type: "message.start", id, role: "user" });
-    this.emit({ type: "message.end", id, text, ...(attachments?.length ? { attachments } : {}) });
+    this.emit({
+      type: "message.end",
+      id,
+      text,
+      ...(attachments?.length ? { attachments } : {}),
+      ...(skills?.length ? { skills: skills.map((s) => s.name) } : {}),
+    });
+    return id;
+  }
+
+  /** Resolve skills selected for a message by name; throws on unknown names. */
+  resolveSkills(names: string[] | undefined): Skill[] {
+    if (!names?.length) return [];
+    const { selected, unknown } = selectSkills(discoverSkills(this.projectRoot, this.config), names);
+    if (unknown.length)
+      throw new Error(`Unknown skill${unknown.length > 1 ? "s" : ""}: ${unknown.join(", ")}`);
+    return selected;
+  }
+
+  /** Selected skills stay in effect (system prompt or user message of every agent) until the turn ends. */
+  private activateSelected(skills: Skill[]): void {
+    // A selected redirect skill (grill-me → grilling) brings the skills it hands off to.
+    let delegated: Skill[] = [];
+    if (skills.length)
+      try {
+        delegated = delegatedSkills(skills, discoverSkills(this.projectRoot, this.config));
+      } catch {
+        /* skills unavailable: keep the selection as is */
+      }
+    this.selectedSkills = [...skills, ...delegated];
+    for (const s of this.selectedSkills) {
+      const files = listSkillFiles(s);
+      this.emit({
+        type: "skill.activated",
+        name: s.name,
+        description: s.description,
+        source: s.source,
+        reason: skills.includes(s) ? "selected" : "matched",
+        content: s.body,
+        ...(files.length ? { files } : {}),
+      });
+    }
   }
 
   /** Sandboxes: if the agent built a web page but never published it, show it anyway. */
@@ -676,20 +970,66 @@ export class Session {
     this.emit({ type: "session.settings", ...o });
   }
 
+  /**
+   * Why the models these roles use cannot run yet (e.g. no API key), or undefined when they can.
+   * Checked before a turn starts so the user is told to connect a model instead of seeing a run fail.
+   */
+  modelProblem(roles: ModelRole[] = ["executor"]): string | undefined {
+    for (const role of roles) {
+      const problem = modelConnectionProblem(
+        this.config,
+        this.providers,
+        this.config.models[role] ?? this.config.models.executor,
+      );
+      if (problem) return problem;
+    }
+    return undefined;
+  }
+
   /** Interactive chat turn with the executor, continuing the session's conversation. */
-  async chat(text: string, attachments?: Attachment[]): Promise<ChatResult> {
+  async chat(
+    text: string,
+    attachments?: Attachment[],
+    opts: { skills?: string[] } = {},
+  ): Promise<ChatResult> {
+    const skills = this.resolveSkills(opts.skills);
     return this.exclusive(async () => {
       const history = rebuildMessages(this.events, "chat");
+      const note = history.length ? this.restoreNote() : "";
       const att = processAttachments(this.projectRoot, this.id, attachments);
-      this.emitUserMessage(text, att.infos);
-      const r = await this.runPhaseAgent({
-        agent: "chat",
-        phase: "chat",
-        role: "executor",
-        user: text + att.text,
-        images: att.images,
-        continueFrom: history.length ? history : undefined,
-      });
+      const messageId = this.emitUserMessage(text, att.infos, skills);
+      let r: AgentResult;
+      try {
+        await this.startTurn(messageId);
+        this.activateSelected(skills);
+        r = await this.runPhaseAgent({
+          agent: "chat",
+          phase: "chat",
+          role: "executor",
+          user: note + text + att.text,
+          images: att.images,
+          continueFrom: history.length ? history : undefined,
+        });
+      } catch (e) {
+        // e.g. a provider without its API key: end the turn instead of leaving the session "running"
+        if (this.signal.aborted)
+          r = { status: "cancelled", finalText: "", messages: [], turns: 0, edited: [], diffs: [] };
+        else {
+          const message = (e as Error).message;
+          this.emit({ type: "error", message, recoverable: true });
+          r = {
+            status: "error",
+            finalText: "",
+            messages: [],
+            turns: 0,
+            edited: [],
+            diffs: [],
+            error: message,
+          };
+        }
+      } finally {
+        this.selectedSkills = [];
+      }
       const status = r.status === "completed" ? "success" : r.status === "cancelled" ? "cancelled" : "failed";
       this.autoPreview();
       this.emit({ type: "done", status, summary: r.finalText.slice(0, 2000) });
@@ -701,9 +1041,10 @@ export class Session {
   /** Subagent run: one chat-style agent with the given model role; its final text goes back to the parent. */
   async runSubagent(task: string, role: ModelRole | string = "executor"): Promise<ChatResult> {
     return this.exclusive(async () => {
-      this.emitUserMessage(task);
+      const messageId = this.emitUserMessage(task);
       let r: AgentResult;
       try {
+        await this.startTurn(messageId);
         r = await this.runPhaseAgent({
           agent: "chat",
           phase: "chat",
@@ -801,12 +1142,18 @@ export class Session {
     });
   }
 
-  async run(task: string, opts: RunOptions & { attachments?: Attachment[] } = {}): Promise<RunResult> {
+  async run(
+    task: string,
+    opts: RunOptions & { attachments?: Attachment[]; skills?: string[] } = {},
+  ): Promise<RunResult> {
+    const skills = this.resolveSkills(opts.skills);
     return this.exclusive(async () => {
       const att = processAttachments(this.projectRoot, this.id, opts.attachments);
-      this.emitUserMessage(task, att.infos);
+      const messageId = this.emitUserMessage(task, att.infos, skills);
       let result: RunResult;
       try {
+        await this.startTurn(messageId);
+        this.activateSelected(skills);
         result = await runWorkflow(this, task + att.text, { ...opts, images: att.images });
       } catch (e) {
         if (this.signal.aborted) result = { status: "cancelled", summary: "Cancelled.", edited: [] };
@@ -814,6 +1161,8 @@ export class Session {
           this.emit({ type: "error", message: (e as Error).message, recoverable: false });
           result = { status: "failed", summary: `Failed: ${(e as Error).message}`, edited: [] };
         }
+      } finally {
+        this.selectedSkills = [];
       }
       this.autoPreview();
       this.emit({
@@ -839,6 +1188,8 @@ export interface HarnessOptions {
   skipGlobalConfig?: boolean;
   /** Load .env from the project directory (default true). */
   loadEnv?: boolean;
+  /** Where chats put the files they create when the config sets no `outputDir` (the terminal app: ~/Documents/CDR). */
+  defaultOutputDir?: string;
 }
 
 export interface CreateSessionOptions {
@@ -940,6 +1291,7 @@ export class Harness {
       providers,
       autoApprove: o.autoApprove,
       sandbox,
+      defaultOutputDir: this.opts.defaultOutputDir,
       spawnSession: this.factory,
       readOnly: o.readOnly,
       toolNames: o.toolNames,
@@ -1005,6 +1357,7 @@ export class Harness {
       events,
       autoApprove: o.autoApprove,
       sandbox: info.sandbox,
+      defaultOutputDir: this.opts.defaultOutputDir,
       spawnSession: this.factory,
       depth: this.depthOf(info),
       parentSessionId: info.parentSessionId,
@@ -1071,6 +1424,24 @@ export class Harness {
 
   liveSessions(): Session[] {
     return [...this.live.values()];
+  }
+
+  /**
+   * Why a new session with these options could not reach its model (e.g. missing API key), or undefined.
+   * Sandboxes are checked against the global config, before any sandbox folder is created.
+   */
+  modelProblem(
+    o: { projectPath?: string; models?: Partial<Record<ModelRole, string>> } = {},
+  ): string | undefined {
+    const config = this.config(
+      o.projectPath ?? (existsSync(harnessHome()) ? harnessHome() : homedir()),
+      o.models ? { models: o.models } : undefined,
+    );
+    return modelConnectionProblem(
+      config,
+      new ProviderRegistry(config, this.opts.providers),
+      config.models.executor,
+    );
   }
 
   providerRegistry(projectPath: string): { registry: ProviderRegistry; config: HarnessConfig } {

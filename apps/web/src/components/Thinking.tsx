@@ -7,10 +7,13 @@ export function Thinking({
   text,
   active,
   interrupted = false,
+  decisions = [],
 }: {
   text: string;
   active: boolean;
   interrupted?: boolean;
+  /** Short decision lines summarising the thinking (reasoning.summary events). */
+  decisions?: string[];
 }) {
   const id = useId();
   const [open, setOpen] = useState(false);
@@ -57,7 +60,15 @@ export function Thinking({
         <span className="thinking-action">{open ? "Hide" : "Show"} details</span>
         <IconChevronRight size={14} className={open ? "chev open" : "chev"} />
       </button>
-      {!open && active && <p className="thinking-preview">{latest || "Considering your request…"}</p>}
+      {decisions.length > 0 && <Decisions items={open ? decisions : decisions.slice(-4)} />}
+      {!open && decisions.length > 4 && (
+        <p className="decisions-more">
+          +{decisions.length - 4} earlier {decisions.length - 4 === 1 ? "decision" : "decisions"} in details
+        </p>
+      )}
+      {!open && active && !decisions.length && (
+        <p className="thinking-preview">{latest || "Considering your request…"}</p>
+      )}
       <div id={id} hidden={!open}>
         <div
           className="thinking-body"
@@ -84,5 +95,16 @@ export function Thinking({
         )}
       </div>
     </section>
+  );
+}
+
+/** What the model decided while thinking, newest last. */
+export function Decisions({ items, live = false }: { items: string[]; live?: boolean }) {
+  return (
+    <ul className="decisions" aria-label="Decisions so far" aria-live={live ? "polite" : undefined}>
+      {items.map((d, i) => (
+        <li key={i}>{d}</li>
+      ))}
+    </ul>
   );
 }

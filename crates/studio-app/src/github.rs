@@ -266,7 +266,7 @@ impl Github {
         })
     }
 
-    /// OAuth device flow (needs an OAuth app client id: MORROW_GITHUB_CLIENT_ID).
+    /// OAuth device flow (needs an OAuth app client id: CDR_GITHUB_CLIENT_ID).
     pub async fn device_start(&self, client_id: &str) -> Result<DeviceCode, GithubError> {
         let res = self
             .http

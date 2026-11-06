@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { platform, release } from "node:os";
@@ -6,7 +6,7 @@ import type { ChatMessage, HarnessConfig, Phase, ReasoningEffort } from "@harnes
 import { detectStack } from "./verify.js";
 import { listProjectFiles, renderTree } from "./tools/paths.js";
 import { harnessHome } from "./config.js";
-import { estimateTokens } from "./util.js";
+import { estimateTokens, isAbortError, redact, truncateMiddle } from "./util.js";
 import type { Provider } from "./providers/types.js";
 import { collect } from "./providers/types.js";
 
@@ -140,7 +140,10 @@ export function buildSystemPrompt(opts: SystemPromptOptions): string {
     );
   }
   const memory = loadMemory(opts.projectRoot);
-  if (memory) parts.push(`# Memory (facts saved in earlier sessions)\n${memory}`);
+  if (memory)
+    parts.push(
+      `# Memory (facts saved in earlier sessions; correct outdated ones with remember.replaces or forget)\n${memory}`,
+    );
   if (opts.extra) parts.push(opts.extra);
   return parts.join("\n\n");
 }
@@ -149,12 +152,32 @@ export function buildSystemPrompt(opts: SystemPromptOptions): string {
 
 /**
  * Index at which history may be cut so that no tool result is separated from its assistant tool call.
- * Returns the index of the first message to keep verbatim.
+ * Returns the index of the first message to keep verbatim. The cut moves backward to the assistant
+ * message owning the tool results at the boundary, so the recent tail is kept (never folded away) and
+ * starts with a well-formed tool_use/tool_result group.
  */
 export function safeCutIndex(messages: ChatMessage[], desiredKeep: number): number {
   let cut = Math.max(1, messages.length - desiredKeep);
-  while (cut < messages.length && messages[cut].role === "tool") cut++;
+  while (cut > 0 && cut < messages.length && messages[cut].role === "tool") cut--;
   return cut;
+}
+
+/** Token budget the working context must stay under: the model window, optionally capped by `maxContext`. */
+export function contextLimit(contextWindow: number, maxContext?: number): number {
+  return maxContext && maxContext > 0 ? Math.min(contextWindow, maxContext) : contextWindow;
+}
+
+/**
+ * Tokens of the context that the next model call would send. `measured` is the provider-reported input of
+ * the last call, which covered `messages[0..measured.count)`; only messages added since are estimated.
+ */
+export function contextTokens(
+  messages: ChatMessage[],
+  measured?: { tokens: number; count: number },
+  count = estimateTokens,
+): number {
+  if (!measured || measured.tokens <= 0 || measured.count > messages.length) return count(messages);
+  return measured.tokens + count(messages.slice(measured.count));
 }
 
 export function needsCompaction(
@@ -162,8 +185,9 @@ export function needsCompaction(
   contextWindow: number,
   threshold: number,
   count = estimateTokens,
+  measured?: { tokens: number; count: number },
 ): boolean {
-  return count(messages) > contextWindow * threshold;
+  return contextTokens(messages, measured, count) > contextWindow * threshold;
 }
 
 export function renderTranscript(messages: ChatMessage[], perMessage = 4000): string {
@@ -180,7 +204,122 @@ export function renderTranscript(messages: ChatMessage[], perMessage = 4000): st
     .join("\n\n");
 }
 
-/** Summarise the older part of the conversation, keeping the system prompt and the most recent messages verbatim. */
+/** Marks the user message that carries the execution brief produced by compaction. */
+export const BRIEF_MARKER = "[harness] Context was compacted. Execution brief for continuing the task:";
+const BRIEF_ACK = "Understood. Continuing from the brief.";
+const TRIM_MARKER = "[harness] trimmed during compaction";
+const SKILLS_MARKER = "\n[harness] Skill instructions loaded earlier (kept verbatim):\n";
+const POINTER_MARKER = "\n[harness] Raw earlier";
+/** Tool results that are instructions, not observations: never trimmed or summarised away. */
+const PRESERVED_TOOLS = new Set(["load_skill"]);
+const isPreserved = (m: ChatMessage) => m.role === "tool" && PRESERVED_TOOLS.has(m.name);
+/** Old tool results outside the recent tail are cut to this many characters before anything else. */
+export const PRUNE_TOOL_CHARS = 2000;
+
+/**
+ * Compaction prompt. Following "You don't need long context" (arXiv:2611.05306, Appendix A): the best
+ * compactions are hand-off briefs selecting what the remaining work needs, not balanced summaries.
+ */
+export const BRIEF_PROMPT = `You compress the working history of an agent into an execution brief. The conversation will continue from the system prompt, the original task, your brief and the most recent messages only, so the brief must contain everything the next stretch of work needs. It is a hand-off for future work, not a narrative of the past: select facts that matter for the remaining work instead of summarising everything evenly.
+
+Write these sections as terse Markdown bullets:
+1. Objective - one line describing the required result.
+2. Established facts - exact paths, symbols, commands, observed values and important errors/output, plus every id or handle later steps must pass back to tools (run ids, session ids, branch names, URLs). Separate verified observations from unverified ideas.
+3. Applied changes - each changed/created file, what changed, and whether it was verified.
+4. Verification - exact checks run and their outcomes, obstacles and workarounds.
+5. Dead ends - failed approaches that must not be repeated.
+6. User instructions - preferences or corrections the user gave during the work (verbatim when short).
+7. Remaining plan - outstanding subgoals in execution order (for a multi-stage job: stages done, the current stage, stages left), the immediate next command or edit, and the condition for completion.
+
+If a previous brief is given, update it with the new history: keep what is still true and relevant, correct what changed, drop what is obsolete. Never invent facts or observations. Omit empty sections.`;
+
+/** Where raw history removed by compaction is kept, so the agent can grep it instead of keeping it in context. */
+export interface HistoryLog {
+  /** Absolute path of the log file. */
+  file: string;
+  /** Path shown to the agent (relative to the project root). */
+  ref: string;
+}
+
+function appendHistory(history: HistoryLog | undefined, messages: ChatMessage[]): void {
+  if (!history || !messages.length) return;
+  try {
+    const dir = dirname(history.file);
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, ".gitignore"), "*\n");
+    }
+    const stamp = new Date().toISOString();
+    appendFileSync(
+      history.file,
+      `\n===== removed from context at ${stamp} =====\n\n${redact(renderTranscript(messages, Number.MAX_SAFE_INTEGER))}\n`,
+    );
+  } catch {
+    // The log is a convenience for recovery; compaction must not fail because of it.
+  }
+}
+
+const isBrief = (m: ChatMessage) => m.role === "user" && m.content.startsWith(BRIEF_MARKER);
+const isAck = (m: ChatMessage) => m.role === "assistant" && m.content === BRIEF_ACK && !m.toolCalls?.length;
+
+/**
+ * Cheap, mostly lossless shrinking: outside the recent tail, cut long tool results and drop images
+ * (except those of the task message). Originals go to the history log. Returns null when nothing changed.
+ */
+export function pruneMessages(
+  messages: ChatMessage[],
+  keepRecent: number,
+  history?: HistoryLog,
+  maxChars = PRUNE_TOOL_CHARS,
+): ChatMessage[] | null {
+  const sys = messages[0]?.role === "system" ? 1 : 0;
+  const cut = sys + safeCutIndex(messages.slice(sys), keepRecent);
+  const firstUser = messages.findIndex((m) => m.role === "user");
+  const pointer = history ? `; full text in ${history.ref}` : "";
+  const removed: ChatMessage[] = [];
+  let changed = false;
+  const out = messages.map((m, i) => {
+    if (i < sys || i >= cut || i === firstUser) return m;
+    if (
+      m.role === "tool" &&
+      !isPreserved(m) &&
+      m.content.length > maxChars &&
+      !m.content.includes(TRIM_MARKER)
+    ) {
+      removed.push(m);
+      changed = true;
+      return { ...m, content: `${truncateMiddle(m.content, maxChars).text}\n${TRIM_MARKER}${pointer}` };
+    }
+    if (m.role === "user" && m.images?.length) {
+      changed = true;
+      const { images, ...rest } = m;
+      return {
+        ...rest,
+        content: `${m.content}\n[harness] ${images.length} image(s) removed during compaction`,
+      };
+    }
+    return m;
+  });
+  if (!changed) return null;
+  appendHistory(history, removed);
+  return out;
+}
+
+export interface CompactionResult {
+  messages: ChatMessage[];
+  /** The execution brief ("" when only pruning was needed). */
+  summary: string;
+  method: "prune" | "brief";
+  /** Tokens spent by the compaction model call. */
+  usage: { input: number; output: number };
+}
+
+/**
+ * Shrink the working context. First prunes old tool output and images; if that brings the context under
+ * `targetTokens`, no model call is made. Otherwise the older history is replaced by an execution brief,
+ * keeping the system prompt, the task message and the most recent messages verbatim. A previous brief is
+ * updated rather than summarised again, so repeated compactions don't compound their losses.
+ */
 export async function compactMessages(
   messages: ChatMessage[],
   opts: {
@@ -189,44 +328,108 @@ export async function compactMessages(
     keepRecent: number;
     signal?: AbortSignal;
     reasoningEffort?: ReasoningEffort;
+    /** Accept a prune-only result at or below this many tokens. Omit to always write a brief. */
+    targetTokens?: number;
+    /** Tokens the request costs besides the messages (tool definitions, provider framing). */
+    overhead?: number;
+    history?: HistoryLog;
+    count?: (messages: ChatMessage[]) => number;
+    /** Tokens spent by the summariser call, reported even when its brief is empty and unused. */
+    onUsage?: (usage: { input: number; output: number }) => void;
+    /** The summariser call failed (not aborted); compaction falls back to the prune-only result. */
+    onError?: (error: Error) => void;
   },
-): Promise<{ messages: ChatMessage[]; summary: string } | null> {
-  const system = messages[0]?.role === "system" ? [messages[0]] : [];
-  const body = messages.slice(system.length);
+): Promise<CompactionResult | null> {
+  const count = opts.count ?? estimateTokens;
+  const pruned = pruneMessages(messages, opts.keepRecent, opts.history);
+  const pruneOnly: CompactionResult | null = pruned
+    ? { messages: pruned, summary: "", method: "prune", usage: { input: 0, output: 0 } }
+    : null;
+  if (pruned && opts.targetTokens && count(pruned) + (opts.overhead ?? 0) <= opts.targetTokens)
+    return pruneOnly;
+
+  const current = pruned ?? messages;
+  const system = current[0]?.role === "system" ? [current[0]] : [];
+  const body = current.slice(system.length);
   const cut = safeCutIndex(body, opts.keepRecent);
   // keep the first user message (the task) verbatim as well
   const firstUser = body.findIndex((m) => m.role === "user");
   const head = firstUser >= 0 && firstUser < cut ? [body[firstUser]] : [];
-  const old = body.slice(0, cut).filter((_, i) => i !== firstUser);
-  if (old.length < 2) return null;
-  const transcript = renderTranscript(old);
-  const res = await collect(
-    opts.provider.stream({
-      model: opts.model,
-      reasoningEffort: opts.reasoningEffort,
-      signal: opts.signal,
-      messages: [
-        {
-          role: "system",
-          content:
-            "You compress the working history of a coding agent. Produce a dense summary that lets the agent continue without the original messages: decisions made, files read/changed (with key facts about their contents), commands run and their results, errors encountered, and what remains to do. Use bullet points. Do not invent facts.",
-        },
-        { role: "user", content: transcript.slice(0, 200_000) },
-      ],
-    }),
+  const older = body.slice(0, cut).filter((_, i) => i !== firstUser);
+  const prior = [...older].reverse().find(isBrief);
+  const old = older.filter((m) => !isBrief(m) && !isAck(m));
+  if (old.length < 2) return pruneOnly;
+
+  const priorBody = prior ? prior.content.slice(BRIEF_MARKER.length).split(POINTER_MARKER)[0] : "";
+  const [priorText, priorSkills = ""] = priorBody.split(SKILLS_MARKER);
+  // Loaded skills keep their full text across compactions; the agent would otherwise lose its instructions.
+  const skills = [...(priorSkills.trim() ? [priorSkills.trim()] : [])];
+  for (const m of old)
+    if (
+      isPreserved(m) &&
+      !m.content.startsWith("Unknown skill") &&
+      !skills.some((k) => k.includes(m.content.trim()))
+    )
+      skills.push(m.content.trim());
+  const task = firstUser >= 0 ? body[firstUser].content : "";
+  const input = [
+    task ? `# Original task\n${task.slice(0, 8000)}` : "",
+    priorText.trim() ? `# Previous brief (update it)\n${priorText.trim()}` : "",
+    `# History since then\n${renderTranscript(old)}`,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+  let res: Awaited<ReturnType<typeof collect>>;
+  try {
+    res = await collect(
+      opts.provider.stream({
+        model: opts.model,
+        reasoningEffort: opts.reasoningEffort,
+        signal: opts.signal,
+        messages: [
+          { role: "system", content: BRIEF_PROMPT },
+          { role: "user", content: input.slice(0, 200_000) },
+        ],
+      }),
+    );
+  } catch (e) {
+    if (opts.signal?.aborted || isAbortError(e)) throw e;
+    // A failing summariser must not fail the run: keep whatever pruning achieved.
+    opts.onError?.(e instanceof Error ? e : new Error(String(e)));
+    return pruneOnly;
+  }
+  const usage = { input: res.usage.input, output: res.usage.output };
+  opts.onUsage?.(usage);
+  const summary = res.text.trim();
+  // Without a brief, dropping the history would lose it outright; keep whatever pruning achieved.
+  if (!summary) return pruneOnly && { ...pruneOnly, usage };
+  appendHistory(
+    opts.history,
+    old.filter((m) => !m.content.includes(TRIM_MARKER)),
   );
-  const summary = res.text.trim() || "(summary unavailable)";
+  const pointer = opts.history
+    ? `\n[harness] Raw earlier history is kept in ${opts.history.ref}; search it with grep or read_file if a detail you need is missing here.`
+    : "";
   const compacted: ChatMessage[] = [
     ...system,
     ...head,
     {
       role: "user",
-      content: `[Context was compacted. Summary of earlier work in this session:]\n${summary}`,
+      content: `${BRIEF_MARKER}\n${summary}${skills.length ? `${SKILLS_MARKER}${skills.join("\n\n")}` : ""}${pointer}`,
     },
-    ...(body[cut]?.role === "assistant"
-      ? []
-      : [{ role: "assistant" as const, content: "Understood. Continuing from the summary." }]),
+    // The ack keeps roles alternating before a recent user message; the context never ends on it
+    // (that would ask the model to continue its own synthetic reply).
+    ...(cut < body.length && body[cut].role !== "assistant"
+      ? [{ role: "assistant" as const, content: BRIEF_ACK }]
+      : []),
     ...body.slice(cut),
   ];
-  return { messages: compacted, summary };
+  return { messages: compacted, summary, method: "brief", usage };
+}
+
+/** System-prompt note for chats whose new files go to an output folder instead of the project. */
+export function outputPrompt(dir: string | undefined): string {
+  if (!dir) return "";
+  return `# Output folder
+Files you create in this chat (poems, notes, drafts, exports) are saved in ${dir}, outside the project, so the repository stays clean. Give them plain relative names such as \`notes.md\`; \`write_file\` returns the full path to tell the user. read_file, patch_file, list_dir, glob and grep accept that full path; \`bash\` runs in the project, so \`cd\` into the folder to run a script you created there. Files that already exist in the project, and new files in a folder the project already has (such as \`src/\`), are written in the project with the usual approval. Only create a file when the user asks for one: a short answer, poem or explanation belongs in your reply. If the user wants to build something in the project, suggest Build mode.`;
 }

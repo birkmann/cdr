@@ -66,3 +66,26 @@ export class ProviderRegistry {
     return !pc.apiKeyEnv || !!(pc.apiKey ?? this.env[pc.apiKeyEnv]);
   }
 }
+
+/**
+ * User-facing reason a model cannot be used yet (no model chosen, unknown provider, missing API key),
+ * or undefined when its provider is configured. Lets UIs say "connect a model" instead of starting a run.
+ */
+export function modelConnectionProblem(
+  cfg: HarnessConfig,
+  registry: ProviderRegistry,
+  ref: string | undefined,
+): string | undefined {
+  if (!ref) return "No model is connected. Choose a model, or set models.executor in cdr.config.json.";
+  let provider: string;
+  try {
+    provider = parseModelRef(ref).provider;
+  } catch (e) {
+    return (e as Error).message;
+  }
+  const pc = cfg.providers[provider];
+  if (!pc)
+    return `No model is connected: provider "${provider}" (for ${ref}) is not set up. Add it to cdr.config.json or choose another model.`;
+  if (registry.isConfigured(provider)) return undefined;
+  return `No model is connected. ${ref} needs ${pc.apiKeyEnv}. Add your ${provider} API key (desktop app: Settings → Model providers; otherwise ~/.harness/.env or the project .env), or choose a model from a connected provider.`;
+}

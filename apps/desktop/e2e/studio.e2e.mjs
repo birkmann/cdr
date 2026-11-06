@@ -17,15 +17,15 @@ const driverBin = process.env.TAURI_DRIVER ?? join(homedir(), ".cargo/bin/tauri-
 if (!existsSync(app)) throw new Error(`Build the app first: cargo build -p studio-app (${app} missing)`);
 
 // ------------------------------------------------------------------ fixture
-const tmp = mkdtempSync(join(tmpdir(), "morrow-studio-e2e-"));
-const morrowHome = join(tmp, "morrow-home");
+const tmp = mkdtempSync(join(tmpdir(), "cdr-studio-e2e-"));
+const cdrHome = join(tmp, "cdr-home");
 const xdgConfig = join(tmp, "config");
 const xdgData = join(tmp, "data");
 const repo = join(tmp, "projects", "demo-repo");
 const remote = join(tmp, "remote.git");
-for (const d of [morrowHome, xdgConfig, xdgData, repo]) mkdirSync(d, { recursive: true });
+for (const d of [cdrHome, xdgConfig, xdgData, repo]) mkdirSync(d, { recursive: true });
 writeFileSync(
-  join(morrowHome, "config.json"),
+  join(cdrHome, "config.json"),
   JSON.stringify({
     providers: { mock: { type: "mock" } },
     models: { executor: "mock/mock", planner: "mock/mock", reviewer: "mock/mock", summarizer: "mock/mock" },
@@ -43,7 +43,7 @@ git("commit", "-qm", "Initial commit");
 execFileSync("git", ["init", "-q", "--bare", remote]);
 git("remote", "add", "origin", remote);
 // Pre-seed the recent list so the test can open the repo without the native folder dialog.
-const appConfig = join(xdgConfig, "dev.morrow.studio");
+const appConfig = join(xdgConfig, "io.github.birkmann.cdr");
 mkdirSync(appConfig, { recursive: true });
 writeFileSync(
   join(appConfig, "settings.json"),
@@ -52,12 +52,12 @@ writeFileSync(
 
 const env = {
   ...process.env,
-  MORROW_HOME: morrowHome,
+  CDR_HOME: cdrHome,
   XDG_CONFIG_HOME: xdgConfig,
   XDG_DATA_HOME: xdgData,
-  MORROW_KEYS_BACKEND: "file",
+  CDR_KEYS_BACKEND: "file",
   // Release bundles use their own bundled harness; development builds use the checkout.
-  ...(process.env.STUDIO_BIN ? {} : { MORROW_HARNESS_ENTRY: join(repoRoot, "dist-harness/cdr.mjs") }),
+  ...(process.env.STUDIO_BIN ? {} : { CDR_HARNESS_ENTRY: join(repoRoot, "dist-harness/cdr.mjs") }),
 };
 for (const k of Object.keys(env)) if (/_API_KEY$/.test(k)) delete env[k];
 

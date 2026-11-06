@@ -96,7 +96,7 @@ interface Store {
 }
 
 const Ctx = createContext<Store | null>(null);
-const LAYOUT_KEY = "morrow.studio.layout.v1";
+const LAYOUT_KEY = "cdr.studio.layout.v1";
 
 function readLayout(): { side: SideView | null; bottom: BottomView | null; agentPanel: boolean } {
   try {

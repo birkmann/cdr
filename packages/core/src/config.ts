@@ -30,24 +30,38 @@ export const DEFAULT_CONFIG: HarnessConfig = {
   permissions: { mode: "ask", bash: { allow: [], deny: [] } },
   hooks: {},
   workflow: "default",
-  limits: { maxTurns: 60, timeoutMs: 60 * 60_000 },
-  context: { compactAt: 0.7, keepRecent: 6, maxToolOutput: 20_000, repoMapDepth: 3 },
+  // Long jobs (1:1 recreation, component generation) need room; compaction keeps each turn cheap.
+  limits: { maxTurns: 150, timeoutMs: 3 * 60 * 60_000 },
+  context: { maxContext: 64_000, compactAt: 0.7, keepRecent: 6, maxToolOutput: 20_000, repoMapDepth: 3 },
   sandbox: "none",
   mcpServers: {},
 };
 
+/** Where the terminal app puts files a chat creates, unless `outputDir` is configured: `$CDR_OUTPUT_DIR` or ~/Documents/CDR. */
+export function defaultOutputDir(): string {
+  return expandOutputDir(process.env.CDR_OUTPUT_DIR) ?? join(homedir(), "Documents", "CDR");
+}
+
+/** `~`/`~/x` to the home folder, anything else to an absolute path; undefined for an empty value. */
+function expandOutputDir(dir: string | undefined): string | undefined {
+  if (typeof dir !== "string" || !dir.trim()) return undefined;
+  dir = dir.trim();
+  return dir === "~" || dir.startsWith("~/") ? join(homedir(), dir.slice(1)) : resolve(dir);
+}
+
+/** Base folder for files created in chats (`outputDir`), or undefined when not set or disabled. */
+export function outputBaseDir(cfg: Pick<HarnessConfig, "outputDir">): string | undefined {
+  return expandOutputDir(cfg.outputDir === false ? undefined : cfg.outputDir);
+}
+
 export function harnessHome(): string {
   // Keep the existing data directory so renaming the app never hides saved sessions.
-  return (
-    process.env.CDR_HOME ?? process.env.MORROW_HOME ?? process.env.HARNESS_HOME ?? join(homedir(), ".harness")
-  );
+  return process.env.CDR_HOME ?? process.env.HARNESS_HOME ?? join(homedir(), ".harness");
 }
 
 export const PROJECT_CONFIG_FILES = [
   "cdr.config.json",
   ".cdr/config.json",
-  "morrow.config.json",
-  ".morrow/config.json",
   "harness.config.json",
   ".harness/config.json",
 ];

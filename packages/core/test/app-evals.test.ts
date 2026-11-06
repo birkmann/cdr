@@ -111,7 +111,10 @@ describe("app evals", () => {
           ? { text: "done" }
           : {
               toolCalls: [
-                { name: "write_file", args: { path: "index.html", content: "<link rel=stylesheet href=styles.css>" } },
+                {
+                  name: "write_file",
+                  args: { path: "index.html", content: "<link rel=stylesheet href=styles.css>" },
+                },
                 { name: "write_file", args: { path: "styles.css", content: "@media (min-width: 760px) {}" } },
               ],
             },
@@ -197,10 +200,10 @@ describe("app evals", () => {
       });
       expect(garbled.results[0].checks.find((c) => c.check.type === "judge")?.detail).toContain("not JSON");
 
-      const broken = PAGE.replace("<h1>Shop</h1>", '<h1>Shop</h1><div style="width:700px">wide</div>').replace(
-        "shut.onclick = () => d.close();",
-        "shut.onclick = () => { d.close(); missing(); };",
-      );
+      const broken = PAGE.replace(
+        "<h1>Shop</h1>",
+        '<h1>Shop</h1><div style="width:700px">wide</div>',
+      ).replace("shut.onclick = () => d.close();", "shut.onclick = () => { d.close(); missing(); };");
       const bad = await runEvals({
         evalsDir: evalsDir([STORE]),
         model: "mock/m",

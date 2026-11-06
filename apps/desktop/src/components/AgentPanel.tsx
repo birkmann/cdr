@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { useApp } from "@web/app-state";
-import { Composer, type PendingFile } from "@web/components/Composer";
+import { Composer, useSkills, type PendingFile } from "@web/components/Composer";
 import {
   EffortPicker,
   ModePicker,
@@ -9,6 +9,7 @@ import {
   Popover,
   type Mode,
 } from "@web/components/Pickers";
+import { ModelNotice } from "@web/components/ModelNotice";
 import type { SessionInfo } from "@harness/client";
 import { git, lsp } from "../ipc";
 import { basename, useStudio } from "../store";
@@ -141,7 +142,9 @@ function NewConversation() {
     setExtra((x) => [...x.filter((f) => f.name !== "problems.txt"), attachment("problems.txt", text)]);
   };
 
-  const start = async (text: string, files: PendingFile[]) => {
+  const skills = useSkills(root ?? undefined);
+
+  const start = async (text: string, files: PendingFile[], skillNames: string[]) => {
     if (!client) return false;
     setError(undefined);
     try {
@@ -154,6 +157,7 @@ function NewConversation() {
         title: text.split("\n")[0].slice(0, 80),
       });
       await client.send(info.id, text, {
+        ...(skillNames.length ? { skills: skillNames } : {}),
         mode: mode === "chat" ? "chat" : "task",
         workflow: mode === "chat" ? undefined : mode,
         attachments: [...extra, ...files].map(({ name, mimeType, data }) => ({ name, mimeType, data })),
@@ -208,6 +212,7 @@ function NewConversation() {
         autoFocus
         placeholder={mode === "chat" ? "Ask anything about this code…" : "Describe the task…"}
         onSend={start}
+        skills={skills}
         left={
           <>
             <ModePicker value={mode} onChange={setMode} />
@@ -248,6 +253,11 @@ function NewConversation() {
             />
           </>
         }
+      />
+      <ModelNotice
+        model={settings.model}
+        projectPath={root}
+        onConnect={() => window.dispatchEvent(new CustomEvent("cdr:open-settings", { detail: "providers" }))}
       />
       {error && <div className="home-error">{error}</div>}
     </div>

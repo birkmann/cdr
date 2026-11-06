@@ -2,7 +2,7 @@
 
 ## form.html: a complete store
 
-A responsive concept store ("Form") written to the rules in `SKILL.md`. Use it for structure and technique. Do not reuse its products, copy or photo URLs: they belong to that demo, and photos must come from your own `search_unsplash` + `use_unsplash_photo` calls.
+A responsive concept store ("Form") in one editorial-minimal direction. Use it for structure and technique (state, dialogs, bag, persistence, responsive grid mechanics), **not** for its look: colours, type, tiles and masthead come from your own design brief. Do not reuse its products, copy or photo URLs: they belong to that demo, and photos must come from your own `search_unsplash` + `use_unsplash_photo` calls.
 
 | Lines | What it shows |
 |---|---|

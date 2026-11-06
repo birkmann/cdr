@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Overlay fixture</title>
+    <style>
+      body { margin: 0; font: 16px/1.5 system-ui, sans-serif; }
+      header { position: sticky; top: 0; background: #fff; border-bottom: 1px solid #ddd; padding: 12px 20px; z-index: 5; }
+      main { padding: 20px; }
+      section { min-height: 400px; border-bottom: 1px solid #eee; }
+      .backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.4); z-index: 90; }
+      .modal { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(560px, 90vw); background: #fff; padding: 24px; z-index: 100; }
+      html.locked, html.locked body { overflow: hidden; }
+    </style>
+  </head>
+  <body>
+    <header><strong>Overlay fixture</strong> <nav><a href="#a">Produkte</a> <a href="#b">Hilfe</a></nav></header>
+    <main>
+      <section id="a"><h1>Willkommen auf der Seite</h1><p>Inhalt, den jeder Besucher sieht.</p></section>
+      <section id="b"><h2>Zweiter Abschnitt</h2><p>Noch mehr Inhalt.</p></section>
+    </main>
+    <script>
+      // a region switcher that appears after a (simulated) geo lookup, with its own decline control
+      setTimeout(() => {
+        document.documentElement.classList.add("locked");
+        const bd = document.createElement("div");
+        bd.className = "backdrop";
+        const d = document.createElement("div");
+        d.className = "modal";
+        d.setAttribute("role", "dialog");
+        d.innerHTML =
+          '<p>Ihre aktuelle Region ist: Vereinigte Staaten</p><p>Sie scheinen sich in Deutschland zu befinden. Möchten Sie wechseln?</p><button class="cancel">Abbrechen</button> <button class="switch">Wechseln</button>';
+        d.querySelector(".cancel").onclick = () => { d.remove(); bd.remove(); document.documentElement.classList.remove("locked"); };
+        document.body.append(bd, d);
+      }, 1500);
+      // a newsletter layer without any close control: has to be hidden
+      setTimeout(() => {
+        const n = document.createElement("div");
+        n.className = "modal";
+        n.style.top = "70%";
+        n.setAttribute("role", "dialog");
+        n.setAttribute("aria-modal", "true");
+        n.innerHTML = "<h3>Newsletter abonnieren</h3><p>Erhalten Sie jede Woche unsere Angebote.</p><input placeholder='E-Mail'>";
+        document.body.append(n);
+      }, 300);
+    </script>
+  </body>
+</html>

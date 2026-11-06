@@ -24,13 +24,13 @@ Use lime sparingly for identity, focus, and active elements. Body text stays neu
 
 Use the system sans-serif stack for reading and controls, and the system monospace stack for branding, code, and technical labels. No remote font request is needed. Prefer short, direct copy that describes the task or result.
 
-## Compatibility
+## Names
 
-- `cdr` is the primary executable; `morrow` and `harness` remain aliases. Run `pnpm --filter @harness/cli link --global` after building to install all three.
-- Project configuration lookup: `cdr.config.json`, `.cdr/config.json`, `morrow.config.json`, `.morrow/config.json`, `harness.config.json`, `.harness/config.json`. The first existing file wins; `cdr init` preserves an existing file.
-- Global home lookup: `CDR_HOME`, `MORROW_HOME`, `HARNESS_HOME`, then `~/.harness`. Saved sessions and project artifacts keep their existing locations.
-- Desktop environment options accept `CDR_*` names with their corresponding `MORROW_*` names as fallbacks. The desktop application ID `dev.morrow.studio`, credential service `morrow-studio`, and browser storage keys remain stable so upgrades retain settings and secrets.
-- Internal `@harness/*` package names and wire protocols stay stable. New agent branches use `cdr/`; existing saved branch references are retained.
+- `cdr` is the executable. Run `pnpm --filter @harness/cli link --global` after building to install it.
+- Project configuration lookup: `cdr.config.json`, `.cdr/config.json`, `harness.config.json`, `.harness/config.json`. The first existing file wins; `cdr init` preserves an existing file.
+- Global home lookup: `CDR_HOME`, `HARNESS_HOME`, then `~/.harness`.
+- Desktop environment options use `CDR_*` names. The desktop application ID is `io.github.birkmann.cdr` and the credential service is `cdr-studio`.
+- Workspace packages are named `@harness/*`. Agent branches use the `cdr/` prefix.
 
 ## Updating assets
 

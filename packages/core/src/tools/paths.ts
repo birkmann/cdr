@@ -1,6 +1,7 @@
 import { existsSync, realpathSync, readdirSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { spawnSync } from "node:child_process";
+import { homedir } from "node:os";
 import { ToolError } from "./types.js";
 
 /**
@@ -28,6 +29,104 @@ export function resolveInProject(root: string, p: string, opts: { forWrite?: boo
     if (rel[0] === ".git") throw new ToolError(`Writing inside .git is not allowed.`);
   }
   return real;
+}
+
+function tryResolve(root: string, p: string, opts: { forWrite?: boolean }): string | undefined {
+  try {
+    return resolveInProject(root, p, opts);
+  } catch (e) {
+    if (e instanceof ToolError) return undefined;
+    throw e;
+  }
+}
+
+/** realpath of the deepest existing ancestor plus the missing remainder, so a folder that does not exist yet still gets a symlink-free path. */
+function realpathLoose(p: string): string {
+  const abs = resolve(p);
+  let existing = abs;
+  while (!existsSync(existing)) {
+    const parent = dirname(existing);
+    if (parent === existing) break;
+    existing = parent;
+  }
+  return join(realpathSync(existing), relative(existing, abs));
+}
+
+/** `~` and `~/x` mean the home folder: the paths shown for output files use it, and the model may pass them back. */
+function expandHome(p: string): string {
+  return typeof p === "string" && (p === "~" || p.startsWith("~/")) ? join(homedir(), p.slice(1)) : p;
+}
+
+/** True when `abs` is the output folder or inside it (symlink-resolved, also while the folder does not exist yet). */
+function insideOutput(outDir: string, abs: string): boolean {
+  const root = realpathLoose(outDir);
+  const real = realpathLoose(abs);
+  return real === root || real.startsWith(root + sep);
+}
+
+/**
+ * Resolve a file tool's path. Normally that is resolveInProject. In a chat turn (`ctx.outputDir` set) a file
+ * that exists in the project is still read and edited in place, as is one already in the output folder, and so
+ * is a new file in an existing project subfolder. Other new files are created in the output folder (same relative
+ * path), so chats do not add stray files to the repository.
+ * The full path of an output file (as reported by write_file, `~` allowed) addresses it directly.
+ */
+export function resolveTarget(
+  ctx: { projectRoot: string; outputDir?: string },
+  p: string,
+  opts: { forWrite?: boolean } = {},
+): { abs: string; output: boolean } {
+  const outDir = ctx.outputDir;
+  if (!outDir) return { abs: resolveInProject(ctx.projectRoot, p, opts), output: false };
+  p = expandHome(p);
+  const outputExists = existsSync(outDir);
+  if (typeof p === "string" && isAbsolute(p) && insideOutput(outDir, p))
+    return { abs: outputExists ? resolveInProject(outDir, p, opts) : realpathLoose(p), output: true };
+  const inProject = tryResolve(ctx.projectRoot, p, opts);
+  if (inProject && existsSync(inProject)) return { abs: inProject, output: false };
+  const inOutput = outputExists ? tryResolve(outDir, p, opts) : undefined;
+  if (inOutput && existsSync(inOutput)) return { abs: inOutput, output: true };
+  if (!opts.forWrite || !inProject) {
+    // Reads of missing files report "not found" for the project path; escapes raise the usual error.
+    return { abs: resolveInProject(ctx.projectRoot, p, opts), output: false };
+  }
+  const realRoot = realpathSync(ctx.projectRoot);
+  // A new file in a folder the project already has (src/utils.ts) is meant for the project: it goes there, with
+  // the normal approval. Top-level files and new folders (poems/dogs.md) go to the output folder.
+  if (dirname(inProject) !== realRoot && existsSync(dirname(inProject)))
+    return { abs: inProject, output: false };
+  const relPath = relative(realRoot, inProject);
+  if (!outputExists) {
+    // The folder is created by the write. Resolve symlinks on what exists so the path matches a later realpath.
+    const root = realpathLoose(outDir);
+    const abs = join(root, relPath);
+    if (abs !== root && !abs.startsWith(root + sep))
+      throw new ToolError(`Path "${p}" is outside the output folder.`);
+    return { abs, output: true };
+  }
+  return { abs: resolveInProject(outDir, relPath, opts), output: true };
+}
+
+/**
+ * Where list_dir, glob and grep look: the project, or the output folder when `p` is a full path inside it
+ * (the form write_file reports), so the model can search and list the files it created.
+ */
+export function searchRoot(
+  ctx: { projectRoot: string; outputDir?: string },
+  p: string | undefined,
+): { root: string; path: string } {
+  const path = p === undefined ? "." : expandHome(p);
+  const out = ctx.outputDir;
+  if (out && typeof path === "string" && isAbsolute(path) && existsSync(out) && insideOutput(out, path))
+    return { root: out, path };
+  return { root: ctx.projectRoot, path: p ?? "." };
+}
+
+/** A path for messages: the project-relative path, or the full path (with ~) for output-folder files. Tools accept both forms. */
+export function displayPath(ctx: { projectRoot: string }, abs: string, output: boolean): string {
+  if (!output) return rel(ctx.projectRoot, abs);
+  const home = homedir();
+  return abs === home || abs.startsWith(home + sep) ? "~" + abs.slice(home.length) : abs;
 }
 
 export function rel(root: string, abs: string): string {

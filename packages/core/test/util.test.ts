@@ -60,29 +60,21 @@ describe("util", () => {
   });
 
   it("prefers CDR config while retaining legacy configuration and init behavior", () => {
-    const dir = mkdtempSync(join(tmpdir(), "morrow-config-"));
+    const dir = mkdtempSync(join(tmpdir(), "cdr-config-"));
     writeFileSync(join(dir, "harness.config.json"), JSON.stringify({ permissions: { mode: "auto" } }));
     expect(loadConfig({ projectPath: dir, skipGlobal: true }).permissions?.mode).toBe("auto");
     const init = initProject(dir, { configName: "cdr.config.json" });
     expect(init.skipped).toContain(join(dir, "harness.config.json"));
-    writeFileSync(join(dir, "morrow.config.json"), JSON.stringify({ permissions: { mode: "ask" } }));
-    expect(loadConfig({ projectPath: dir, skipGlobal: true }).permissions?.mode).toBe("ask");
-    expect(initProject(dir, { configName: "cdr.config.json" }).skipped).toContain(
-      join(dir, "morrow.config.json"),
-    );
     writeFileSync(join(dir, "cdr.config.json"), JSON.stringify({ permissions: { mode: "yolo" } }));
     expect(loadConfig({ projectPath: dir, skipGlobal: true }).permissions?.mode).toBe("yolo");
   });
 
-  it("prefers CDR_HOME while preserving both legacy home aliases", () => {
+  it("prefers CDR_HOME over HARNESS_HOME", () => {
     try {
       vi.stubEnv("HARNESS_HOME", "/legacy-harness");
-      vi.stubEnv("MORROW_HOME", "/legacy-morrow");
       vi.stubEnv("CDR_HOME", "/cdr-home");
       expect(harnessHome()).toBe("/cdr-home");
       vi.stubEnv("CDR_HOME", undefined);
-      expect(harnessHome()).toBe("/legacy-morrow");
-      vi.stubEnv("MORROW_HOME", undefined);
       expect(harnessHome()).toBe("/legacy-harness");
     } finally {
       vi.unstubAllEnvs();

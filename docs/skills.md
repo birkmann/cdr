@@ -26,8 +26,20 @@ auto: sandbox
 | `description` | One line. Required. Listed in every system prompt. |
 | `triggers` | Optional case-insensitive regular expressions matched against the task. |
 | `auto` | Where a matching skill is loaded automatically: `sandbox` (default), `always` or `never`. |
+| `disable-model-invocation` | `true`: only the user can start the skill by selecting it. It is left out of the agent's skill list and never loads automatically, but stays loadable by name so other skills can refer to it. |
+| `argument-hint` | Shown as the message placeholder after the user selects the skill. |
 
 Other keys, such as `allowed-tools` or `license`, are accepted and ignored.
+
+## Selecting a skill for a message
+
+Any skill can be selected for a message. Its full instructions then go to every agent of that turn: into the system prompt of a fresh agent, or in front of the user message when a conversation continues. Selection lasts for one message.
+
+- **Web and desktop:** type `/` in the composer to open the skill menu (↑/↓, Enter or Tab to pick, Esc to close), or use the **Skills** button to search and toggle skills. Selected skills appear as chips above the text; Backspace in an empty composer removes the last one. Typing `/tdd fix the parser` and sending works too.
+- **Terminal:** `/skills` lists them (in the full-screen UI it opens a picker), Tab completes them, and `/tdd fix the parser` sends the message with the `tdd` skill. Several can be stacked: `/grill-me /domain-modeling my plan`. Built-in commands such as `/review` win over skills of the same name. `--skill <name>` (repeatable) selects skills for `cdr run|plan|review` and for the first message of `cdr chat`.
+- **API:** `POST /sessions/:id/messages` with `skills: ["tdd"]`; `GET /skills?projectPath=` lists what is available. Unknown names are rejected with 400.
+
+The user message records the selection (`message.end.skills`), and each selected skill emits `skill.activated` with `reason: "selected"`.
 
 ## How agents use skills
 
@@ -64,6 +76,21 @@ Earlier locations win when two skills share a name:
 - a finish checklist that mirrors what the evals check.
 
 Its reference folder contains the complete **Form** store, the same page the README screenshot shows, with an annotated map, and patterns for landing pages, dashboards, canvas games and todo apps.
+
+## Built-in: Matt Pocock's engineering skills
+
+The engineering and productivity skills from [mattpocock/skills](https://github.com/mattpocock/skills) (MIT) ship as built-ins. They work with any model; where a skill mentions another as `/name`, the agent loads it with `load_skill`.
+
+| Kind | Skills |
+|---|---|
+| User-selected only | `ask-matt` (which skill fits?), `grill-me`, `grill-with-docs`, `handoff`, `implement`, `implement-spec`, `improve-codebase-architecture`, `retro`, `setup-matt-pocock-skills`, `teach`, `to-questionnaire`, `to-spec`, `to-tickets`, `triage`, `wait-what`, `wayfinder` |
+| Also offered to the agent | `codebase-design`, `code-review`, `diagnosing-bugs`, `domain-modeling`, `grilling`, `pr`, `prototype`, `research`, `tdd`, `wizard`, `writing-for-agents` |
+
+The spec and ticket flows (`to-spec`, `to-tickets`, `triage`, `wayfinder`, `implement-spec`) expect an issue tracker; run `setup-matt-pocock-skills` once per repository first. Hide any of them with `skills.disabled`, or override one by putting a skill of the same name in `<project>/.harness/skills/`. To update them, copy the folders listed in the upstream `.claude-plugin/plugin.json` again (without `agents/`).
+
+## Built-in: recreate-url
+
+`recreate-url` (`auto: never`) is never injected by triggers. The agent loads it only when the user explicitly asks for an exact copy of a URL. It covers the `recreate_*` stages, the repair rules (two attempts per section, edits only between the section markers, copy and photos untouched) and what the summary must say, including the rights notice. See [recreate.md](recreate.md).
 
 ## Checking the result
 

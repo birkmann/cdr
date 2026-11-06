@@ -3,25 +3,86 @@ import type { UseSessionResult } from "@harness/react";
 import { useApp } from "../app-state";
 import { DiffLines, parseDiff, type FileDiff } from "./Diff";
 import { highlight, langForPath } from "./Markdown";
-import { IconChevronRight, IconExternal, IconFile, IconFolder, IconRefresh, IconX } from "./icons";
+import {
+  IconChevronRight,
+  IconExternal,
+  IconFile,
+  IconFolder,
+  IconMonitor,
+  IconPhone,
+  IconRefresh,
+  IconTablet,
+  IconX,
+} from "./icons";
+import { History } from "./History";
+import {
+  ComparePanel,
+  RecreateBuildView,
+  recreateBuild,
+  recreatePreviewPath,
+  recreateProgress,
+  recreateRuns,
+} from "./RecreateCard";
 
-export type Tab = "preview" | "changes" | "files" | "tasks";
+export type Tab = "preview" | "changes" | "files" | "tasks" | "history" | "compare" | "document";
+
+/** An uploaded file shown full-size in the side column, next to the chat. */
+export interface OpenDocument {
+  path: string;
+  name: string;
+  mimeType: string;
+}
+
+type Device = "desktop" | "tablet" | "mobile";
+const DEVICES: Record<Device, { label: string; width?: number; next: Device; Icon: typeof IconMonitor }> = {
+  desktop: { label: "Desktop", next: "tablet", Icon: IconMonitor },
+  tablet: { label: "Tablet", width: 768, next: "mobile", Icon: IconTablet },
+  mobile: { label: "Mobile", width: 390, next: "desktop", Icon: IconPhone },
+};
+const DEVICE_KEY = "harness.previewDevice";
+function storedDevice(): Device {
+  try {
+    const v = localStorage.getItem(DEVICE_KEY);
+    if (v && v in DEVICES) return v as Device;
+  } catch {
+    /* storage unavailable */
+  }
+  return "desktop";
+}
 
 export function CodePanel({
   s,
   sessionId,
   tab,
   setTab,
+  compareRun,
+  setCompareRun,
+  doc,
+  closeDoc,
 }: {
   s: UseSessionResult;
   sessionId: string;
   tab: Tab;
   setTab(t: Tab): void;
+  compareRun?: string;
+  setCompareRun?(runId: string): void;
+  doc?: OpenDocument;
+  closeDoc?(): void;
 }) {
   const editCount = useMemo(() => Object.values(s.tools).filter((t) => t.diff).length, [s.tools]);
+  const runs = recreateRuns(s);
   return (
     <aside className="code-panel">
       <div className="tabs">
+        {doc && (
+          <button
+            className={tab === "document" ? "active" : ""}
+            onClick={() => setTab("document")}
+            title={doc.name}
+          >
+            <span className="tab-doc-name">{doc.name}</span>
+          </button>
+        )}
         <button className={tab === "preview" ? "active" : ""} onClick={() => setTab("preview")}>
           Preview{s.preview ? <span className="count live">●</span> : null}
         </button>
@@ -37,18 +98,48 @@ export function CodePanel({
             <span className="count">{s.todos.filter((t) => t.status !== "done").length}</span>
           ) : null}
         </button>
+        <button
+          className={tab === "history" ? "active" : ""}
+          onClick={() => setTab("history")}
+          title="Where this conversation is stored, and its raw log"
+        >
+          History
+        </button>
+        {(runs.length > 0 || tab === "compare") && (
+          <button className={tab === "compare" ? "active" : ""} onClick={() => setTab("compare")}>
+            Compare
+            {runs.some((r) => r.comparePath) ? <span className="count live">●</span> : null}
+          </button>
+        )}
       </div>
       <div className="panel-body">
+        {tab === "document" && doc && (
+          <DocumentViewer key={doc.path} sessionId={sessionId} doc={doc} onClose={() => closeDoc?.()} />
+        )}
         {tab === "preview" && <Preview s={s} sessionId={sessionId} refreshKey={editCount} />}
         {tab === "changes" && <Changes s={s} sessionId={sessionId} refreshKey={`${editCount}-${s.status}`} />}
         {tab === "files" && (
           <Files sessionId={sessionId} refreshKey={`${editCount}-${s.status}-${s.preview?.seq ?? 0}`} />
         )}
         {tab === "tasks" && <Tasks s={s} />}
+        {tab === "history" && (
+          <History sessionId={sessionId} refreshKey={`${s.status}-${editCount}-${s.preview?.seq ?? 0}`} />
+        )}
+        {tab === "compare" && (
+          <ComparePanel
+            s={s}
+            sessionId={sessionId}
+            runId={compareRun}
+            setRunId={(id) => setCompareRun?.(id)}
+          />
+        )}
       </div>
     </aside>
   );
 }
+
+/** Runs whose recreation has been placed over the screenshot (kept across tab switches: no second reveal). */
+const revealedRuns = new Set<string>();
 
 function Preview({
   s,
@@ -68,15 +159,29 @@ function Preview({
   const [updates, setUpdates] = useState(false);
   const [loading, setLoading] = useState(true);
   const [updated, setUpdated] = useState(false);
+  const [device, setDevice] = useState<Device>(storedDevice);
+  const cycleDevice = () => {
+    const next = DEVICES[device].next;
+    setDevice(next);
+    try {
+      localStorage.setItem(DEVICE_KEY, next);
+    } catch {
+      /* storage unavailable */
+    }
+  };
+  const view = DEVICES[device];
+  const nextView = DEVICES[view.next];
   const busy = s.status === "running" || s.status === "waiting";
   // Finding an HTML file does not mean its stylesheet/scripts have been built yet.
   // A published preview is the agent's readiness signal; otherwise wait for the turn.
-  const preparing = busy && !s.preview;
+  // A 1:1 recreation started from the composer builds its page without set_preview: follow its output.
+  const recreated = recreatePreviewPath(s);
+  const preparing = busy && !s.preview && !recreated;
   // Shell builds can replace the selected HTML without producing a file-tool diff.
   const changes = Object.values(s.tools).filter(
     (t) => t.status === "ok" && ["write_file", "patch_file", "bash"].includes(t.name),
   ).length;
-  const publication = s.preview?.seq ?? 0;
+  const publication = (s.preview?.seq ?? 0) + recreateProgress(s);
   const observed = useRef({ changes, publication });
   const dirty = useRef(false);
   const pendingPath = useRef<string>();
@@ -107,10 +212,11 @@ function Preview({
   }, [sessionId]);
   // Follow the agent's latest set_preview; otherwise offer HTML files found in the project.
   useEffect(() => {
-    if (!s.preview) return;
-    if (autoRefresh || !path) setPath(s.preview.path);
-    else pendingPath.current = s.preview.path;
-  }, [s.preview?.seq]);
+    const next = s.preview?.path ?? recreated;
+    if (!next) return;
+    if (autoRefresh || !path) setPath(next);
+    else pendingPath.current = next;
+  }, [s.preview?.seq, recreated]);
   useEffect(() => {
     let cancelled = false;
     client
@@ -143,6 +249,19 @@ function Preview({
     setUpdated(false);
   }, [path]);
   const url = client && base && path && !preparing ? client.previewUrl(base, path) : "";
+  // a running 1:1 recreation: the live page's screenshot, replaced section by section by the coded page; the
+  // regular preview takes over once the whole page is in place
+  const [, setRevealed] = useState(0);
+  const candidate = recreateBuild(s, view.width ?? 1440);
+  const build = candidate && !revealedRuns.has(candidate.run.runId) ? candidate : undefined;
+  const buildShot =
+    build && client && base ? `${client.previewUrl(base, build.shot.path)}?v=${build.shot.seq}` : "";
+  const buildPage = build?.page && client && base ? client.previewUrl(base, build.page) : undefined;
+  const onRevealed = (runId: string) => {
+    revealedRuns.add(runId);
+    setRevealed((n) => n + 1);
+    refresh();
+  };
   return (
     <div className="preview">
       <div className="panel-toolbar">
@@ -169,13 +288,21 @@ function Preview({
         >
           <IconRefresh size={15} /> Reload
         </button>
+        <button
+          className="ghost preview-device"
+          onClick={cycleDevice}
+          title={`Viewport: ${view.label}${view.width ? ` (${view.width}px)` : ""} — switch to ${nextView.label}`}
+          aria-label={`Preview viewport: ${view.label}. Switch to ${nextView.label}`}
+        >
+          <view.Icon size={15} /> {view.label}
+        </button>
         {url && (
           <a className="ghost-link" href={url} target="_blank" rel="noreferrer" title="Open in a new tab">
             <IconExternal size={15} />
           </a>
         )}
       </div>
-      {url && (
+      {url && !buildShot && (
         <div className={`preview-update-bar${updates ? " has-updates" : ""}`}>
           <span role="status" aria-live="polite">
             {updates
@@ -201,7 +328,17 @@ function Preview({
           </label>
         </div>
       )}
-      {preparing ? (
+      {build && buildShot ? (
+        <RecreateBuildView
+          key={`${build.run.runId}:${build.shot.width}`}
+          run={build.run}
+          shot={build.shot}
+          shotSrc={buildShot}
+          pageSrc={buildPage}
+          activity={build.activity}
+          onRevealed={onRevealed}
+        />
+      ) : preparing ? (
         <div className="preview-preparing" role="status">
           <span className="dots" aria-hidden="true">
             <i />
@@ -212,19 +349,22 @@ function Preview({
           <p>The page will appear here when it’s ready, with its styles and scripts.</p>
         </div>
       ) : url ? (
-        <iframe
-          key={`${url}#${nonce}`}
-          className="preview-frame"
-          src={url}
-          title="Live preview"
-          onLoad={() => {
-            setLoading(false);
-            setUpdated(nonce > 0);
-          }}
-          // opaque origin: the generated code cannot read the app's token or storage
-          sandbox="allow-scripts allow-forms allow-modals allow-pointer-lock allow-popups allow-downloads"
-          allow="autoplay; fullscreen; gamepad"
-        />
+        <div className={`preview-stage ${device}`}>
+          <iframe
+            key={`${url}#${nonce}`}
+            className="preview-frame"
+            style={view.width ? { width: view.width } : undefined}
+            src={url}
+            title="Live preview"
+            onLoad={() => {
+              setLoading(false);
+              setUpdated(nonce > 0);
+            }}
+            // opaque origin: the generated code cannot read the app's token or storage
+            sandbox="allow-scripts allow-forms allow-modals allow-pointer-lock allow-popups allow-downloads"
+            allow="autoplay; fullscreen; gamepad"
+          />
+        </div>
       ) : (
         <div className="muted pad">
           {s.workflow === "plan-only" && s.done?.status === "success"
@@ -393,7 +533,15 @@ function Files({ sessionId, refreshKey }: { sessionId: string; refreshKey: strin
 
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp|svg|ico)$/i;
 
-function FileViewer({ sessionId, path, onClose }: { sessionId: string; path: string; onClose(): void }) {
+export function FileViewer({
+  sessionId,
+  path,
+  onClose,
+}: {
+  sessionId: string;
+  path: string;
+  onClose(): void;
+}) {
   const { client } = useApp();
   const [content, setContent] = useState<string | null>(null);
   const [err, setErr] = useState<string>();
@@ -432,6 +580,92 @@ function FileViewer({ sessionId, path, onClose }: { sessionId: string; path: str
             </pre>
           </div>
         )
+      )}
+    </div>
+  );
+}
+
+const PDF_EXT = /\.pdf$/i;
+const isPdfDoc = (d: OpenDocument) => d.mimeType === "application/pdf" || PDF_EXT.test(d.name);
+const isImageDoc = (d: OpenDocument) => d.mimeType.startsWith("image/") || IMAGE_EXT.test(d.name);
+const isTextDoc = (d: OpenDocument) =>
+  d.mimeType.startsWith("text/") ||
+  ["application/json", "application/xml"].includes(d.mimeType) ||
+  /\.(txt|md|csv|json|xml|ya?ml|log|tsx?|jsx?|css|html?)$/i.test(d.name);
+
+/** An uploaded attachment, full-size: PDFs in the browser's PDF viewer, images zoomable, text as text. */
+export function DocumentViewer({
+  sessionId,
+  doc,
+  onClose,
+}: {
+  sessionId: string;
+  doc: OpenDocument;
+  onClose(): void;
+}) {
+  const { client } = useApp();
+  const url = client?.rawUrl(sessionId, doc.path);
+  const pdf = isPdfDoc(doc);
+  const image = !pdf && isImageDoc(doc);
+  const text = !pdf && !image && isTextDoc(doc);
+  const [content, setContent] = useState<string | null>(null);
+  const [err, setErr] = useState<string>();
+  const [fit, setFit] = useState(true);
+  useEffect(() => {
+    if (!text || !url) return;
+    let live = true;
+    fetch(url)
+      .then((r) => (r.ok ? r.text() : Promise.reject(new Error(`Could not load ${doc.name} (${r.status})`))))
+      .then((c) => live && setContent(c))
+      .catch((e) => live && setErr((e as Error).message));
+    return () => {
+      live = false;
+    };
+  }, [url, text]);
+  return (
+    <div className="viewer document-viewer">
+      <div className="panel-toolbar">
+        <code className="small path" title={doc.path}>
+          {doc.name}
+        </code>
+        <span className="toolbar-actions">
+          {image && (
+            <button className="ghost tiny" onClick={() => setFit((f) => !f)}>
+              {fit ? "Actual size" : "Fit"}
+            </button>
+          )}
+          {url && (
+            <a
+              className="ghost icon"
+              href={url}
+              target="_blank"
+              rel="noreferrer"
+              title="Open in a new tab"
+              aria-label="Open in a new tab"
+            >
+              <IconExternal size={15} />
+            </a>
+          )}
+          <button className="ghost icon" onClick={onClose} aria-label="Close document">
+            <IconX size={15} />
+          </button>
+        </span>
+      </div>
+      {err && <div className="error pad">{err}</div>}
+      {url && pdf && <iframe className="document-frame" src={url} title={doc.name} />}
+      {url && image && (
+        <div className={`document-image ${fit ? "fit" : ""}`}>
+          <img src={url} alt={doc.name} />
+        </div>
+      )}
+      {text && content !== null && <pre className="document-text">{content}</pre>}
+      {url && !pdf && !image && !text && (
+        <div className="pad muted">
+          No preview for this file type.{" "}
+          <a href={url} download={doc.name}>
+            Download {doc.name}
+          </a>
+        </div>
       )}
     </div>
   );

@@ -4,6 +4,9 @@ description = "CDR Studio: native desktop coding app built on the CDR harness"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+publish.workspace = true
 default-run = "cdr-studio"
 
 [[bin]]

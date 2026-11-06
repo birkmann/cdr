@@ -4,7 +4,7 @@ CDR runs AI agents that can read and change files and run commands on your machi
 
 ## Reporting a vulnerability
 
-Please do not open a public issue for security problems. Use GitHub's private vulnerability reporting instead (repository **Security** tab → **Report a vulnerability**). Include the steps to reproduce, the affected version or commit, and the impact.
+Please do not open a public issue for security problems. Use GitHub's [private vulnerability reporting](https://github.com/birkmann/cdr/security/advisories/new) instead (repository **Security** tab → **Report a vulnerability**). Include the steps to reproduce, the affected version or commit, and the impact.
 
 You can expect an acknowledgement within a week. We will tell you when a fix is released and credit you if you wish.
 

@@ -19,7 +19,7 @@ pub struct CommitOptions {
     pub amend: bool,
     /// Add a `Signed-off-by:` trailer.
     pub sign_off: bool,
-    /// Values for `Co-Authored-By:` trailers, e.g. `"CDR <agent@morrow.dev>"`.
+    /// Values for `Co-Authored-By:` trailers, e.g. `"CDR <agent@cdr.invalid>"`.
     pub co_authors: Vec<String>,
     pub allow_empty: bool,
 }

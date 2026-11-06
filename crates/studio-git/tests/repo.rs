@@ -353,7 +353,7 @@ fn commit_with_trailers_amend_and_signoff() {
         r.p(),
         &CommitOptions {
             message: "Add a\n\nBody text.".into(),
-            co_authors: vec!["CDR Agent <agent@morrow.dev>".into()],
+            co_authors: vec!["CDR Agent <agent@cdr.invalid>".into()],
             sign_off: true,
             ..Default::default()
         },
@@ -363,7 +363,7 @@ fn commit_with_trailers_amend_and_signoff() {
     assert!(info.commit.parents.is_empty());
     let msg = r.git(&["log", "-1", "--format=%B"]);
     assert!(msg.contains("Body text."));
-    assert!(msg.contains("Co-Authored-By: CDR Agent <agent@morrow.dev>"));
+    assert!(msg.contains("Co-Authored-By: CDR Agent <agent@cdr.invalid>"));
     assert!(msg.contains("Signed-off-by: Test User <test@example.com>"));
     assert!(info.commit.body.contains("Co-Authored-By:"));
     assert_eq!(info.commit.id, r.git(&["rev-parse", "HEAD"]).trim());

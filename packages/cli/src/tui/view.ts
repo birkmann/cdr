@@ -1,102 +1,59 @@
-import type { SessionState } from "@harness/client";
-import { basename } from "node:path";
+import { compactionLine, type SessionState } from "@harness/client";
 import { homedir } from "node:os";
 import { summarizeArgs } from "../render.js";
 import { Canvas, theme as t, truncate, width, wrap, type Style } from "./screen.js";
-import type { Editor } from "./input.js";
+import {
+  contentWidth as classicContentWidth,
+  renderClassic,
+  transcript as classicTranscript,
+} from "./classic.js";
+import {
+  drawOverlays,
+  drawRows,
+  drawSidebar,
+  formatBalance,
+  markdown as md,
+  row,
+  type Part,
+  type Row,
+  type TerminalDesign,
+  type View,
+} from "./widgets.js";
 
-// Keep mode identity stable while idle, thinking, and waiting for approval.
-const MODE_COLORS: Record<string, string> = {
-  Chat: "#7dd3c8",
-  Build: t.accent,
-  Plan: "#82b1ff",
-  "Quick fix": "#e5c07b",
-  Review: "#c4a0ed",
-};
+export {
+  DESIGNS,
+  formatBalance,
+  isDesign,
+  type AccountBalance,
+  type Dialog,
+  type Part,
+  type Picker,
+  type PickerItem,
+  type Row,
+  type TerminalDesign,
+  type View,
+} from "./widgets.js";
+export { WORDMARK } from "./classic.js";
 
-export type Row = { text: string; style?: Style };
-export interface PickerItem {
-  label: string;
-  detail?: string;
-  value: string;
-  disabled?: boolean;
-}
-export interface Picker {
-  title: string;
-  query: Editor;
-  items: PickerItem[];
-  selected: number;
-  hint?: string;
-}
-export interface Dialog {
-  title: string;
-  body: string;
-  actions: string[];
-  selected: number;
-  scroll: number;
-  editor?: Editor;
-  warning?: boolean;
-  hint?: string;
-}
-export interface View {
-  state: SessionState;
-  editor: Editor;
-  project: string;
-  branch?: string | null;
-  model: string;
-  permission: string;
-  mode: string;
-  version: string;
-  sessionId: string;
-  busy: boolean;
-  elapsed: number;
-  frame: number;
-  scroll: number;
-  expanded: boolean;
-  sidebar: boolean;
-  notice?: string;
-  attachments: string[];
-  picker?: Picker;
-  dialog?: Dialog;
-  document?: { title: string; text: string; scroll: number };
-}
+const SPIN = ["·", "✢", "✶", "✻", "✽", "✻", "✶", "✢"];
+const spinner = (frame: number) => SPIN[Math.floor(frame / 2) % SPIN.length];
+const isThinking = (state: SessionState) =>
+  state.status === "running" &&
+  Object.values(state.messages).some((m) => m.role === "assistant" && m.streaming && !m.text);
+const pascal = (name: string) =>
+  name.replace(/(^|[^a-zA-Z0-9]+)([a-zA-Z0-9])/g, (_, __, c: string) => c.toUpperCase());
+const compact = (n: number) =>
+  n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}k` : String(n);
 
-const GLYPHS: Record<string, string[]> = {
-  C: [" ████", "█    ", "█    ", "█    ", " ████"],
-  D: ["████ ", "█   █", "█   █", "█   █", "████ "],
-  R: ["████ ", "█   █", "████ ", "█  █ ", "█   █"],
-};
-export const WORDMARK = Array.from({ length: 5 }, (_, row) =>
-  [..."CDR"].map((c) => GLYPHS[c][row]).join("  "),
-);
-const spin = ["◐", "◓", "◑", "◒"];
-const thinkingFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-const thinkingSpinner = (frame: number) => thinkingFrames[frame % thinkingFrames.length];
+/** Columns available to the conversation: full width minus the optional sidebar and a margin. */
+export const sidebarWidth = (columns: number, sidebar: boolean) => (sidebar && columns >= 120 ? 29 : 0);
+export const contentWidth = (columns: number, sidebar = false) =>
+  Math.max(20, columns - sidebarWidth(columns, sidebar) - 2);
+/** Welcome banner height (box plus a blank row); it is the first thing in the scrollable conversation. */
+export const BANNER_ROWS = 6;
 
-function markdown(text: string, columns: number): Row[] {
-  const rows: Row[] = [];
-  let code = false;
-  for (const line of text.split("\n")) {
-    if (/^\s*```/.test(line)) {
-      code = !code;
-      rows.push({
-        text: code ? `  ${line.replace(/^\s*```/, "") || "code"}` : "",
-        style: { fg: t.muted, bg: t.code },
-      });
-      continue;
-    }
-    const heading = !code && /^#{1,6}\s/.test(line);
-    const content = code
-      ? "  " + line
-      : line
-          .replace(/^#{1,6}\s/, "")
-          .replace(/\*\*(.+?)\*\*/g, "$1")
-          .replace(/`([^`]+)`/g, "$1");
-    const style = code ? { fg: t.blue, bg: t.code } : heading ? { fg: t.accent, bold: true } : undefined;
-    for (const part of wrap(content, columns)) rows.push({ text: part, style });
-  }
-  return rows;
-}
+const HEADING: Style = { bold: true };
+const markdown = (text: string, columns: number) => md(text, columns, t, HEADING);
 
 export function transcript(
   state: SessionState,
@@ -107,143 +64,203 @@ export function transcript(
   const rows: Row[] = [];
   const add = (text: string, style?: Style) =>
     wrap(text, columns).forEach((text) => rows.push({ text, style }));
+  const gap = () => {
+    if (rows.length && rows[rows.length - 1].text !== "") rows.push({ text: "" });
+  };
+  /** "● text" with a hanging indent. */
+  const bullet = (text: string, color: string, style?: Style) =>
+    wrap(text, Math.max(1, columns - 2)).forEach((line, i) =>
+      rows.push(
+        i === 0
+          ? row([
+              { text: "● ", style: { fg: color } },
+              { text: line, style },
+            ])
+          : { text: "  " + line, style },
+      ),
+    );
+  /** "  ⎿  first line" with the remaining lines aligned beneath it. */
+  const result = (lines: string[], style?: Style) => {
+    let first = true;
+    for (const line of lines)
+      for (const part of wrap(line, Math.max(1, columns - 5))) {
+        rows.push({ text: (first ? "  ⎿  " : "     ") + part, style });
+        first = false;
+      }
+  };
+  const indented = (markdownRows: Row[]) =>
+    markdownRows.forEach((r) => rows.push({ ...r, text: "  " + r.text }));
+  let prev = "";
   for (const item of state.timeline) {
+    const before = prev;
+    prev = item.kind;
     if (item.kind === "message") {
       const m = state.messages[item.id];
       if (!m) continue;
       const thinking = state.status === "running" && m.role === "assistant" && m.streaming && !m.text;
       if (!m.text && !m.reasoning && !thinking) continue;
-      add("");
-      add(
-        m.role === "user"
-          ? "  YOU"
-          : `▸  CDR${m.agent && !["chat", "executor"].includes(m.agent) ? ` · ${m.agent}` : ""}`,
-        { fg: m.role === "user" ? t.blue : t.accent, bold: true },
-      );
-      if (m.attachments?.length) add("  ↳ " + m.attachments.map((a) => a.name).join(" · "), { fg: t.muted });
+      gap();
+      if (m.role === "user") {
+        wrap(m.text, Math.max(1, columns - 2)).forEach((line, i) =>
+          rows.push({ text: (i === 0 ? "> " : "  ") + line, style: { fg: t.text, bg: t.panel } }),
+        );
+        if (m.attachments?.length) result([m.attachments.map((a) => a.name).join(" · ")], { fg: t.muted });
+        continue;
+      }
+      if (m.agent && !["chat", "executor"].includes(m.agent)) add(`[${m.agent}]`, { fg: t.faint });
       if (thinking || m.reasoning) {
         if (thinking) {
-          // Fixed-width activity stays visible even when the provider pauses between chunks.
-          const position = Math.floor(animation.frame / 2) % 10;
-          const sweep = position < 6 ? position : 10 - position;
-          const pulse = Array.from({ length: 6 }, (_, i) => (i === sweep ? "●" : "·")).join("");
-          add(
-            `  ${thinkingSpinner(animation.frame)} Thinking  ${pulse}  ·  ${animation.elapsed}s this turn`,
-            { fg: t.accent, bold: true },
-          );
-          add(`    ctrl+t to ${expanded ? "collapse" : "show"} thoughts`, { fg: t.muted });
-        } else add("  Thought process  ·  ctrl+t to expand", { fg: t.muted });
+          // Activity stays visible even when the provider pauses between chunks.
+          add(`${spinner(animation.frame)} Thinking… (${animation.elapsed}s · esc to interrupt)`, {
+            fg: t.accent,
+            bold: true,
+          });
+          result([`ctrl+t to ${expanded ? "collapse" : "show"} thoughts`], { fg: t.muted });
+        } else add("∴ Thought process (ctrl+t to expand)", { fg: t.muted });
+        // what the model decided while thinking (summarizer), newest last
+        for (const d of (m.decisions ?? []).slice(thinking ? -3 : -6)) result([d], { fg: t.muted });
         if (expanded && m.reasoning)
           for (const part of wrap(m.reasoning.slice(-12000), columns - 2)) add("  " + part, { fg: t.muted });
       }
-      if (m.role === "user") add(m.text, { fg: t.text, bg: t.panel });
-      else rows.push(...markdown(m.text, columns));
-      add("");
+      if (m.text)
+        markdown(m.text, Math.max(1, columns - 2)).forEach((r, i) =>
+          rows.push({ ...r, text: (i === 0 ? "● " : "  ") + r.text }),
+        );
     } else if (item.kind === "tool") {
       const tool = state.tools[item.id];
       if (!tool) continue;
+      if (before !== "tool") gap();
       const color = tool.status === "error" ? t.red : tool.status === "ok" ? t.green : t.accent;
-      add(
-        `${tool.status === "ok" ? "✓" : tool.status === "error" ? "✗" : "◌"} ${tool.name}  ${summarizeArgs(tool.args, Math.max(20, columns - 20))}`,
-        { fg: color },
+      const name = pascal(tool.name);
+      rows.push(
+        row([
+          { text: "● ", style: { fg: color } },
+          { text: name, style: { bold: true } },
+          {
+            text: truncate(
+              `(${summarizeArgs(tool.args, Math.max(10, columns - 4 - name.length))})`,
+              Math.max(4, columns - 2 - name.length),
+            ),
+            style: { fg: t.muted },
+          },
+        ]),
       );
       if (tool.diff) {
         const lines = tool.diff.split("\n");
-        for (const line of lines.slice(0, expanded ? 160 : 8))
-          add("  " + line, {
-            fg: line.startsWith("+") ? t.green : line.startsWith("-") ? t.red : t.muted,
-            bg: t.code,
-          });
-        if (lines.length > (expanded ? 160 : 8))
-          add(`  … ${lines.length - (expanded ? 160 : 8)} more lines · ctrl+t details`, { fg: t.faint });
+        const added = lines.filter((l) => l.startsWith("+") && !l.startsWith("+++")).length;
+        const removed = lines.filter((l) => l.startsWith("-") && !l.startsWith("---")).length;
+        result([`Changed +${added} −${removed}`], { fg: t.muted });
+        const cap = expanded ? 160 : 8;
+        for (const line of lines.slice(0, cap)) {
+          const bg = line.startsWith("+") ? t.diffAdd : line.startsWith("-") ? t.diffDel : undefined;
+          add("     " + line, { fg: line.startsWith("@@") ? t.blue : t.text, bg });
+        }
+        if (lines.length > cap)
+          add(`     … ${lines.length - cap} more lines (ctrl+t to expand)`, { fg: t.faint });
       } else if (tool.output) {
         const lines = tool.output.split("\n");
-        for (const line of lines.slice(0, expanded || tool.status === "error" ? 80 : 1))
-          add("  " + line, { fg: tool.status === "error" ? t.red : t.muted });
-        if (!expanded && lines.length > 1)
-          add(`  +${lines.length - 1} lines · ctrl+t details`, { fg: t.faint });
-      }
+        const cap = expanded || tool.status === "error" ? 80 : 1;
+        result(lines.slice(0, cap), { fg: tool.status === "error" ? t.red : t.muted });
+        if (lines.length > cap)
+          add(`     … +${lines.length - cap} lines (ctrl+t to expand)`, { fg: t.faint });
+      } else if (tool.status !== "ok" && tool.status !== "error") result(["Running…"], { fg: t.faint });
     } else {
       const e = item.event;
+      if (before === "message") gap();
       switch (e.type) {
         case "run.start":
-          if (e.continuedFrom) add("↻ Continuing saved job · existing work retained", { fg: t.accent });
+          if (e.continuedFrom) bullet("Continuing saved job · existing work retained", t.accent);
           break;
         case "phase.start":
-          add(`\n── ${e.phase.toUpperCase()} ${"─".repeat(Math.max(0, columns - e.phase.length - 5))}`, {
-            fg: t.faint,
-          });
           break;
         case "error":
-          add(`✗ ${e.message}`, { fg: t.red });
+          result([e.message], { fg: t.red });
           break;
         case "log":
-          add(`! ${e.message}`, { fg: t.accent });
+          result([e.message], { fg: t.accent });
+          break;
+        case "context.compacted":
+          add(`✻ ${compactionLine(e)}`, { fg: t.faint });
           break;
         case "verify.result":
-          add(`${e.exitCode === 0 ? "✓" : "✗"} ${e.kind}  ${e.command}`, {
-            fg: e.exitCode === 0 ? t.green : t.red,
-          });
-          if (e.exitCode !== 0 || expanded) add(e.output.slice(-6000), { fg: t.muted });
+          bullet(`${e.kind}  ${e.command}`, e.exitCode === 0 ? t.green : t.red);
+          if (e.exitCode !== 0 || expanded) result(e.output.slice(-6000).split("\n"), { fg: t.muted });
           break;
         case "plan.proposed":
-          add("\nPLAN", { fg: MODE_COLORS.Plan, bold: true });
-          rows.push(...markdown(e.markdown, columns));
+          gap();
+          bullet("Plan", t.blue, { fg: t.blue, bold: true });
+          indented(markdown(e.markdown, Math.max(1, columns - 2)));
           break;
         case "plan.decision":
-          add(
-            `Plan ${e.decision === "approve" ? "approved" : e.decision === "edit" ? "edited and approved" : "rejected"}`,
+          result(
+            [
+              `Plan ${e.decision === "approve" ? "approved" : e.decision === "edit" ? "edited and approved" : "rejected"}`,
+            ],
             { fg: t.muted },
           );
           break;
         case "review.findings":
-          add(e.summary || "Review", { fg: MODE_COLORS.Review });
+          gap();
+          bullet(e.summary || "Review", t.accent);
           e.findings.forEach((f) =>
-            add(`${f.severity} · ${f.file || ""} ${f.issue}`, {
+            result([`${f.severity} · ${f.file || ""} ${f.issue}`], {
               fg: f.severity === "blocking" ? t.red : t.muted,
             }),
           );
           break;
         case "preview.ready":
-          add(`↗ Preview ready · ${e.title || e.path}\n  Open this conversation in CDR web to view it.`, {
-            fg: t.green,
-          });
+          bullet(`Preview ready · ${e.title || e.path}`, t.green);
+          result(["Open this conversation in CDR web to view it."], { fg: t.muted });
+          break;
+        case "recreate.started":
+          gap();
+          bullet(`Recreate ${e.url} · run ${e.runId}`, t.accent, { bold: true });
+          break;
+        case "recreate.finished":
+          bullet(
+            `Recreate ${e.status}${e.summary ? ` · ${e.summary}` : ""}`,
+            e.status === "success" ? t.green : e.status === "failed" ? t.red : t.muted,
+          );
+          for (const o of e.outputs) result([`${o.target}: ${o.path}`], { fg: t.muted });
+          if (e.comparePath) result([`compare: ${e.comparePath}`], { fg: t.muted });
           break;
         case "agent.spawned":
-          add(
-            `◆ subagent ${e.role} [${e.isolation}${e.branch ? ` · ${e.branch}` : ""}] ${e.task.split("\n")[0]}`,
-            {
-              fg: t.accent,
-            },
+          bullet(
+            `Subagent ${e.role} [${e.isolation}${e.branch ? ` · ${e.branch}` : ""}] ${e.task.split("\n")[0]}`,
+            t.accent,
           );
           break;
         case "agent.finished":
-          add(`◆ subagent ${e.status}${e.summary ? ` · ${e.summary.split("\n")[0]}` : ""}`, {
-            fg: e.status === "success" ? t.green : e.status === "failed" ? t.red : t.muted,
-          });
-          if (e.diffStat && expanded) add(e.diffStat, { fg: t.muted });
+          bullet(
+            `Subagent ${e.status}${e.summary ? ` · ${e.summary.split("\n")[0]}` : ""}`,
+            e.status === "success" ? t.green : e.status === "failed" ? t.red : t.muted,
+          );
+          if (e.diffStat && expanded) result(e.diffStat.split("\n"), { fg: t.muted });
           break;
         case "goal.started":
-          add(`◎ Goal ${e.title} · round ${e.round} · ${e.branch}`, { fg: t.accent, bold: true });
+          gap();
+          bullet(`Goal ${e.title} · round ${e.round} · ${e.branch}`, t.accent, { bold: true });
           break;
         case "goal.checkpoint":
-          add(`◎ Checkpoint ${e.commit.slice(0, 10)} · ${e.step}`, { fg: t.green });
+          bullet(`Checkpoint ${e.commit.slice(0, 10)} · ${e.step}`, t.green);
           e.criteria.forEach((x) =>
-            add(`  ${x.met ? "✓" : "✗"} ${x.criterion}`, { fg: x.met ? t.green : t.red }),
+            result([`${x.met ? "✓" : "✗"} ${x.criterion}`], { fg: x.met ? t.green : t.red }),
           );
           break;
         case "goal.paused":
-          add(`◎ Goal paused (${e.reason})${e.detail ? ` · ${e.detail}` : ""}`, { fg: t.accent });
+          bullet(`Goal paused (${e.reason})${e.detail ? ` · ${e.detail}` : ""}`, t.accent);
           break;
         case "goal.finished":
-          add(`◎ Goal ${e.status} · ${e.branch}`, { fg: e.status === "success" ? t.green : t.red });
+          bullet(`Goal ${e.status} · ${e.branch}`, e.status === "success" ? t.green : t.red);
           break;
         case "done":
-          add(`\n${e.status === "success" ? "✓" : e.status === "cancelled" ? "■" : "✗"} ${e.status}`, {
-            fg: e.status === "success" ? t.green : e.status === "failed" ? t.red : t.muted,
-          });
-          if (e.status !== "success")
-            add("  /continue resumes this job from saved progress", { fg: t.muted });
+          if (e.status === "cancelled")
+            result(["Interrupted by user · /continue resumes this job from saved progress"], { fg: t.muted });
+          else if (e.status !== "success") {
+            gap();
+            bullet(`Run ${e.status}`, t.red, { fg: t.red });
+            result(["/continue resumes this job from saved progress"], { fg: t.muted });
+          }
           break;
       }
     }
@@ -251,259 +268,167 @@ export function transcript(
   return rows;
 }
 
-function drawRows(
-  c: Canvas,
-  rows: Row[],
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  offset: number,
-  bottom = true,
-) {
-  const start = bottom
-    ? Math.max(0, rows.length - h - offset)
-    : Math.min(offset, Math.max(0, rows.length - h));
-  rows.slice(start, start + h).forEach((row, i) => {
-    if (row.style?.bg) c.fill(x, y + i, w, 1, row.style.bg);
-    c.text(x, y + i, row.text, row.style, w);
-  });
-}
-function border(c: Canvas, x: number, y: number, w: number, h: number) {
-  c.fill(x, y, w, h, t.panel);
-  c.text(x, y, "╭" + "─".repeat(Math.max(0, w - 2)) + "╮", { fg: t.border });
-  c.text(x, y + h - 1, "╰" + "─".repeat(Math.max(0, w - 2)) + "╯", { fg: t.border });
-  for (let row = y + 1; row < y + h - 1; row++) {
-    c.text(x, row, "│", { fg: t.border });
-    c.text(x + w - 1, row, "│", { fg: t.border });
-  }
+/** The welcome box: the first rows of the conversation, so it scrolls away like any other output. */
+function banner(v: View, columns: number): Row[] {
+  const w = Math.min(columns, 64),
+    inner = Math.max(1, w - 4),
+    b: Style = { fg: t.border };
+  let project = v.project;
+  const home = homedir();
+  if (project.startsWith(home + "/")) project = "~" + project.slice(home.length);
+  const model = v.model.split("/").slice(1).join("/") || v.model;
+  const line = (parts: Part[]): Row => {
+    const used = parts.reduce((n, p) => n + width(p.text), 0);
+    return row([
+      { text: "│ ", style: b },
+      ...parts,
+      { text: " ".repeat(Math.max(0, inner - used)) + " │", style: b },
+    ]);
+  };
+  return [
+    { text: "╭" + "─".repeat(w - 2) + "╮", style: b },
+    line([
+      { text: "✻ ", style: { fg: t.accent } },
+      { text: "Welcome to CDR", style: { bold: true } },
+      { text: truncate(`  ${v.version}`, Math.max(0, inner - 16)), style: { fg: t.faint } },
+    ]),
+    line([{ text: truncate(`${model} · ${v.mode} mode`, inner), style: { fg: t.muted } }]),
+    line([{ text: truncate(project + (v.branch ? ` · ${v.branch}` : ""), inner), style: { fg: t.faint } }]),
+    { text: "╰" + "─".repeat(w - 2) + "╯", style: b },
+    { text: "" },
+  ];
 }
 
+/** Draw the screen in the chosen design (the flowing `default` unless `v.design` says `classic`). */
 export function renderView(v: View, columns: number, rows: number): Canvas {
+  return v.design === "classic" ? renderClassic(v, columns, rows) : renderDefault(v, columns, rows);
+}
+
+/** Columns the conversation wraps to in the given design. */
+export function designContentWidth(design: TerminalDesign | undefined, columns: number, sidebar = false) {
+  return design === "classic" ? classicContentWidth(columns, sidebar) : contentWidth(columns, sidebar);
+}
+/** Conversation rows before the scrollback limit is applied (the banner only exists in `default`). */
+export function designScrollRows(
+  design: TerminalDesign | undefined,
+  state: SessionState,
+  columns: number,
+  sidebar: boolean,
+  expanded: boolean,
+) {
+  const width = designContentWidth(design, columns, sidebar);
+  return design === "classic"
+    ? classicTranscript(state, width, expanded).length
+    : BANNER_ROWS + transcript(state, width, expanded).length;
+}
+
+function renderDefault(v: View, columns: number, rows: number): Canvas {
   const c = new Canvas(Math.max(12, columns), Math.max(6, rows));
-  const modeColor = MODE_COLORS[v.mode] ?? t.accent;
   columns = c.columns;
   rows = c.rows;
   if (columns < 36 || rows < 12) {
-    c.center(1, "CDR", { fg: modeColor, bold: true });
+    c.center(1, "CDR", { fg: t.accent, bold: true });
     c.center(3, truncate("Resize to 36 × 12 or larger", columns));
     c.center(5, truncate("Ctrl+C / Ctrl+D to exit", columns), { fg: t.muted });
     return c;
   }
   const home = !v.state.timeline.some((i) => i.kind === "message");
-  const side = !home && v.sidebar && columns >= 120 ? 29 : 0;
+  const side = sidebarWidth(columns, v.sidebar);
   const area = columns - side;
-  const boxW = Math.min(home ? 78 : 104, area - 6);
-  const x = Math.floor((area - boxW) / 2);
-  const layout = v.editor.layout(boxW - 5);
-  const inputH = Math.max(2, Math.min(layout.lines.length, Math.max(2, Math.min(6, Math.floor(rows / 4)))));
-  const boxH = inputH + 3;
-  let inputY = rows - boxH - 3;
-  if (home && rows >= 24) {
-    const logoY = Math.max(2, Math.floor((rows - 17) / 2));
-    if (columns >= 48)
-      WORDMARK.forEach((line, i) => c.center(logoY + i, line, { fg: i < 2 ? t.text : modeColor }));
-    else c.center(logoY + 2, "C D R", { fg: modeColor, bold: true });
-    c.center(logoY + 7, truncate("Code. Build. Ship.", columns - 4), { fg: t.muted });
-    inputY = Math.min(rows - boxH - 4, logoY + 10);
-  } else if (home) c.center(1, "▸  CDR", { fg: modeColor, bold: true });
-  else {
-    c.text(2, 1, "▸  CDR", { fg: modeColor, bold: true });
-    c.text(
-      15,
-      1,
-      truncate(
-        v.state.title ||
-          Object.values(v.state.messages).find((m) => m.role === "user")?.text ||
-          "A new conversation",
-        area - 37,
-      ),
-      { fg: t.text },
+  const cw = contentWidth(columns, v.sidebar);
+  const x = 1;
+  const layout = v.editor.layout(Math.max(1, cw - 2));
+  const inputH = Math.max(1, Math.min(layout.lines.length, Math.max(1, Math.min(6, Math.floor(rows / 4)))));
+  // Prompt block: rule, input, rule, status line. It sits at the bottom, or under the banner when empty.
+  let ruleY = rows - inputH - 3;
+  if (home) ruleY = Math.min(ruleY, BANNER_ROWS + 4);
+  const thinking = isThinking(v.state);
+  const lines: Row[] = banner(v, cw);
+  if (home)
+    lines.push(
+      { text: "Tips for getting started:", style: { fg: t.muted } },
+      { text: "  · Describe what you want to build or change, then press enter", style: { fg: t.faint } },
+      { text: "  · / for commands · tab switches mode · ctrl+o picks a model", style: { fg: t.faint } },
     );
-    const status = v.dialog
-      ? "Waiting for you"
-      : v.busy
-        ? `${spin[v.frame % spin.length]} ${v.state.phase || "working"} ${v.elapsed}s`
-        : "ready";
-    c.text(Math.max(16, area - width(status) - 2), 1, status, { fg: v.busy ? modeColor : t.muted });
-    c.text(2, 2, "─".repeat(area - 4), { fg: t.border });
-    const lines = transcript(v.state, boxW - 2, v.expanded, { frame: v.frame, elapsed: v.elapsed });
-    drawRows(c, lines, x + 1, 3, boxW - 2, Math.max(1, inputY - 4), v.scroll);
-    if (v.scroll) c.text(x + boxW - 24, inputY - 1, "↑ scrollback · End latest", { fg: modeColor });
-  }
-  c.fill(x, inputY, boxW, boxH, t.panel);
-  for (let y = inputY; y < inputY + boxH; y++) c.text(x, y, "▎", { fg: modeColor });
-  const start = Math.max(0, layout.y - inputH + 1);
-  if (v.editor.text)
-    layout.lines
-      .slice(start, start + inputH)
-      .forEach((line, i) => c.text(x + 2, inputY + 1 + i, line, {}, boxW - 4));
-  else
-    c.text(
-      x + 2,
-      inputY + 1,
-      truncate(
-        v.busy
-          ? `${thinkingSpinner(v.frame)} ${Object.values(v.state.messages).some((m) => m.role === "assistant" && m.streaming && !m.text) ? "Thinking" : "Working"}…  ${v.elapsed}s · Esc to cancel`
-          : home
-            ? "What would you like to build?"
-            : "Continue the conversation…",
-        boxW - 4,
-      ),
-      { fg: v.busy ? modeColor : t.faint },
-    );
-  const model = v.model.split("/").slice(1).join("/") || v.model;
-  const label = `${v.mode}  ·  ${model}`;
-  c.text(x + 2, inputY + boxH - 1, truncate(label, boxW - 20), { fg: modeColor });
-  const perm = v.permission === "yolo" ? "Full access" : v.permission === "auto" ? "Auto" : "Ask";
-  c.text(x + boxW - width(perm) - 2, inputY + boxH - 1, perm, {
-    fg: v.permission === "yolo" ? t.red : t.muted,
-  });
-  const hints = home
-    ? "tab mode   ctrl+p commands   ctrl+o models"
-    : "enter send   ctrl+j newline   pgup scroll   ctrl+p commands";
-  c.text(x + Math.max(0, boxW - width(hints)), inputY + boxH + 1, truncate(hints, boxW), { fg: t.muted });
-  if (v.attachments.length || v.notice)
-    c.text(x, inputY - 1, truncate(v.notice || `↳ ${v.attachments.join(" · ")}`, boxW), {
+  else lines.push(...transcript(v.state, cw, v.expanded, { frame: v.frame, elapsed: v.elapsed }));
+  drawRows(c, lines, x, 0, cw, Math.max(1, ruleY - 1), v.scroll);
+  // One live line above the prompt: notice, attachments or what the agent is doing.
+  const indicator = v.scroll ? "↑ scrollback · End latest" : "";
+  if (v.notice || v.attachments.length)
+    c.text(x, ruleY - 1, truncate(v.notice || `⎿  ${v.attachments.join(" · ")}`, cw - width(indicator) - 1), {
       fg: v.notice ? t.accent : t.blue,
     });
-  let project = v.project;
-  const homeDir = homedir();
-  if (project.startsWith(homeDir + "/")) project = "~" + project.slice(homeDir.length);
-  c.text(2, rows - 1, truncate(project + (v.branch ? `  : ${v.branch}` : ""), columns - 24), { fg: t.faint });
-  c.text(columns - width(`CDR ${v.version}`) - 2, rows - 1, `CDR ${v.version}`, { fg: t.faint });
-  if (!v.busy || v.editor.text) c.cursor = { x: x + 2 + layout.x, y: inputY + 1 + layout.y - start };
-  if (side) {
-    for (let y = 1; y < rows - 2; y++) c.text(area, y, "│", { fg: t.border });
-    const sx = area + 3,
-      sw = side - 5;
-    c.text(sx, 2, "WORKSPACE", { fg: t.muted, bold: true });
-    c.text(sx, 4, truncate(basename(v.project), sw));
-    c.text(sx, 5, truncate(v.branch || "No Git branch", sw), { fg: t.faint });
-    c.text(sx, 8, "MODEL", { fg: t.muted });
-    wrap(v.model, sw)
-      .slice(0, 2)
-      .forEach((line, i) => c.text(sx, 10 + i, line, { fg: t.accent }));
-    c.text(sx, 14, "SESSION", { fg: t.muted });
-    c.text(
-      sx,
-      16,
-      `${v.state.usage.inputTokens.toLocaleString()} in · ${v.state.usage.outputTokens.toLocaleString()} out`,
-      { fg: t.text },
-      sw,
+  else if (v.busy && (!thinking || v.scroll)) {
+    const working = Object.values(v.state.tools).some(
+      (tool) => tool.status !== "ok" && tool.status !== "error",
     );
-    c.text(sx, 17, v.state.usage.cost ? `$${v.state.usage.cost.toFixed(4)}` : "ctrl+r switch session", {
-      fg: t.faint,
-    });
-    if (rows > 29 && v.state.todos.length) {
-      c.text(sx, 21, "TASKS", { fg: t.muted });
-      v.state.todos
-        .slice(0, rows - 27)
-        .forEach((todo, i) =>
-          c.text(
-            sx,
-            23 + i,
-            truncate(
-              `${todo.status === "done" ? "✓" : todo.status === "in_progress" ? "›" : "·"} ${todo.text}`,
-              sw,
-            ),
-            { fg: todo.status === "done" ? t.green : t.text },
-          ),
-        );
-    }
-  }
-  if (v.picker) {
-    const p = v.picker,
-      w = Math.min(76, columns - 6),
-      h = Math.min(rows - 4, 17),
-      left = Math.floor((columns - w) / 2),
-      top = Math.max(1, Math.floor((rows - h) / 3));
-    border(c, left, top, w, h);
-    c.text(left + 2, top + 1, p.title, { fg: t.accent, bold: true });
-    c.text(left + 2, top + 3, truncate(p.query.text || "Search…", w - 4), {
-      fg: p.query.text ? t.text : t.faint,
-    });
-    const count = h - 7,
-      offset = Math.max(0, p.selected - count + 1);
-    p.items.slice(offset, offset + count).forEach((item, i) => {
-      const selected = i + offset === p.selected;
-      if (selected) c.fill(left + 1, top + 5 + i, w - 2, 1, t.selected);
-      c.text(
-        left + 2,
-        top + 5 + i,
-        truncate(`${selected ? "›" : " "} ${item.label}`, Math.floor((w - 4) * 0.6)),
-        { fg: item.disabled ? t.faint : selected ? t.accent : t.text },
-      );
-      if (w > 55 && item.detail)
-        c.text(left + Math.floor(w * 0.62), top + 5 + i, truncate(item.detail, Math.floor(w * 0.35)), {
-          fg: t.muted,
-        });
-    });
-    if (!p.items.length) c.text(left + 2, top + 5, "No matches", { fg: t.muted });
-    c.text(left + 2, top + h - 2, truncate(p.hint || "↑↓ choose   enter select   esc close", w - 4), {
-      fg: t.faint,
-    });
-    c.cursor = { x: left + 2 + Math.min(width(p.query.text), w - 5), y: top + 3 };
-  }
-  if (v.document || v.dialog) {
-    const d: Dialog = v.dialog || {
-      title: v.document!.title,
-      body: v.document!.text,
-      scroll: v.document!.scroll,
-      actions: [],
-      selected: 0,
-    };
-    const w = Math.min(100, columns - 4);
-    const stacked = w < 70 && d.actions.length > 1;
-    const actionRows = stacked ? d.actions.length : 1;
-    const editH = d.editor ? Math.min(6, Math.max(2, d.editor.layout(w - 6).lines.length)) : 0;
-    const bodyRows = markdown(d.body ?? v.document?.text ?? "", w - 6);
-    const h = Math.min(rows - 4, Math.max(12, bodyRows.length + 6 + editH + actionRows)),
-      left = Math.floor((columns - w) / 2),
-      top = Math.max(1, Math.floor((rows - h) / 2));
-    border(c, left, top, w, h);
-    c.text(left + 2, top + 1, truncate(d.title, w - 4), {
-      fg: v.dialog?.warning ? t.red : t.accent,
-      bold: true,
-    });
-    drawRows(c, bodyRows, left + 3, top + 3, w - 6, Math.max(1, h - 6 - editH - actionRows), d.scroll, false);
-    c.cursor = undefined;
-    if (d.editor) {
-      const el = d.editor.layout(w - 6),
-        ey = top + h - editH - 3 - actionRows,
-        start = Math.max(0, el.y - editH + 1);
-      c.fill(left + 2, ey, w - 4, editH, t.bg);
-      el.lines.slice(start, start + editH).forEach((line, i) => c.text(left + 3, ey + i, line));
-      c.cursor = { x: left + 3 + el.x, y: ey + el.y - start };
-    }
-    let ax = left + 3;
-    d.actions.forEach((action, i) => {
-      const label = `${i + 1} ${action}`;
-      c.text(
-        stacked ? left + 3 : ax,
-        top + h - 2 - actionRows + (stacked ? i : 0),
-        label,
-        {
-          fg: i === d.selected ? t.bg : t.muted,
-          bg: i === d.selected ? t.accent : t.panel,
-          bold: i === d.selected,
-        },
-        stacked ? w - 6 : left + w - 2 - ax,
-      );
-      ax += width(label) + 3;
-    });
+    const detail = [`${v.elapsed}s`, v.state.phase, "esc to interrupt"].filter(Boolean).join(" · ");
     c.text(
-      left + 3,
-      top + h - 2,
+      x,
+      ruleY - 1,
       truncate(
-        v.dialog?.hint ||
-          (v.dialog
-            ? "←→ select · Enter confirm · PgUp/PgDn read · Esc cancel"
-            : "PgUp/PgDn scroll · Esc close"),
-        w - 6,
+        `${spinner(v.frame)} ${working ? "Working" : "Thinking"}… (${detail})`,
+        cw - width(indicator) - 1,
       ),
-      { fg: t.faint },
+      { fg: t.accent, bold: true },
     );
   }
+  if (indicator) c.text(Math.max(x, area - 1 - width(indicator)), ruleY - 1, indicator, { fg: t.accent });
+  c.text(0, ruleY, "─".repeat(area), { fg: t.border });
+  c.text(0, ruleY + inputH + 1, "─".repeat(area), { fg: t.border });
+  const start = Math.max(0, layout.y - inputH + 1);
+  layout.lines.slice(start, start + inputH).forEach((line, i) => {
+    if (i === 0 && start === 0) c.text(x, ruleY + 1, ">", { fg: t.accent, bold: true });
+    c.text(x + 2, ruleY + 1 + i, line, {}, cw - 2);
+  });
+  if (!v.editor.text && !v.busy)
+    c.text(
+      x + 2,
+      ruleY + 1,
+      truncate(home ? "What would you like to build?" : "Continue the conversation…", cw - 2),
+      {
+        fg: t.faint,
+      },
+    );
+  // Single status line: permission and mode on the left, model and usage on the right.
+  const statusY = ruleY + inputH + 2;
+  const perm =
+    v.permission === "yolo"
+      ? "⏵⏵ full access"
+      : v.permission === "auto"
+        ? "⏵⏵ auto mode on"
+        : "ask before changes";
+  const left = v.dialog
+    ? "Waiting for you"
+    : `${perm} · ${v.mode}${!v.busy && !v.editor.text ? " (tab to switch)" : ""}`;
+  const usage = v.state.usage;
+  const tokens = usage.inputTokens + usage.outputTokens;
+  const balance = formatBalance(v.balance)[0]?.text;
+  const model = v.model.split("/").slice(1).join("/") || v.model;
+  const right = truncate(
+    [
+      model,
+      tokens ? `${compact(tokens)} tokens` : "",
+      usage.cost ? `$${usage.cost.toFixed(2)}` : "",
+      balance ? `balance ${balance}` : "",
+    ]
+      .filter(Boolean)
+      .join(" · "),
+    Math.max(10, Math.floor(area / 2)),
+  );
+  const leftColor = v.dialog
+    ? t.accent
+    : v.permission === "yolo"
+      ? t.red
+      : v.mode === "Plan"
+        ? t.blue
+        : v.permission === "auto"
+          ? t.accent
+          : t.faint;
+  c.text(x, statusY, truncate(left, Math.max(8, area - width(right) - 5)), { fg: leftColor });
+  c.text(Math.max(x, area - 1 - width(right)), statusY, right, { fg: t.faint });
+  if (!v.busy || v.editor.text) c.cursor = { x: x + 2 + layout.x, y: ruleY + 1 + layout.y - start };
+  if (side) drawSidebar(c, v, t, area, side, rows, [0, rows]);
+  drawOverlays(c, v, t, HEADING);
   return c;
 }

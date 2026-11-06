@@ -4,7 +4,7 @@ import type { HarnessConfig } from "@harness/protocol";
 import { PROJECT_CONFIG_FILES } from "./config.js";
 import { detectStack } from "./verify.js";
 
-/** `harness init`: write harness.config.json and an AGENTS.md template based on the detected stack. */
+/** `cdr init`: write the project config and an AGENTS.md template based on the detected stack. */
 export function initProject(
   root: string,
   opts: { force?: boolean; executor?: string; configName?: string } = {},

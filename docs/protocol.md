@@ -5,43 +5,70 @@ Types: [`packages/protocol/src/index.ts`](../packages/protocol/src/index.ts). JS
 ## Event envelope
 
 ```json
-{ "v": 1, "seq": 42, "ts": "2026-11-04T15:00:00.000Z", "sessionId": "20261104150000-abc123", "type": "tool.call", "...": "..." }
+{
+  "v": 1,
+  "seq": 42,
+  "ts": "2026-11-04T15:00:00.000Z",
+  "sessionId": "20261104150000-abc123",
+  "type": "tool.call",
+  "...": "..."
+}
 ```
 
 `seq` is monotonic per session and is the SSE `id`, so `Last-Event-ID` / `?after=<seq>` resumes a stream without gaps.
 
 ## Event types
 
-| Type | Meaning |
-|---|---|
-| `session.created` | projectPath, workflow, title, models, permissionMode, `parentSessionId` (subagent), `goalId` (goal run) |
-| `session.settings` | model / permission / title changes (re-applied on resume) |
-| `preview.ready` | the agent called `set_preview` (path of an HTML file in the project) |
-| `run.start` | a workflow run started (task, workflow) |
-| `phase.start` / `phase.end` | plan, execute, verify, review, finish (+ round, ok) |
-| `message.start` / `message.delta` / `message.end` | streamed assistant text (`role: "user"` for user input; `message.end.text` is the full text) |
-| `reasoning.delta` | reasoning tokens (DeepSeek reasoner, Claude thinking, Ollama thinking) |
-| `tool.call` / `tool.result` | id, name, args / ok, output (truncated, redacted), diff |
-| `permission.request` / `permission.resolved` | id, tool, args, risk / decision (`auto` when auto-approved) |
-| `question` / `question.answered` | `ask_user` |
-| `plan.proposed` / `plan.decision` | plan gate (approve, reject + feedback → re-plan, edit + markdown) |
-| `todo.update` | the agent's checklist |
-| `verify.result` | kind, command, exitCode, output, attempt |
-| `review.findings` | `{severity, file, line, issue, suggestion}[]` |
-| `usage` | input/output tokens, cost (if prices configured), model |
-| `memory.saved` | fact saved via `remember` |
-| `skill.activated` | skill injected because its triggers matched the task (`name`, `description`, `source`, `content`, `files`) |
-| `status` | idle, running, waiting, done, failed, cancelled |
-| `log` / `error` | diagnostics |
-| `done` | success, failed, cancelled + summary, reportPath |
-| `context.append` / `context.replace` | internal (resume); hidden from SSE by default |
-| `agent.spawned` | (parent log) a subagent started: agentId, child `sessionId`, `parentToolCallId`, task, role, isolation `shared`\|`worktree`, worktree?, branch? |
-| `agent.status` | (parent log) child status change, phase change, or usage update (at most once per second): status, phase?, usage? |
-| `agent.finished` | (parent log) status (success/failed/cancelled), summary (child's final message), diffStat? (worktree children) |
-| `goal.started` | (goal session) a round started: goalId, title, worktree, branch, round |
-| `goal.checkpoint` | (goal session) checkpoint commit after a successful round: commit, step (`round N`), summary, criteria `{criterion, met, evidence?}[]` |
-| `goal.paused` | (goal session) reason `budget` (incl. maxRounds), `permission` (waiting for an approval in `ask` mode; the run continues once answered), `user`, `error`; detail? |
-| `goal.finished` | (goal session) status, branch, summary, prUrl? (never set by the harness; push/PR happen outside) |
+| Type                                              | Meaning                                                                                                                                                                                                                                          |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `session.created`                                 | projectPath, workflow, title, models, permissionMode, `parentSessionId` (subagent), `goalId` (goal run)                                                                                                                                          |
+| `session.settings`                                | model / permission / title changes (re-applied on resume)                                                                                                                                                                                        |
+| `preview.ready`                                   | the agent called `set_preview` (path of an HTML file in the project)                                                                                                                                                                             |
+| `checkpoint.created`                              | workspace snapshot `id` (`reason: "turn"` before each turn's agent work, `"restore"` before a restore), `commit`, `files`; turn checkpoints carry the `messageId` of their user message (emitted right after it; older logs emit it just before) |
+| `checkpoint.restored`                             | files were reset to checkpoint `id`; `backupId` holds the state before (restore it to undo), `files` (≤200 `{ path, status }`), `changed`                                                                                                        |
+| `checkpoint.failed`                               | a snapshot could not be taken (`reason`, `message`); the turn still runs                                                                                                                                                                         |
+| `run.start`                                       | a workflow run started (task, workflow)                                                                                                                                                                                                          |
+| `phase.start` / `phase.end`                       | plan, execute, verify, review, finish (+ round, ok)                                                                                                                                                                                              |
+| `message.start` / `message.delta` / `message.end` | streamed assistant text (`role: "user"` for user input; `message.end.text` is the full text; user messages carry `attachments` and the selected `skills`)                                                                                        |
+| `reasoning.delta`                                 | reasoning tokens (DeepSeek reasoner, Claude thinking, Ollama thinking)                                                                                                                                                                           |
+| `tool.call` / `tool.result`                       | id, name, args / ok, output (truncated, redacted), diff                                                                                                                                                                                          |
+| `permission.request` / `permission.resolved`      | id, tool, args, risk / decision (`auto` when auto-approved)                                                                                                                                                                                      |
+| `question` / `question.answered`                  | `ask_user`                                                                                                                                                                                                                                       |
+| `plan.proposed` / `plan.decision`                 | plan gate (approve, reject + feedback → re-plan, edit + markdown)                                                                                                                                                                                |
+| `todo.update`                                     | the agent's checklist                                                                                                                                                                                                                            |
+| `verify.result`                                   | kind, command, exitCode, output, attempt                                                                                                                                                                                                         |
+| `review.findings`                                 | `{severity, file, line, issue, suggestion}[]`                                                                                                                                                                                                    |
+| `usage`                                           | input/output tokens, cost (if prices configured), model                                                                                                                                                                                          |
+| `memory.saved`                                    | fact saved via `remember`; `replaced` names the fact it superseded                                                                                                                                                                               |
+| `memory.removed`                                  | fact removed via `forget`                                                                                                                                                                                                                        |
+| `skill.activated`                                 | skill injected because its triggers matched the task or the user selected it (`name`, `description`, `source`, `reason`: `matched`\|`selected`, `content`, `files`)                                                                              |
+| `status`                                          | idle, running, waiting, done, failed, cancelled                                                                                                                                                                                                  |
+| `log` / `error`                                   | diagnostics                                                                                                                                                                                                                                      |
+| `done`                                            | success, failed, cancelled + summary, reportPath                                                                                                                                                                                                 |
+| `context.append` / `context.replace`              | internal (resume); hidden from SSE by default                                                                                                                                                                                                    |
+| `context.compacted`                               | an agent's context was shrunk: `method` (`prune` / `brief`), estimated `tokensBefore` / `tokensAfter`, running `count`, optional `historyPath` of the removed raw history                                                                        |
+| `agent.spawned`                                   | (parent log) a subagent started: agentId, child `sessionId`, `parentToolCallId`, task, role, isolation `shared`\|`worktree`, worktree?, branch?                                                                                                  |
+| `agent.status`                                    | (parent log) child status change, phase change, or usage update (at most once per second): status, phase?, usage?                                                                                                                                |
+| `agent.finished`                                  | (parent log) status (success/failed/cancelled), summary (child's final message), diffStat? (worktree children)                                                                                                                                   |
+| `goal.started`                                    | (goal session) a round started: goalId, title, worktree, branch, round                                                                                                                                                                           |
+| `goal.checkpoint`                                 | (goal session) checkpoint commit after a successful round: commit, step (`round N`), summary, criteria `{criterion, met, evidence?}[]`                                                                                                           |
+| `goal.paused`                                     | (goal session) reason `budget` (incl. maxRounds), `permission` (waiting for an approval in `ask` mode; the run continues once answered), `user`, `error`; detail?                                                                                |
+| `goal.finished`                                   | (goal session) status, branch, summary, prUrl? (never set by the harness; push/PR happen outside)                                                                                                                                                |
+
+### Recreate events
+
+A 1:1 recreation (`cdr recreate`, `POST /sessions/:id/recreate`, the `recreate_*` tools; see [recreate.md](recreate.md)) reports each step as a `recreate.*` event, all keyed by `runId`. A run spans several tool calls; clients merge them by run id.
+
+| Type                  | Fields                                                                                                                                                                                                                      |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `recreate.started`    | `runId`, `url` (on a resume: the run's stored URL), `widths`, `targets`, `dir` (run folder relative to the project), `consent?` (only when given earlier: a resumed run; a new run's consent arrives as `recreate.consent`) |
+| `recreate.consent`    | `runId`, `url`, `consent: { by: "user"\|"auto", at, mode: "ask"\|"auto"\|"yolo"\|"yes" }` (`auto` for yolo, `--yes`, and sessions that auto-approve permissions)                                                            |
+| `recreate.stage`      | `runId`, `stage`, `status` (`running`/`done`/`failed`/`skipped`), `ms?`, `detail?`, `skipped?`                                                                                                                              |
+| `recreate.section`    | `runId`, `index`, `total`, `id`, `kind`, `label`, `status` (`building`/`checking`/`ok`/`below-threshold`/`repaired`), `pixel?`, `text?`                                                                                     |
+| `recreate.shot`       | `runId`, `kind` (`peek`: the first screen right after load / `live`: a full-page reference shot), `width`, `height`, `path` (image in the run folder, relative to the project root)                                         |
+| `recreate.measured`   | `runId`, `target`, `widths` (pixel, text, height, hscroll per width), `gates`, `comparePath?`                                                                                                                               |
+| `recreate.components` | `runId`, `sets`, `lint: { pass, issues }`                                                                                                                                                                                   |
+| `recreate.finished`   | `runId`, `status`, `outputs: { target, path }[]`, `comparePath?`, `summary?`                                                                                                                                                |
 
 A child session has its own full log; answer its `permission.request`/`question` events through the child's session id (`POST /sessions/<childId>/permissions/:reqId`). While a child waits, the parent's `agent.status` shows `waiting`.
 
@@ -49,43 +76,53 @@ A child session has its own full log; answer its `permission.request`/`question`
 
 All endpoints except `/health` require `Authorization: Bearer <token>` (or `?token=`).
 
-| Method | Path | Body / query | Response |
-|---|---|---|---|
-| GET | `/health` | | `{ ok, version, sessions }` |
-| GET | `/models` | `?projectPath=` | `{ models, providers, workflows }` |
-| POST | `/sessions` | `{ projectPath, workflow?, models?, permissionMode?, title? }` | `SessionInfo` (201) |
-| GET | `/sessions` | `?parent=<id>` (only direct subagents of that session) | `{ sessions }` |
-| GET | `/sessions/:id/tree` | | `{ session, children: [{ session, children }…] }` (subagents, recursive) |
-| GET | `/sessions/:id` | `?events=false` | `SessionInfo + { pending, todos, events }` |
-| POST | `/sessions/:id/messages` | `{ text, mode?: "chat"\|"task", workflow? }` | 202; 409 if running |
-| GET | `/sessions/:id/events` | `Last-Event-ID` or `?after=`, `?internal=true` | SSE stream (`event: <type>`, `id: <seq>`) |
-| POST | `/sessions/:id/permissions/:reqId` | `{ decision: "allow"\|"deny"\|"always" }` | `{ ok }` |
-| POST | `/sessions/:id/answers/:qId` | `{ answer }` | `{ ok }` |
-| POST | `/sessions/:id/plans/:planId` | `{ decision: "approve"\|"reject"\|"edit", markdown?, feedback? }` | `{ ok }` |
-| POST | `/sessions/:id/cancel` | | `{ ok }` |
-| GET | `/sessions/:id/files` | `?path=` | `{ files }` or `{ path, content }` |
-| GET | `/sessions/:id/diff` | | `{ diff }` (git working tree vs HEAD + untracked) |
-| GET | `/sessions/:id/raw` | `?path=` | file bytes (e.g. image attachments) |
-| POST | `/sessions/:id/settings` | `{ models?, permissionMode?, title? }` | `SessionInfo` (recorded as `session.settings`) |
-| DELETE | `/sessions/:id` | | `{ ok }` (409 while running) |
-| GET | `/preview/<id>~<sig>/<path>` | | project files for the live preview; authorised by the HMAC-signed path (no token), `previewBase` comes from `GET /sessions/:id` |
-| POST | `/commit-message` | `{ projectPath, model? }` | `{ message, scope: "staged"\|"all", model }`: a commit message for the staged changes (or all changes when none are staged); 400 when there are no changes |
-| GET | `/browse` | `?path=` | `{ path, parent, home, dirs[] }` – folder picker, limited to `allowedRoots` or the home dir |
-| GET | `/models` | `?remote=true` | `{ available: { provider: { models, error? } } }` |
-| GET | `/goals` | `?repo=` | `{ goals: GoalInfo[] }` (every repo in `~/.harness/goals-index.json`, filtered by `allowedRoots`) |
-| POST | `/goals` | `CreateGoalRequest` (`GoalDef` without `id`; `title`, `repo` required) | `GoalInfo` (201), status `draft` or `scheduled` |
-| GET | `/goals/:id` | | `GoalInfo` |
-| PUT | `/goals/:id` | `UpdateGoalRequest` (any `GoalDef` field except `id`, `repo`) | `GoalInfo`; 409 while running or when done/discarded |
-| POST | `/goals/:id/run` | | `GoalInfo` (202, status `running`, `sessionId` set); runs in the background |
-| POST | `/goals/:id/pause` | | `{ ok, wasRunning }` (cancels the goal's session; status `needs-attention`) |
-| POST | `/goals/:id/discard` | | `GoalInfo` (worktree and branch removed, status `discarded`) |
-| POST | `/goals/:id/merge` | | `GoalInfo` (status `done`); 409 `{ error, conflicts? }` on merge conflict |
-| POST | `/goals/:id/changes` | `{ feedback }` | `GoalInfo` (202): another run with the feedback |
-| DELETE | `/goals/:id` | | `{ ok }` (removes the goal file and its worktree, keeps the branch) |
+| Method | Path                                      | Body / query                                                                   | Response                                                                                                                                                                                                                              |
+| ------ | ----------------------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/health`                                 |                                                                                | `{ ok, version, sessions }`                                                                                                                                                                                                           |
+| GET    | `/models`                                 | `?projectPath=`                                                                | `{ models, providers, workflows }`                                                                                                                                                                                                    |
+| POST   | `/sessions`                               | `{ projectPath, workflow?, models?, permissionMode?, title? }`                 | `SessionInfo` (201)                                                                                                                                                                                                                   |
+| GET    | `/sessions`                               | `?parent=<id>` (only direct subagents of that session)                         | `{ sessions }`                                                                                                                                                                                                                        |
+| GET    | `/sessions/:id/tree`                      |                                                                                | `{ session, children: [{ session, children }…] }` (subagents, recursive)                                                                                                                                                              |
+| GET    | `/sessions/:id`                           | `?events=false`                                                                | `SessionInfo + { pending, todos, events }`                                                                                                                                                                                            |
+| POST   | `/sessions/:id/messages`                  | `{ text, mode?: "chat"\|"task", workflow?, skills?: string[] }`                | 202; 400 for unknown skills; 409 if running                                                                                                                                                                                           |
+| GET    | `/sessions/:id/events`                    | `Last-Event-ID` or `?after=`, `?internal=true`                                 | SSE stream (`event: <type>`, `id: <seq>`)                                                                                                                                                                                             |
+| POST   | `/sessions/:id/permissions/:reqId`        | `{ decision: "allow"\|"deny"\|"always" }`                                      | `{ ok }`                                                                                                                                                                                                                              |
+| POST   | `/sessions/:id/answers/:qId`              | `{ answer }`                                                                   | `{ ok }`                                                                                                                                                                                                                              |
+| POST   | `/sessions/:id/plans/:planId`             | `{ decision: "approve"\|"reject"\|"edit", markdown?, feedback? }`              | `{ ok }`                                                                                                                                                                                                                              |
+| POST   | `/sessions/:id/cancel`                    |                                                                                | `{ ok }`                                                                                                                                                                                                                              |
+| GET    | `/sessions/:id/checkpoints/:cpId`         |                                                                                | `{ files: [{ path, status: "modified"\|"deleted"\|"added" }] }`: what restoring would change                                                                                                                                          |
+| POST   | `/sessions/:id/checkpoints/:cpId/restore` |                                                                                | `{ ok, backupId, changed }` (409 while running)                                                                                                                                                                                       |
+| GET    | `/sessions/:id/files`                     | `?path=`                                                                       | `{ files }` or `{ path, content }`                                                                                                                                                                                                    |
+| GET    | `/sessions/:id/diff`                      |                                                                                | `{ diff }` (git working tree vs HEAD + untracked)                                                                                                                                                                                     |
+| GET    | `/sessions/:id/raw`                       | `?path=`                                                                       | file bytes (e.g. image attachments)                                                                                                                                                                                                   |
+| POST   | `/sessions/:id/settings`                  | `{ models?, permissionMode?, title? }`                                         | `SessionInfo` (recorded as `session.settings`)                                                                                                                                                                                        |
+| POST   | `/sessions/:id/recreate`                  | `RecreateRequest`: `{ url, widths?, to?, style?, repair?, run?, from?, out? }` | 202; runs in the background, consent arrives as `permission.request`. 400 for an invalid body (`run` must be a run id, `out` a relative folder inside the project without `..`), 403 when `recreate.enabled` is false, 409 if running |
+| DELETE | `/sessions/:id`                           |                                                                                | `{ ok }` (409 while running)                                                                                                                                                                                                          |
+| GET    | `/preview/<id>~<sig>/<path>`              |                                                                                | project files for the live preview; authorised by the HMAC-signed path (no token), `previewBase` comes from `GET /sessions/:id`                                                                                                       |
+| POST   | `/commit-message`                         | `{ projectPath, model? }`                                                      | `{ message, scope: "staged"\|"all", model }`: a commit message for the staged changes (or all changes when none are staged); 400 when there are no changes                                                                            |
+| GET    | `/browse`                                 | `?path=`                                                                       | `{ path, parent, home, dirs[] }` – folder picker, limited to `allowedRoots` or the home dir                                                                                                                                           |
+| GET    | `/skills`                                 | `?projectPath=`                                                                | `{ skills: SkillInfo[] }` (`name`, `description`, `source`, `userOnly?`, `argumentHint?`); without `projectPath`: built-in, user and global-config skills                                                                             |
+| GET    | `/models`                                 | `?remote=true`                                                                 | `{ available: { provider: AvailableModels } }`                                                                                                                                                                                        |
+| GET    | `/goals`                                  | `?repo=`                                                                       | `{ goals: GoalInfo[] }` (every repo in `~/.harness/goals-index.json`, filtered by `allowedRoots`)                                                                                                                                     |
+| POST   | `/goals`                                  | `CreateGoalRequest` (`GoalDef` without `id`; `title`, `repo` required)         | `GoalInfo` (201), status `draft` or `scheduled`                                                                                                                                                                                       |
+| GET    | `/goals/:id`                              |                                                                                | `GoalInfo`                                                                                                                                                                                                                            |
+| PUT    | `/goals/:id`                              | `UpdateGoalRequest` (any `GoalDef` field except `id`, `repo`)                  | `GoalInfo`; 409 while running or when done/discarded                                                                                                                                                                                  |
+| POST   | `/goals/:id/run`                          |                                                                                | `GoalInfo` (202, status `running`, `sessionId` set); runs in the background                                                                                                                                                           |
+| POST   | `/goals/:id/pause`                        |                                                                                | `{ ok, wasRunning }` (cancels the goal's session; status `needs-attention`)                                                                                                                                                           |
+| POST   | `/goals/:id/discard`                      |                                                                                | `GoalInfo` (worktree and branch removed, status `discarded`)                                                                                                                                                                          |
+| POST   | `/goals/:id/merge`                        |                                                                                | `GoalInfo` (status `done`); 409 `{ error, conflicts? }` on merge conflict                                                                                                                                                             |
+| POST   | `/goals/:id/changes`                      | `{ feedback }`                                                                 | `GoalInfo` (202): another run with the feedback                                                                                                                                                                                       |
+| DELETE | `/goals/:id`                              |                                                                                | `{ ok }` (removes the goal file and its worktree, keeps the branch)                                                                                                                                                                   |
 
 Goal errors: 400 invalid input, 404 unknown goal, 409 state conflict. Goals are stored as `<repo>/.harness/goals/<id>.json`; follow a run by subscribing to `GET /sessions/<goal.sessionId>/events`.
 
+`GET /sessions/:id` also returns `recreateEnabled` (false when the project config sets `recreate.enabled: false`). Run folders (`.harness/recreate/<runId>/…`) are served on the preview path only for runs of that session, read-only, with `Content-Security-Policy: sandbox allow-scripts allow-popups allow-forms`, so a recreated or compare page opened in its own tab still runs with an opaque origin and cannot read the app's storage.
+
 `POST /sessions` without `projectPath` (or with `sandbox: { name }`) creates a sandbox workspace. `POST /sessions/:id/messages` also accepts `attachments: [{ name, mimeType, data(base64) }]` (≤ 20 files, ≤ 10 MB each). `GET /` and other non-API paths serve the web app when the server has a `staticDir`.
+
+`GET /models?remote=true` asks each configured provider for the models it offers. `AvailableModels` is `{ models: string[], details?: ModelDetail[], error? }`; `details` is present when the provider reports metadata and has one `{ id, capabilities?, contextWindow? }` per model, where `capabilities` is any of `tools`, `vision`, `thinking` and `embedding`. Providers that list only ids return `models` alone, so clients must treat `details` as optional. `ModelInfo` (in `GET /models` without `remote`) also carries `vision` for models that accept images.
+
+`GET /sessions/:id/raw` serves PDFs with `Content-Disposition: inline` and a `frame-ancestors` policy limited to the server's own origin, localhost and the desktop webview, so the web app can show them in its built-in viewer; other files keep `default-src 'none'`.
 
 ## Sidecar mode
 

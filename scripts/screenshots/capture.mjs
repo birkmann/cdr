@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Regenerates the README screenshots in docs/images with the scripted demo model (no API keys).
 //   pnpm build && cargo build -p studio-app --features tauri/custom-protocol
-//   node scripts/screenshots/capture.mjs [web] [desktop] [desktop-git] [terminal]
+//   node scripts/screenshots/capture.mjs [web] [desktop] [desktop-git] [terminal] [terminal-classic] [terminal-approval]
 //   node scripts/screenshots/capture.mjs web --real [--model <provider/model>] [--prompt "<brief>"] [--out <dir>]
 //     --real builds the app with a real model (API key from .env) and the web-app skill instead of the
 //     scripted demo, and saves web-*-real.png (default folder: a temp dir, printed at the end).
@@ -32,9 +32,12 @@ mkdirSync(out, { recursive: true });
 const only = new Set(argv);
 const want = (name) => only.size === 0 || only.has(name);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const tmp = mkdtempSync(join(tmpdir(), "morrow-shots-"));
-process.env.CDR_HOME = join(tmp, "morrow-home");
+const tmp = mkdtempSync(join(tmpdir(), "cdr-shots-"));
+process.env.CDR_HOME = join(tmp, "cdr-home");
 mkdirSync(process.env.CDR_HOME, { recursive: true });
+// Shots that only prove the demo app works are kept out of docs/images unless --out asks for everything.
+const extra = outFlag ? out : join(tmp, "extra");
+mkdirSync(extra, { recursive: true });
 
 const requireWeb = createRequire(join(root, "apps/web/package.json"));
 const pw = await import(pathToFileURL(requireWeb.resolve("playwright-core")).href);
@@ -62,7 +65,7 @@ async function webReal() {
     await page.evaluate(() => {
       const s = JSON.parse(localStorage.getItem("harness.settings.v1") || "{}");
       localStorage.setItem("harness.settings.v1", JSON.stringify({ ...s, theme: "dark", name: "", permissionMode: "auto" }));
-      localStorage.setItem("morrow.chat-width", "460");
+      localStorage.setItem("cdr.chat-width", "460");
     });
     await page.reload();
     await page.locator(".composer.large textarea").fill(REAL_PROMPT);
@@ -120,9 +123,9 @@ async function web() {
     });
     await page.reload();
     await page.locator(".composer.large textarea").waitFor();
-    await page.screenshot({ path: join(out, "web-home.png") });
+    await page.screenshot({ path: join(extra, "web-home.png") });
     await page.setViewportSize({ width: 1560, height: 1000 });
-    await page.evaluate(() => localStorage.setItem("morrow.chat-width", "460"));
+    await page.evaluate(() => localStorage.setItem("cdr.chat-width", "460"));
     await page.locator(".composer.large textarea").fill(STORE_PROMPT);
     await page.locator(".composer.large textarea").press("Enter");
     const frame = page.frameLocator("iframe.preview-frame");
@@ -140,7 +143,7 @@ async function web() {
     const phone = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: SCALE });
     await phone.goto(preview.url());
     await phone.waitForFunction(() => [...document.images].every((img) => img.complete && img.naturalWidth > 0));
-    await phone.screenshot({ path: join(out, "web-mobile-demo.png") });
+    await phone.screenshot({ path: join(extra, "web-mobile-demo.png") });
     const browserErrors = [];
     phone.on("pageerror", error => browserErrors.push(error.message));
     await phone.getByLabel("Filter collection").selectOption("Technology");
@@ -151,7 +154,7 @@ async function web() {
     await phone.getByRole("button", { name: "Size 42", exact: true }).click();
     const addRect = await phone.locator("#add-to-bag").boundingBox();
     if (!addRect || addRect.y + addRect.height > 844) throw new Error("Mobile add action is off screen");
-    await phone.screenshot({ path: join(out, "web-product-demo.png") });
+    await phone.screenshot({ path: join(extra, "web-product-demo.png") });
     await phone.getByRole("button", { name: "Add to bag", exact: true }).click();
     await phone.getByRole("button", { name: "Open bag", exact: true }).click();
     await phone.getByRole("button", { name: "Add one Everyday runner", exact: true }).click();
@@ -169,7 +172,7 @@ async function web() {
       if (await phone.locator(".product").count() !== 4) throw new Error("Missing catalogue products");
     }
     await phone.waitForFunction(() => [...document.images].every(img => img.complete && img.naturalWidth > 0));
-    await phone.screenshot({ path: join(out, "web-desktop-demo.png"), fullPage: true });
+    await phone.screenshot({ path: join(extra, "web-desktop-demo.png"), fullPage: true });
     await phone.setViewportSize({ width: 320, height: 740 });
     await phone.getByRole("button", { name: "Open menu", exact: true }).click();
     await phone.getByRole("button", { name: "Bags & accessories", exact: false }).last().click();
@@ -191,7 +194,12 @@ async function web() {
 }
 
 // ------------------------------------------------------------------ terminal (real TUI in a pty, rendered by xterm.js)
-async function terminal() {
+// CDR_HOME is an empty temp folder, so the TUI starts in its default design; "classic" is written to tui.json first.
+// In `ask` mode the run stops at the first file edit, which shows the approval dialog.
+async function terminal({ design = "default", mode = "auto", name = "terminal" } = {}) {
+  const classic = design === "classic";
+  if (classic) writeFileSync(join(process.env.CDR_HOME, "tui.json"), JSON.stringify({ design }));
+  else rmSync(join(process.env.CDR_HOME, "tui.json"), { force: true });
   const project = join(tmpdir(), "projects", "node-api");
   rmSync(project, { recursive: true, force: true });
   mkdirSync(dirname(project), { recursive: true });
@@ -208,7 +216,7 @@ pid, fd = pty.fork()
 if pid == 0:
     os.environ.pop("NO_COLOR", None)
     os.environ.update({"COLUMNS": str(cols), "LINES": str(rows), "TERM": "xterm-256color", "COLORTERM": "truecolor"})
-    os.execvp("node", ["node", sys.argv[1], "-C", sys.argv[2], "--mode", "auto"])
+    os.execvp("node", ["node", sys.argv[1], "-C", sys.argv[2], "--mode", sys.argv[4]])
 fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
 buf = bytearray()
 def pump(seconds):
@@ -227,7 +235,7 @@ pump(9)
 open(sys.argv[3], "wb").write(bytes(buf))
 os.kill(pid, signal.SIGTERM)
 `;
-  execFileSync("python3", ["-c", py, join(here, "demo-cli.mjs"), project, raw], {
+  execFileSync("python3", ["-c", py, join(here, "demo-cli.mjs"), project, raw, mode], {
     stdio: ["ignore", "inherit", "inherit"],
     env: { ...process.env, FORCE_COLOR: "3" },
   });
@@ -243,7 +251,7 @@ os.kill(pid, signal.SIGTERM)
 <script src="${pathToFileURL(join(xtermDir, "lib/xterm.js")).href}"></script>
 <script>
 const term = new Terminal({ cols: 132, rows: 36, fontFamily: "'JetBrains Mono', 'DejaVu Sans Mono', monospace", fontSize: 13, lineHeight: 1.15,
-  theme: { background: "#1c1c1c", foreground: "#f4f4f5", cursor: "#c8f56b" }, allowProposedApi: true });
+  theme: { background: "#1c1c1c", foreground: "#f4f4f5", cursor: "${classic ? "#c8f56b" : "#d4a05a"}" }, allowProposedApi: true });
 term.open(document.getElementById("t"));
 const bin = atob("${bytes}"); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
 term.write(u, () => { document.body.dataset.done = "1"; });
@@ -256,8 +264,8 @@ term.write(u, () => { document.body.dataset.done = "1"; });
     await p.goto(pathToFileURL(page).href);
     await p.waitForSelector("body[data-done='1']", { timeout: 10000 });
     await sleep(300);
-    await p.locator("#frame").screenshot({ path: join(out, "terminal.png"), omitBackground: false });
-    console.log("✓ terminal");
+    await p.locator("#frame").screenshot({ path: join(out, `${name}.png`), omitBackground: false });
+    console.log(`✓ ${name}`);
   } finally {
     await browser.close();
   }
@@ -269,23 +277,42 @@ async function desktop() {
   const app = process.env.STUDIO_BIN ?? join(root, "target/debug/cdr-studio");
   const driverBin = process.env.TAURI_DRIVER ?? join(homedir(), ".cargo/bin/tauri-driver");
   if (!existsSync(app)) throw new Error(`Build the app first: cargo build -p studio-app --features tauri/custom-protocol`);
-  const repo = join(tmp, "projects", "harness-engineering");
-  mkdirSync(dirname(repo), { recursive: true });
-  execFileSync("git", ["clone", "-q", "--no-hardlinks", root, repo]);
+  // A copy of the tracked files with a short made-up history, so the screenshots show no real commits or branches.
+  const repo = join(tmp, "projects", "cdr");
+  mkdirSync(repo, { recursive: true });
+  execFileSync("sh", ["-c", `git -C "${root}" archive HEAD | tar -x -C "${repo}"`]);
   const g = (...a) => execFileSync("git", a, { cwd: repo, encoding: "utf8" });
+  g("init", "-q", "-b", "main");
   g("config", "user.name", "Rafael Birkmann");
   g("config", "user.email", "demo@example.com");
+  const day = 86400;
+  const start = Math.floor(Date.now() / 1000) - 9 * day;
+  const history = [
+    ["Add protocol types and JSON schemas", "packages/protocol"],
+    ["Add the agent loop, tools and permission policy", "packages/core"],
+    ["Add the HTTP server and the client SDK", "packages/server", "packages/client", "packages/react"],
+    ["Add the terminal workspace", "packages/cli"],
+    ["Add the web app with sandboxes and live previews", "apps/web"],
+    ["Add CDR Studio, the desktop app", "apps/desktop", "crates", "Cargo.toml", "Cargo.lock"],
+    ["Add page recreation packages", "packages"],
+    ["Add docs, evals and CI", "."],
+  ];
+  history.forEach(([message, ...paths], i) => {
+    const date = `${start + i * day + i * 4321} +0000`;
+    g("add", "-A", "--", ...paths);
+    execFileSync("git", ["commit", "-qm", message], { cwd: repo, env: { ...process.env, GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date } });
+  });
   // A small uncommitted change so source control has something to show.
   const loop = join(repo, "packages/core/src/permissions.ts");
   writeFileSync(loop, readFileSync(loop, "utf8").replace("export class PermissionPolicy", "/** Decides whether a tool call runs, asks, or is refused. */\nexport class PermissionPolicy"));
   const xdg = join(tmp, "config");
-  mkdirSync(join(xdg, "dev.morrow.studio"), { recursive: true });
-  writeFileSync(join(xdg, "dev.morrow.studio/settings.json"), JSON.stringify({ recentRepos: [{ path: repo, name: "harness-engineering", openedAt: Math.floor(Date.now() / 1000) - 3600 }] }));
+  mkdirSync(join(xdg, "io.github.birkmann.cdr"), { recursive: true });
+  writeFileSync(join(xdg, "io.github.birkmann.cdr/settings.json"), JSON.stringify({ recentRepos: [{ path: repo, name: "cdr", openedAt: Math.floor(Date.now() / 1000) - 3600 }] }));
   const env = {
     ...process.env,
     XDG_CONFIG_HOME: xdg,
     XDG_DATA_HOME: join(tmp, "data"),
-    MORROW_KEYS_BACKEND: "file",
+    CDR_KEYS_BACKEND: "file",
     CDR_HARNESS_ENTRY: join(here, "demo-server.mjs"),
   };
   const driver = spawn(driverBin, ["--port", "4444"], { env, stdio: "ignore" });
@@ -319,7 +346,7 @@ async function desktop() {
     await wd("POST", "/session/:sid/window/rect", { width: 1600, height: 1000 }).catch(() => {});
     await until(() => js(`return !!document.querySelector('.st-welcome')`), "welcome", 60000);
     await js(`localStorage.setItem('harness.settings.v1', JSON.stringify({...JSON.parse(localStorage.getItem('harness.settings.v1')||'{}'), theme:'dark', model:''}))`);
-    await clickText(".st-welcome .st-link", "harness-engineering");
+    await clickText(".st-welcome .st-link", "cdr");
     await until(() => js(`return document.querySelector('.st-titlebar').textContent.includes('main')`), "repo open");
     for (const dir of ["packages", "core", "src"]) await clickText(".st-tree-row", dir);
     await clickText(".st-tree-row", "permissions.ts");
@@ -373,7 +400,14 @@ async function desktop() {
 }
 
 let failed = false;
-for (const [name, fn] of [["web", web], ["terminal", terminal], ["desktop", desktop]]) {
+const targets = [
+  ["web", web],
+  ["terminal", () => terminal()],
+  ["terminal-classic", () => terminal({ design: "classic", name: "terminal-classic" })],
+  ["terminal-approval", () => terminal({ mode: "ask", name: "terminal-approval" })],
+  ["desktop", desktop],
+];
+for (const [name, fn] of targets) {
   if (!want(name) && !(name === "desktop" && only.has("desktop-git"))) continue;
   try {
     await fn();

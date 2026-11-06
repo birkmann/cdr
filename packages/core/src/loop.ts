@@ -12,11 +12,14 @@ import type { AgentSpawner, Tool, ToolContext, ToolResult } from "./tools/types.
 import { toSpec, validateArgs, ToolError } from "./tools/types.js";
 import type { PermissionPolicy } from "./permissions.js";
 import type { VerifyRunner } from "./verify.js";
-import { compactMessages, needsCompaction } from "./context.js";
-import { isAbortError, newId, redact, safeJsonParse, truncateMiddle } from "./util.js";
+import { compactMessages, contextLimit, contextTokens, type HistoryLog } from "./context.js";
+import { ReasoningSummarizer } from "./reasoning-summary.js";
+import { estimateTokens, isAbortError, newId, redact, safeJsonParse, truncateMiddle } from "./util.js";
 
 export interface AgentHost {
   projectRoot: string;
+  /** Folder for files created in a chat turn (instead of the project). */
+  outputDir?: string;
   config: HarnessConfig;
   signal: AbortSignal;
   emit(e: EventBody): void;
@@ -28,6 +31,11 @@ export interface AgentHost {
   budget: Budget;
   /** Subagent spawner (spawn_agent / wait_agents). */
   agents?: AgentSpawner;
+  permissionMode?(): "ask" | "auto" | "yolo";
+  autoApprovesPermissions?(): boolean;
+  complete?(role: string, messages: ChatMessage[], o?: { maxTokens?: number }): Promise<string>;
+  /** File where raw history removed by compaction is kept for this agent (searchable by the agent). */
+  historyLog?(agent: string): HistoryLog | undefined;
 }
 
 export class Budget {
@@ -94,8 +102,13 @@ export interface RunAgentOptions {
   temperature?: number;
   hooks?: AgentHooks[];
   verify?: VerifyRunner;
-  /** Provider/model used for compaction summaries. */
-  summarizer?: { provider: Provider; model: string };
+  /** Provider/model used for compaction summaries and thinking summaries. */
+  summarizer?: {
+    provider: Provider;
+    model: string;
+    ref?: string;
+    pricing?: { inputPrice?: number; outputPrice?: number };
+  };
   policy: PermissionPolicy;
   pricing?: { inputPrice?: number; outputPrice?: number };
 }
@@ -118,7 +131,20 @@ export async function runAgent(o: RunAgentOptions): Promise<AgentResult> {
   const toolMap = new Map(o.tools.map((t) => [t.name, t]));
   const specs = o.tools.map(toSpec);
   const maxTurns = o.maxTurns ?? host.config.limits?.maxTurns ?? 60;
-  const maxOut = host.config.context?.maxToolOutput ?? 20_000;
+  const cfgContext = host.config.context ?? {};
+  const compactAt = cfgContext.compactAt ?? 0.7;
+  const keepRecent = cfgContext.keepRecent ?? 6;
+  const initialLimit = contextLimit(o.provider.capabilities(o.model).contextWindow, cfgContext.maxContext);
+  // One tool result may fill at most a quarter of the context budget (~4 characters per token).
+  const maxOut = Math.max(2000, Math.min(cfgContext.maxToolOutput ?? 20_000, initialLimit));
+  /** Provider-reported input tokens of the last call, which sent messages[0..count). */
+  let measured: { tokens: number; count: number } | undefined;
+  let compactions = 0;
+  /** messages.length right after the last compaction; prevents compacting again before new work. */
+  let compactedAt = -1;
+  /** New messages required before the next attempt (more when the last one could not get under budget). */
+  let compactGap = 2;
+  let warnedSmallBudget = false;
   const edited = new Set<string>();
   const diffs: { path: string; diff: string }[] = [];
   const recent: string[] = [];
@@ -127,6 +153,7 @@ export async function runAgent(o: RunAgentOptions): Promise<AgentResult> {
 
   const ctx: ToolContext = {
     projectRoot: host.projectRoot,
+    outputDir: host.outputDir,
     config: host.config,
     signal: host.signal,
     emit: (e) => host.emit(e),
@@ -135,7 +162,13 @@ export async function runAgent(o: RunAgentOptions): Promise<AgentResult> {
     verify: o.verify,
     secretEnv: host.secretEnv,
     agents: host.agents,
+    requestPermission: (t, a, r, reason) => host.requestPermission(t, a, r, reason),
+    permissionMode: host.permissionMode,
+    autoApprovesPermissions: host.autoApprovesPermissions,
+    complete: host.complete,
   };
+  /** images tool results returned this turn (one user message after the turn's tool results) */
+  let turnImages: { tool: string; images: NonNullable<ToolResult["images"]> }[] = [];
   const push = (m: ChatMessage) => {
     messages.push(m);
     host.emit({ type: "context.append", agent: o.agent, message: m });
@@ -170,21 +203,7 @@ export async function runAgent(o: RunAgentOptions): Promise<AgentResult> {
       host.budget.turns++;
 
       // Compaction before calling the model.
-      const caps = o.provider.capabilities(o.model);
-      if (needsCompaction(messages, caps.contextWindow, host.config.context?.compactAt ?? 0.7)) {
-        const s = o.summarizer ?? { provider: o.provider, model: o.model };
-        const c = await compactMessages(messages, {
-          ...s,
-          keepRecent: host.config.context?.keepRecent ?? 6,
-          reasoningEffort: host.config.reasoningEffort,
-          signal: host.signal,
-        });
-        if (c) {
-          messages.splice(0, messages.length, ...c.messages);
-          host.emit({ type: "context.replace", agent: o.agent, messages: c.messages, reason: "compaction" });
-          host.emit({ type: "log", level: "info", message: `${o.agent}: context compacted` });
-        }
-      }
+      await maybeCompact();
 
       const msgId = newId("msg_");
       host.emit({ type: "message.start", id: msgId, role: "assistant", agent: o.agent });
@@ -193,6 +212,26 @@ export async function runAgent(o: RunAgentOptions): Promise<AgentResult> {
       const calls: ToolCall[] = [];
       let inTok = 0;
       let outTok = 0;
+      let thoughts: ReasoningSummarizer | undefined;
+      const startThoughts = () => {
+        if (host.config.context?.reasoningSummaries === false) return undefined;
+        const s = o.summarizer ?? { provider: o.provider, model: o.model, ref: o.modelRef };
+        const request = [...messages].reverse().find((m) => m.role === "user");
+        return new ReasoningSummarizer({
+          provider: s.provider,
+          model: s.model,
+          modelRef: s.ref,
+          request: request?.content ?? "",
+          signal: host.signal,
+          reasoningEffort: "none",
+          onSummary: (text) => host.emit({ type: "reasoning.summary", id: msgId, text }),
+          onUsage: (input, output, model) => {
+            host.budget.add(input, output, 0);
+            host.emit({ type: "usage", inputTokens: input, outputTokens: output, model });
+          },
+        });
+      };
+      const sentCount = messages.length;
       for await (const ev of o.provider.stream({
         model: o.model,
         reasoningEffort: host.config.reasoningEffort,
@@ -202,17 +241,22 @@ export async function runAgent(o: RunAgentOptions): Promise<AgentResult> {
         signal: host.signal,
       })) {
         if (ev.type === "text") {
+          thoughts?.finish();
           text += ev.text;
           host.emit({ type: "message.delta", id: msgId, text: ev.text });
         } else if (ev.type === "reasoning") {
           reasoning += ev.text;
           host.emit({ type: "reasoning.delta", id: msgId, text: ev.text });
-        } else if (ev.type === "tool_call") calls.push(ev.call);
-        else if (ev.type === "usage") {
+          (thoughts ??= startThoughts())?.push(ev.text);
+        } else if (ev.type === "tool_call") {
+          thoughts?.finish();
+          calls.push(ev.call);
+        } else if (ev.type === "usage") {
           inTok += ev.inputTokens;
           outTok += ev.outputTokens;
         }
       }
+      thoughts?.finish();
       host.emit({ type: "message.end", id: msgId, text });
       const cost =
         ((o.pricing?.inputPrice ?? 0) * inTok + (o.pricing?.outputPrice ?? 0) * outTok) / 1_000_000;
@@ -224,6 +268,7 @@ export async function runAgent(o: RunAgentOptions): Promise<AgentResult> {
         cost: cost || undefined,
         model: o.modelRef,
       });
+      measured = inTok > 0 ? { tokens: inTok, count: sentCount } : undefined;
 
       push({
         role: "assistant",
@@ -253,12 +298,98 @@ export async function runAgent(o: RunAgentOptions): Promise<AgentResult> {
         const out = await executeCall(call);
         push({ role: "tool", toolCallId: call.id, name: call.name, content: out });
       }
+      if (turnImages.length) {
+        const images = turnImages.flatMap((t) => t.images);
+        push({
+          role: "user",
+          content: `[harness] Images returned by ${[...new Set(turnImages.map((t) => t.tool))].join(", ")} (${images.map((i) => i.name ?? i.mimeType).join(", ")}).`,
+          images,
+        });
+        turnImages = [];
+      }
     }
   } catch (e) {
     if (isAbortError(e) || host.signal.aborted) return result("cancelled");
     const msg = redact((e as Error).message ?? String(e));
     host.emit({ type: "error", message: `${o.agent}: ${msg}`, recoverable: false });
     return result("error", msg);
+  }
+
+  async function maybeCompact(): Promise<void> {
+    const limit = contextLimit(o.provider.capabilities(o.model).contextWindow, cfgContext.maxContext);
+    const threshold = limit * compactAt;
+    const before = contextTokens(messages, measured);
+    if (before <= threshold) return;
+    // Wait for at least one more tool round trip after a compaction before trying again.
+    if (compactedAt >= 0 && messages.length - compactedAt < compactGap) return;
+    const s = o.summarizer ?? { provider: o.provider, model: o.model, ref: o.modelRef };
+    // Tool definitions and provider framing are part of every request but not of the messages.
+    const overhead = measured
+      ? Math.max(0, measured.tokens - estimateTokens(messages.slice(0, measured.count)))
+      : 0;
+    const c = await compactMessages(messages, {
+      provider: s.provider,
+      model: s.model,
+      keepRecent,
+      reasoningEffort: host.config.reasoningEffort,
+      signal: host.signal,
+      targetTokens: Math.floor(threshold * 0.6),
+      overhead,
+      history: host.historyLog?.(o.agent),
+      // Counted here (not from the result) so a summariser call whose brief was unusable still counts.
+      onUsage: (u) => {
+        if (!u.input && !u.output) return;
+        const p = o.summarizer ? o.summarizer.pricing : o.pricing;
+        const cost = ((p?.inputPrice ?? 0) * u.input + (p?.outputPrice ?? 0) * u.output) / 1_000_000;
+        host.budget.add(u.input, u.output, cost);
+        host.emit({
+          type: "usage",
+          inputTokens: u.input,
+          outputTokens: u.output,
+          cost: cost || undefined,
+          model: s.ref,
+        });
+      },
+      onError: (e) =>
+        host.emit({
+          type: "log",
+          level: "warn",
+          message: `${o.agent}: context compaction failed (${redact(e.message)}); continuing with pruned history`,
+        }),
+    });
+    if (!c) {
+      compactedAt = messages.length;
+      compactGap = Math.max(2, keepRecent);
+      warnSmallBudget(before, limit);
+      return;
+    }
+    messages.splice(0, messages.length, ...c.messages);
+    measured = undefined;
+    compactions++;
+    compactedAt = messages.length;
+    const after = estimateTokens(messages) + overhead;
+    host.emit({ type: "context.replace", agent: o.agent, messages: c.messages, reason: "compaction" });
+    host.emit({
+      type: "context.compacted",
+      agent: o.agent,
+      method: c.method,
+      tokensBefore: Math.round(before),
+      tokensAfter: Math.round(after),
+      count: compactions,
+      historyPath: host.historyLog?.(o.agent)?.ref,
+    });
+    compactGap = after > threshold ? Math.max(2, keepRecent) : 2;
+    if (after > threshold) warnSmallBudget(after, limit);
+  }
+
+  function warnSmallBudget(tokens: number, limit: number) {
+    if (warnedSmallBudget) return;
+    warnedSmallBudget = true;
+    host.emit({
+      type: "log",
+      level: "warn",
+      message: `${o.agent}: context is still ~${Math.round(tokens / 1000)}K tokens after compaction (budget ${Math.round(limit / 1000)}K). The system prompt and recent messages alone exceed context.compactAt × context.maxContext; raise context.maxContext or lower context.keepRecent.`,
+    });
   }
 
   async function executeCall(call: ToolCall): Promise<string> {
@@ -307,7 +438,8 @@ export async function runAgent(o: RunAgentOptions): Promise<AgentResult> {
       return fail(msg);
     }
     for (const f of res.edited ?? []) edited.add(f);
-    if (res.diff) diffs.push({ path: res.edited?.[0] ?? "?", diff: res.diff });
+    if (res.images?.length) turnImages.push({ tool: call.name, images: res.images });
+    if (res.diff) diffs.push({ path: res.edited?.[0] ?? res.diffPath ?? "?", diff: res.diff });
     let extra = "";
     for (const h of o.hooks ?? []) {
       const x = await h.afterTool?.(call, args, res);

@@ -66,7 +66,7 @@ export function iconUrl(id: string): string | undefined {
 // ------------------------------------------------------------------ preference
 
 export type IconStyle = "colorful" | "monochrome";
-const KEY = "morrow.studio.icons";
+const KEY = "cdr.studio.icons";
 const EVENT = "studio:icon-style";
 
 export function getIconStyle(): IconStyle {

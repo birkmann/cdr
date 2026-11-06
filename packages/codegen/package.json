@@ -1,0 +1,32 @@
+{
+  "name": "@harness/codegen",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Scene + component sets → files: static HTML, React + Vite, design-system packages, tokens.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/birkmann/cdr.git",
+    "directory": "packages/codegen"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@harness/protocol": "workspace:*",
+    "@harness/scene": "workspace:*",
+    "@harness/extract": "workspace:*"
+  }
+}

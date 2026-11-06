@@ -70,7 +70,7 @@ export function HistoryView() {
   const [selected, setSelected] = useState<string | null>(null);
   const [more, setMore] = useState(true);
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
-  const detail = usePanelSize("morrow.studio.history-detail", 380, 260, 900);
+  const detail = usePanelSize("cdr.studio.history-detail", 380, 260, 900);
   const reqId = useRef(0);
   const PAGE = 300;
 

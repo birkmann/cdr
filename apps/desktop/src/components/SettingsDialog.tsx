@@ -18,17 +18,20 @@ const PROVIDER_KEYS = [
   { name: "UNSPLASH_ACCESS_KEY", label: "Unsplash (photos)" },
 ];
 
-type Section = "appearance" | "providers" | "github" | "harness" | "about";
+export type SettingsSection = "appearance" | "providers" | "github" | "harness" | "about";
+type Section = SettingsSection;
 
 export function SettingsDialog({
   onClose,
   harnessStatus,
+  initialSection,
 }: {
   onClose(): void;
   harnessStatus: HarnessStatus;
+  initialSection?: Section;
 }) {
   const ref = useDialog(onClose);
-  const [section, setSection] = useState<Section>("appearance");
+  const [section, setSection] = useState<Section>(initialSection ?? "appearance");
   return (
     <div className="st-modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="st-modal st-settings" ref={ref} role="dialog" aria-label="Settings">

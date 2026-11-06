@@ -1,0 +1,13 @@
+{
+  "id": "30-recreate-fixture",
+  "suite": "recreate",
+  "sandbox": true,
+  "serve": "../packages/capture/test/sites/acme",
+  "config": { "recreate": { "allowLocal": true, "respectRobots": false } },
+  "task": "Recreate {{url}} exactly 1:1, as it is, at 390, 768 and 1440 px, and measure it against the live page.",
+  "timeoutMs": 900000,
+  "checks": [
+    { "type": "recreateGate", "gates": ["pixel", "text", "layout", "interactions", "responsive"] },
+    { "type": "command", "command": "test -d .harness/recreate" }
+  ]
+}

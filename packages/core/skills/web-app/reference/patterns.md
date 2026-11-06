@@ -1,23 +1,23 @@
 # Patterns for other briefs
 
-Compact starting points that follow `SKILL.md`. Adapt names, content and colours to the brief.
+Compact starting points for structure and behaviour. They carry no visual style: colours, type, radius and layout come from your design brief (see `SKILL.md`).
 
 ## Landing page (product, service, event)
 
-Sections, in order: masthead (wordmark, 2–4 text links, one primary action), hero (display heading, one-sentence promise, primary + secondary action, one strong photo or product shot), proof (3 concrete facts with numbers, not testimonials), how it works (3 numbered steps), detail band (photo + paragraph, alternating), pricing or sign-up, footer with credits.
+Typical sections: masthead (wordmark, 2–4 links, one primary action), hero (heading, one-sentence promise, primary + secondary action, a strong visual or a working tool), proof (concrete facts with numbers, not testimonials), how it works, detail bands, pricing or sign-up, footer with credits. Reorder, merge or drop sections to suit the brief; vary the hero archetype (split, full-bleed photo, colour block, tool-first, typographic).
 
 ```css
 .hero { display: grid; gap: 24px; padding: 32px 16px; }
 @media (min-width: 760px) { .hero { grid-template-columns: 1.1fr 0.9fr; align-items: end; padding: 64px 42px; } }
-.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); border-top: 1px solid var(--line); }
-.facts strong { display: block; font-size: clamp(32px, 5vw, 56px); font-weight: 400; letter-spacing: -0.04em; }
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap: 16px; }
+.facts strong { display: block; font-size: clamp(32px, 5vw, 56px); }
 ```
 
 A sign-up form validates in the browser, shows inline errors next to fields, and confirms with a `role="status"` message. It never claims to have sent anything.
 
 ## Dashboard
 
-Neutral grey UI, white panels with hairline borders, `font-variant-numeric: tabular-nums`. A top row of 3–4 stat tiles (label, value, change with direction word, not only colour), one main chart, one table. Draw charts with inline SVG computed from the data array; no chart libraries.
+Panels with a clear hierarchy, `font-variant-numeric: tabular-nums`, one colour per series. A top row of 3–4 stat tiles (label, value, change with direction word, not only colour), one main chart, one table. Draw charts with inline SVG computed from the data array; no chart libraries.
 
 ```js
 function lineChart(svg, values, { w = 600, h = 200, pad = 24 } = {}) {

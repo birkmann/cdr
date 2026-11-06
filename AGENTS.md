@@ -5,7 +5,7 @@ Rules for coding agents (including this harness itself) working in this reposito
 ## Layout
 - pnpm workspace, TypeScript (ESM, NodeNext), Node ≥ 22.
 - `crates/studio-*` (Rust, Tauri desktop app) → `apps/desktop` (its webview UI, reuses `apps/web/src` via the `@web` alias).
-- `packages/protocol` (types only, no runtime deps) → `core` → `server` / `cli`; `client` → `react`; `apps/web` (served by `harness serve`).
+- `packages/protocol` (types only, no runtime deps) → `core` → `server` / `cli`; `client` → `react`; `apps/web` (served by `cdr serve`).
 - Built-in skills live in `packages/core/skills/<name>/SKILL.md` (shipped next to `dist` and in the desktop/CLI bundles); see docs/skills.md.
 - Tests live in `packages/*/test/*.test.ts` and import packages by name (`@harness/core`); vitest aliases them to `src/`.
 

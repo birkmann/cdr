@@ -2,16 +2,24 @@ import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "re
 import type { CSSProperties } from "react";
 import { ColumnResize, useColumnWidth } from "./ColumnResize";
 import { readThreadView, saveThreadView } from "../thread-view";
-import type { HarnessEvent, TimelineItem, ToolCallView } from "@harness/client";
+import {
+  compactionLine,
+  type CheckpointChange,
+  type HarnessEvent,
+  type TimelineItem,
+  type ToolCallView,
+} from "@harness/client";
 import { useSession, type UseSessionResult } from "@harness/react";
 import { basename, useApp } from "../app-state";
 import { CDRMark } from "./Brand";
-import { Composer, type PendingFile } from "./Composer";
+import { Composer, useSkills, type PendingFile } from "./Composer";
 import { CodeBlock, Markdown, langForPath } from "./Markdown";
-import { Thinking } from "./Thinking";
+import { Decisions, Thinking } from "./Thinking";
 import { EffortPicker, ModelPicker, ModePicker, PermissionPicker, type Mode } from "./Pickers";
-import { CodePanel, type Tab } from "./CodePanel";
+import { CodePanel, type OpenDocument, type Tab } from "./CodePanel";
 import { DiffBlock } from "./Diff";
+import { RecreateCard } from "./RecreateCard";
+import { useSessionLinks, useStartRecreate } from "../recreate";
 import {
   IconAlert,
   IconCheck,
@@ -20,6 +28,8 @@ import {
   IconFolder,
   IconPanel,
   IconPlay,
+  IconRefresh,
+  IconSparkle,
   IconTerminal,
   IconX,
 } from "./icons";
@@ -27,7 +37,15 @@ import {
 const ALL_ROLES = (ref: string) =>
   ref ? { executor: ref, planner: ref, reviewer: ref, summarizer: ref } : undefined;
 
-export function ChatView({ id, initialPreview = false }: { id: string; initialPreview?: boolean }) {
+export function ChatView({
+  id,
+  initialPreview = false,
+  initialHistory = false,
+}: {
+  id: string;
+  initialPreview?: boolean;
+  initialHistory?: boolean;
+}) {
   const { client, sessions, refreshSessions, settings } = useApp();
   const viewKey = `${settings.server || location.origin}:${id}`;
   const [savedView] = useState(() => readThreadView(viewKey));
@@ -36,12 +54,30 @@ export function ChatView({ id, initialPreview = false }: { id: string; initialPr
   const s = { ...state, externalRun: info?.externalRun ?? state.externalRun };
   const [mode, setMode] = useState<Mode>("chat");
   const [continuing, setContinuing] = useState(false);
-  const [panel, setPanel] = useState(() => initialPreview || (savedView.panel ?? false));
-  const [tab, setTab] = useState<Tab>(initialPreview ? "preview" : (savedView.tab ?? "changes"));
+  const [panel, setPanel] = useState(() => initialPreview || initialHistory || (savedView.panel ?? false));
+  const [tab, setTab] = useState<Tab>(
+    initialPreview
+      ? "preview"
+      : initialHistory
+        ? "history"
+        : savedView.tab === "document" && !savedView.doc
+          ? "changes"
+          : (savedView.tab ?? "changes"),
+  );
+  const [doc, setDoc] = useState<OpenDocument | undefined>(savedView.doc);
   useEffect(() => {
-    saveThreadView(viewKey, { panel, tab });
-  }, [viewKey, panel, tab]);
-  const columns = useColumnWidth("morrow.chat-width", {
+    saveThreadView(viewKey, { panel, tab, doc });
+  }, [viewKey, panel, tab, doc]);
+  const openDocument = (d: OpenDocument) => {
+    setDoc(d);
+    setPanel(true);
+    setTab("document");
+  };
+  const closeDocument = () => {
+    setDoc(undefined);
+    setTab((t) => (t === "document" ? "files" : t));
+  };
+  const columns = useColumnWidth("cdr.chat-width", {
     initial: (available) => available * 0.56,
     min: 360,
     max: (available) => available - 320,
@@ -63,6 +99,14 @@ export function ChatView({ id, initialPreview = false }: { id: string; initialPr
     setPanel(true);
     setTab("preview");
   };
+  const [compareRun, setCompareRun] = useState<string>();
+  const openCompare = (runId: string) => {
+    setCompareRun(runId);
+    setPanel(true);
+    setTab("compare");
+  };
+  const { recreateEnabled } = useSessionLinks(id);
+  const startRecreate = useStartRecreate();
   const [renaming, setRenaming] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
   const [notice, setNotice] = useState<string>();
@@ -71,9 +115,12 @@ export function ChatView({ id, initialPreview = false }: { id: string; initialPr
   const model = s.models?.executor ?? info?.model ?? "";
   const permissionMode = s.permissionMode ?? info?.permissionMode ?? "ask";
 
-  const send = async (text: string, files: PendingFile[]) => {
+  const skills = useSkills(projectPath);
+
+  const send = async (text: string, files: PendingFile[], skillNames: string[]) => {
     if (!client) return false;
     await client.send(id, text, {
+      ...(skillNames.length ? { skills: skillNames } : {}),
       mode: mode === "chat" ? "chat" : "task",
       workflow: mode === "chat" ? undefined : mode,
       attachments: files.map(({ name, mimeType, data }) => ({ name, mimeType, data })),
@@ -166,7 +213,14 @@ export function ChatView({ id, initialPreview = false }: { id: string; initialPr
             </button>
           </div>
         </header>
-        <Messages s={s} sessionId={id} viewKey={viewKey} onOpenPreview={openPreview} />
+        <Messages
+          s={s}
+          sessionId={id}
+          viewKey={viewKey}
+          onOpenPreview={openPreview}
+          onCompare={openCompare}
+          onOpenDocument={openDocument}
+        />
         <div className="chat-bottom">
           {["failed", "cancelled"].includes(s.status) && (
             <div className="continue-job" role="region" aria-label="Job recovery">
@@ -215,6 +269,14 @@ export function ChatView({ id, initialPreview = false }: { id: string; initialPr
             onStop={() => client?.cancel(id)}
             placeholder={mode === "chat" ? "Reply…" : "Describe the task…"}
             onSend={send}
+            skills={skills}
+            onRecreate={
+              recreateEnabled && !s.externalRun
+                ? async (url) => {
+                    await startRecreate(url, { sessionId: id });
+                  }
+                : undefined
+            }
             left={<ModePicker value={mode} onChange={setMode} />}
             right={
               <>
@@ -242,7 +304,16 @@ export function ChatView({ id, initialPreview = false }: { id: string; initialPr
       {panel && client && (
         <>
           <ColumnResize label="Resize chat and details" className="chat-resize" size={columns} />
-          <CodePanel s={s} sessionId={id} tab={tab} setTab={setTab} />
+          <CodePanel
+            s={s}
+            sessionId={id}
+            tab={tab}
+            setTab={setTab}
+            compareRun={compareRun}
+            setCompareRun={setCompareRun}
+            doc={doc}
+            closeDoc={closeDocument}
+          />
         </>
       )}
     </div>
@@ -312,6 +383,8 @@ function TurnActivity({
   open,
   onToggle,
   onOpenPreview,
+  onCompare,
+  recreateAnchors,
 }: {
   steps: Block[];
   s: UseSessionResult;
@@ -321,6 +394,9 @@ function TurnActivity({
   open: boolean;
   onToggle(): void;
   onOpenPreview(): void;
+  onCompare(runId: string): void;
+  /** seq of the recreate.started event each run's card is anchored at */
+  recreateAnchors: Map<number, string>;
 }) {
   const detailsId = useId();
   const now = useNow(active && !!times);
@@ -348,6 +424,7 @@ function TurnActivity({
                 "error",
                 "log",
                 "memory.saved",
+                "memory.removed",
                 "plan.decision",
                 "skill.activated",
               ].includes(b.event.type) ||
@@ -355,6 +432,13 @@ function TurnActivity({
             ? 1
             : 0),
     0,
+  );
+  // While working, keep the latest decisions from the model's thinking visible without opening the steps.
+  const decisions = active
+    ? steps.flatMap((b) => (b.kind === "message" ? (s.messages[b.id]?.decisions ?? []) : [])).slice(-3)
+    : [];
+  const recreateCards = steps.flatMap((b) =>
+    b.kind === "event" && recreateAnchors.has(b.event.seq) ? [recreateAnchors.get(b.event.seq)!] : [],
   );
   const previews = new Map<string, HarnessEvent>();
   for (const b of steps)
@@ -417,6 +501,7 @@ function TurnActivity({
             <span className="activity-action">{open ? "Hide steps" : "View steps"}</span>
             <IconChevronRight size={13} className={`chev ${open ? "open" : ""}`} />
           </button>
+          {!open && decisions.length > 0 && <Decisions items={decisions} live />}
           {open && (
             <div id={detailsId} className="activity-details" role="region" aria-label="All steps">
               {times && Number.isFinite(startMs) && (
@@ -453,6 +538,11 @@ function TurnActivity({
           )}
         </section>
       )}
+      {recreateCards.map((runId) =>
+        s.recreate?.runs[runId] ? (
+          <RecreateCard key={runId} run={s.recreate.runs[runId]} onCompare={onCompare} />
+        ) : null,
+      )}
       {[...previews.values()].map((e) => (
         <EventRow key={e.seq} e={e} s={s} onOpenPreview={onOpenPreview} />
       ))}
@@ -462,6 +552,7 @@ function TurnActivity({
           (b) =>
             b.kind === "event" &&
             (b.event.type === "error" ||
+              b.event.type === "checkpoint.restored" ||
               (b.event.type === "done" && b.event.status !== "success") ||
               (b.event.type === "review.findings" &&
                 b.event.findings.some((f) => ["blocking", "major"].includes(f.severity)))),
@@ -481,11 +572,15 @@ function Messages({
   sessionId,
   viewKey,
   onOpenPreview,
+  onCompare,
+  onOpenDocument,
 }: {
   s: UseSessionResult;
   sessionId: string;
   viewKey: string;
   onOpenPreview(): void;
+  onCompare(runId: string): void;
+  onOpenDocument(doc: OpenDocument): void;
 }) {
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
@@ -499,6 +594,17 @@ function Messages({
   const lastUser = useRef<string>();
   const blocks = useMemo(() => toBlocks(s.timeline, s), [s.timeline, s.messages]);
   const turns = useMemo(() => conversationTurns(blocks, s), [blocks, s.messages]);
+  // One progress card per run, under the turn where the run started (a run's tool calls each emit started).
+  const recreateAnchors = useMemo(() => {
+    const anchors = new Map<number, string>();
+    const seen = new Set<string>();
+    for (const item of s.timeline)
+      if (item.kind === "event" && item.event.type === "recreate.started" && !seen.has(item.event.runId)) {
+        seen.add(item.event.runId);
+        anchors.set(item.event.seq, item.event.runId);
+      }
+    return anchors;
+  }, [s.timeline]);
   const latestUser = [...s.timeline]
     .reverse()
     .find((item) => item.kind === "message" && s.messages[item.id]?.role === "user");
@@ -585,7 +691,9 @@ function Messages({
           {blocks.length === 0 && s.lastSeq > 0 && <div className="muted center">No messages yet.</div>}
           {turns.map((turn, i) => (
             <div className="conversation-turn" key={turn.id}>
-              {turn.user && <MessageRow s={s} id={turn.user.id} sessionId={sessionId} />}
+              {turn.user && (
+                <MessageRow s={s} id={turn.user.id} sessionId={sessionId} onOpenDocument={onOpenDocument} />
+              )}
               <TurnActivity
                 steps={turn.steps}
                 s={s}
@@ -601,6 +709,8 @@ function Messages({
                   saveThreadView(viewKey, { activity: next });
                 }}
                 onOpenPreview={onOpenPreview}
+                onCompare={onCompare}
+                recreateAnchors={recreateAnchors}
               />
             </div>
           ))}
@@ -628,18 +738,30 @@ function Messages({
           )}
         </div>
       </div>
-      {below && (
-        <div className="conversation-jumps">
-          {pendingBelow && (
-            <button className="secondary" onClick={() => jump(true)}>
-              {s.pendingPlan ? "Review plan" : "Review request"} ↓
-            </button>
-          )}
-          <button className="secondary" onClick={() => jump(false)}>
-            Jump to latest ↓
-          </button>
-        </div>
-      )}
+      <div className="conversation-jumps" aria-hidden={!below}>
+        <button
+          type="button"
+          tabIndex={below ? 0 : -1}
+          className={`jump-latest ${busy ? "loading" : ""} ${below ? "visible" : ""}`}
+          onClick={() => jump(pendingBelow)}
+          title={pendingBelow ? (s.pendingPlan ? "Review plan" : "Review request") : "Scroll to latest"}
+          aria-label={pendingBelow ? (s.pendingPlan ? "Review plan" : "Review request") : "Jump to latest"}
+        >
+          <svg
+            viewBox="0 0 24 24"
+            width="15"
+            height="15"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M12 5v14M5 12l7 7 7-7" />
+          </svg>
+        </button>
+      </div>
     </div>
   );
 }
@@ -650,12 +772,14 @@ function MessageRow({
   sessionId,
   hideReasoning = false,
   reasoningOnly = false,
+  onOpenDocument,
 }: {
   s: UseSessionResult;
   id: string;
   sessionId: string;
   hideReasoning?: boolean;
   reasoningOnly?: boolean;
+  onOpenDocument?(doc: OpenDocument): void;
 }) {
   const { client } = useApp();
   const [copied, setCopied] = useState(false);
@@ -667,20 +791,57 @@ function MessageRow({
       <div className="msg user">
         {m.attachments && m.attachments.length > 0 && (
           <div className="msg-attachments">
-            {m.attachments.map((a) =>
-              a.kind === "image" && client ? (
-                <a key={a.path} href={client.rawUrl(sessionId, a.path)} target="_blank" rel="noreferrer">
+            {m.attachments.map((a) => {
+              const open = onOpenDocument
+                ? () => onOpenDocument({ path: a.path, name: a.name, mimeType: a.mimeType })
+                : undefined;
+              if (!open) {
+                // No side column to open into: fall back to a plain link / inert chip.
+                return a.kind === "image" && client ? (
+                  <a key={a.path} href={client.rawUrl(sessionId, a.path)} target="_blank" rel="noreferrer">
+                    <img src={client.rawUrl(sessionId, a.path)} alt={a.name} />
+                  </a>
+                ) : (
+                  <span key={a.path} className="file-chip" title={a.path}>
+                    <IconFile size={14} /> {a.name}
+                  </span>
+                );
+              }
+              return a.kind === "image" && client ? (
+                <button
+                  key={a.path}
+                  type="button"
+                  className="attachment-thumb"
+                  onClick={open}
+                  title={`Open ${a.name} next to the chat`}
+                >
                   <img src={client.rawUrl(sessionId, a.path)} alt={a.name} />
-                </a>
+                </button>
               ) : (
-                <span key={a.path} className="file-chip" title={a.path}>
+                <button
+                  key={a.path}
+                  type="button"
+                  className="file-chip clickable"
+                  title={`Open ${a.name} next to the chat`}
+                  onClick={open}
+                >
                   <IconFile size={14} /> {a.name}
-                </span>
-              ),
-            )}
+                </button>
+              );
+            })}
+          </div>
+        )}
+        {m.skills && m.skills.length > 0 && (
+          <div className="msg-skills">
+            {m.skills.map((n) => (
+              <span key={n} className="skill-chip" title={`Skill: ${n}`}>
+                <IconSparkle size={12} /> {n}
+              </span>
+            ))}
           </div>
         )}
         <div className="bubble">{m.text}</div>
+        {m.checkpoint && <RestoreCheckpoint s={s} sessionId={sessionId} checkpoint={m.checkpoint} />}
       </div>
     );
   }
@@ -695,6 +856,7 @@ function MessageRow({
           text={m.reasoning || ""}
           active={m.streaming && !m.text && s.status === "running"}
           interrupted={m.streaming && (s.status === "cancelled" || s.status === "failed")}
+          decisions={m.decisions}
         />
       )}
       {!reasoningOnly && m.text && <Markdown text={m.text} />}
@@ -775,6 +937,7 @@ function toolSummary(t: ToolCallView): string {
     case "check_preview":
       return String(a.path ?? "index.html");
     case "remember":
+    case "forget":
       return String(a.fact ?? "");
     case "load_skill":
       return a.file ? `${a.name} · ${a.file}` : String(a.name ?? "");
@@ -795,6 +958,7 @@ const TOOL_VERB: Record<string, string> = {
   ask_user: "Ask",
   todo: "Plan",
   remember: "Remember",
+  forget: "Forget",
   set_preview: "Preview",
   check_preview: "Check",
   search_unsplash: "Find photos",
@@ -919,14 +1083,16 @@ function ActivatedSkill({ e }: { e: Extract<HarnessEvent, { type: "skill.activat
             <IconCheck size={14} />
           </span>
           <span className="tool-verb">Skill</span>
-          <span className="tool-arg mono">{e.name} · loaded automatically</span>
+          <span className="tool-arg mono">
+            {e.name} · {e.reason === "selected" ? "selected by you" : "loaded automatically"}
+          </span>
           <IconChevronRight size={14} className={`chev ${open ? "open" : ""}`} />
         </button>
         {open && (
           <div className="tool-body">
             <SkillBody
               name={e.name}
-              note={`${e.source} skill, matched the task`}
+              note={`${e.source} skill, ${e.reason === "selected" ? "selected for this message" : "matched the task"}`}
               description={e.description}
               content={e.content}
               files={e.files}
@@ -946,6 +1112,149 @@ export function diffStats(diff: string): { add: number; del: number } {
     else if (l.startsWith("-") && !l.startsWith("---")) del++;
   }
   return { add, del };
+}
+
+const CHANGE_LABEL = { modified: "restored", deleted: "removed", added: "recreated" } as const;
+
+/** "Restore files" on a user message: previews what changes, then resets the workspace to before that turn. */
+function RestoreCheckpoint({
+  s,
+  sessionId,
+  checkpoint,
+}: {
+  s: UseSessionResult;
+  sessionId: string;
+  checkpoint: string;
+}) {
+  const { client } = useApp();
+  const [open, setOpen] = useState(false);
+  const [files, setFiles] = useState<CheckpointChange[]>();
+  const [error, setError] = useState<string>();
+  const [working, setWorking] = useState(false);
+  const busy = ["running", "waiting"].includes(s.status) || !!s.externalRun;
+  if (busy && !open) return null;
+  const load = async () => {
+    if (!client) return;
+    setOpen(true);
+    setFiles(undefined);
+    setError(undefined);
+    try {
+      setFiles(await client.previewCheckpoint(sessionId, checkpoint));
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+  const restore = async () => {
+    if (!client || working) return;
+    setWorking(true);
+    try {
+      await client.restoreCheckpoint(sessionId, checkpoint);
+      setOpen(false);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setWorking(false);
+    }
+  };
+  if (!open)
+    return (
+      <div className="msg-actions user-actions">
+        <button
+          className="ghost tiny"
+          onClick={load}
+          title="Reset the workspace files to before this message"
+        >
+          <IconRefresh size={12} /> Restore files to here
+        </button>
+      </div>
+    );
+  return (
+    <div className="checkpoint-card" role="region" aria-label="Restore checkpoint">
+      {error ? (
+        <div className="small">{error}</div>
+      ) : !files ? (
+        <div className="muted small">Comparing with the current files…</div>
+      ) : files.length === 0 ? (
+        <div className="small">The files already match how they were before this message.</div>
+      ) : (
+        <>
+          <div className="small">
+            Restore <b>{files.length}</b> file{files.length === 1 ? "" : "s"} to how{" "}
+            {files.length === 1 ? "it was" : "they were"} before this message? The current files are saved
+            first, so you can undo this.
+          </div>
+          <ul className="checkpoint-files mono small">
+            {files.slice(0, 50).map((f) => (
+              <li key={f.path}>
+                <span className={`change ${f.status}`}>{CHANGE_LABEL[f.status]}</span> {f.path}
+              </li>
+            ))}
+            {files.length > 50 && <li className="muted">…and {files.length - 50} more</li>}
+          </ul>
+        </>
+      )}
+      <div className="checkpoint-buttons">
+        <button className="ghost tiny" onClick={() => setOpen(false)}>
+          {files?.length ? "Cancel" : "Close"}
+        </button>
+        {!!files?.length && (
+          <button className="tiny" disabled={working || busy} onClick={restore}>
+            {working ? "Restoring…" : "Restore files"}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function RestoredRow({
+  e,
+  s,
+}: {
+  e: Extract<HarnessEvent, { type: "checkpoint.restored" }>;
+  s: UseSessionResult;
+}) {
+  const { client } = useApp();
+  const [working, setWorking] = useState(false);
+  const [error, setError] = useState<string>();
+  const latest = [...s.timeline]
+    .reverse()
+    .find((i) => i.kind === "event" && i.event.type === "checkpoint.restored");
+  const canUndo =
+    latest?.kind === "event" &&
+    latest.event.seq === e.seq &&
+    !["running", "waiting"].includes(s.status) &&
+    !s.externalRun;
+  return (
+    <div className="restored-row small">
+      <IconRefresh size={13} />
+      <span>
+        {e.changed
+          ? `Restored ${e.changed} file${e.changed === 1 ? "" : "s"} from a checkpoint.`
+          : "Files already matched the checkpoint."}
+      </span>
+      {canUndo && e.changed > 0 && (
+        <button
+          className="ghost tiny"
+          disabled={working}
+          onClick={async () => {
+            if (!client) return;
+            setWorking(true);
+            try {
+              await client.restoreCheckpoint(e.sessionId, e.backupId);
+            } catch (err) {
+              setError((err as Error).message);
+            } finally {
+              setWorking(false);
+            }
+          }}
+        >
+          {working ? "Undoing…" : "Undo"}
+        </button>
+      )}
+      {error && <span className="muted">{error}</span>}
+    </div>
+  );
 }
 
 function EventRow({ e, s, onOpenPreview }: { e: HarnessEvent; s: UseSessionResult; onOpenPreview(): void }) {
@@ -1019,8 +1328,34 @@ function EventRow({ e, s, onOpenPreview }: { e: HarnessEvent; s: UseSessionResul
       return e.continuedFrom ? (
         <div className="muted small center">Continuing the job from saved progress</div>
       ) : null;
+    case "checkpoint.restored":
+      return <RestoredRow e={e} s={s} />;
+    case "checkpoint.failed":
+      return <div className="muted small center">Checkpoint not saved: {e.message}</div>;
     case "log":
       return e.level === "warn" ? <div className="muted small center">{e.message}</div> : null;
+    case "context.compacted":
+      return (
+        <div
+          className="muted small center"
+          title={e.historyPath ? `Raw history: ${e.historyPath}` : undefined}
+        >
+          {compactionLine(e)}
+        </div>
+      );
+    case "memory.saved":
+      return (
+        <div className="muted small center" title={e.path}>
+          Remembered ({e.scope}): {e.fact}
+          {e.replaced ? ` – replaces “${e.replaced}”` : ""}
+        </div>
+      );
+    case "memory.removed":
+      return (
+        <div className="muted small center" title={e.path}>
+          Forgot ({e.scope}): {e.fact}
+        </div>
+      );
     case "plan.decision":
       return (
         <div className="muted small center">
@@ -1156,15 +1491,18 @@ function PermissionCard({
       )}
       <div className="row">
         <button onClick={() => s.answerPermission(perm.id, "allow")}>Allow</button>
-        <button className="secondary" onClick={() => s.answerPermission(perm.id, "always")}>
-          Always allow{" "}
-          {perm.tool === "bash"
-            ? `“${String(args.command ?? "")
-                .split(/\s+/)
-                .slice(0, 2)
-                .join(" ")}”`
-            : perm.tool}
-        </button>
+        {/* consent for a 1:1 recreation is given per run; there is no "always" */}
+        {perm.tool !== "recreate_capture" && (
+          <button className="secondary" onClick={() => s.answerPermission(perm.id, "always")}>
+            Always allow{" "}
+            {perm.tool === "bash"
+              ? `“${String(args.command ?? "")
+                  .split(/\s+/)
+                  .slice(0, 2)
+                  .join(" ")}”`
+              : perm.tool}
+          </button>
+        )}
         <span className="spacer" />
         <button className="secondary danger-text" onClick={() => s.answerPermission(perm.id, "deny")}>
           Deny

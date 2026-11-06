@@ -13,6 +13,7 @@ import {
   bashTool,
   todoTool,
   rememberTool,
+  forgetTool,
   resolveInProject,
   runShell,
   isReadOnlyCommand,
@@ -143,6 +144,65 @@ describe("file tools", () => {
     const mem = readFileSync(join(root, ".harness/memory/MEMORY.md"), "utf8");
     expect(mem.match(/Use pnpm/g)).toHaveLength(1);
   });
+
+  it("remember refuses secrets, replaces outdated facts and forget removes them", async () => {
+    const root = tempProject();
+    const ctx = toolCtx(root);
+    const path = join(root, ".harness/memory/MEMORY.md");
+    const secret = await rememberTool.execute({ fact: "API key is sk-ant-abcdefghijklmnopqrstuv" }, ctx);
+    expect(secret.ok).toBe(false);
+    expect(existsSync(path) ? readFileSync(path, "utf8") : "").not.toContain("sk-ant");
+
+    await rememberTool.execute({ fact: "Tests run with jest" }, ctx);
+    await rememberTool.execute({ fact: "Build with tsc" }, ctx);
+    await rememberTool.execute({ fact: "Lint with eslint" }, ctx);
+    const replaced = await rememberTool.execute({ fact: "Tests run with vitest", replaces: "jest" }, ctx);
+    expect(replaced.ok).toBe(true);
+    let mem = readFileSync(path, "utf8");
+    expect(mem).not.toContain("jest");
+    expect(mem).toContain("- Tests run with vitest\n");
+    expect(ctx.events).toContainEqual(
+      expect.objectContaining({
+        type: "memory.saved",
+        fact: "Tests run with vitest",
+        replaced: "Tests run with jest",
+      }),
+    );
+
+    // unknown and ambiguous targets change nothing
+    expect((await rememberTool.execute({ fact: "x", replaces: "nope" }, ctx)).ok).toBe(false);
+    const ambiguous = await forgetTool.execute({ fact: "with" }, ctx);
+    expect(ambiguous.ok).toBe(false);
+    expect(ambiguous.output).toContain("matches 3");
+    expect(readFileSync(path, "utf8")).toBe(mem);
+
+    const forgot = await forgetTool.execute({ fact: "eslint" }, ctx);
+    expect(forgot.ok).toBe(true);
+    mem = readFileSync(path, "utf8");
+    expect(mem).not.toContain("eslint");
+    expect(mem).toContain("- Build with tsc\n");
+    expect(ctx.events).toContainEqual(
+      expect.objectContaining({ type: "memory.removed", scope: "project", fact: "Lint with eslint" }),
+    );
+    expect((await forgetTool.execute({ fact: "eslint" }, ctx)).ok).toBe(false);
+  });
+
+  it("memory tools cope with hand-edited files", async () => {
+    const root = tempProject({
+      ".harness/memory/MEMORY.md": "# Memory\r\n\r\n* Use tabs\r\n- Deploy with   make ship",
+    });
+    const ctx = toolCtx(root);
+    const path = join(root, ".harness/memory/MEMORY.md");
+    expect((await rememberTool.execute({ fact: "Use tabs" }, ctx)).output).toBe("Already remembered.");
+    await rememberTool.execute({ fact: "Docs live in docs/" }, ctx); // no trailing newline before
+    expect(readFileSync(path, "utf8")).toContain("make ship\n- Docs live in docs/\n");
+    expect((await forgetTool.execute({ fact: "tabs" }, ctx)).ok).toBe(true);
+    await rememberTool.execute({ fact: "Deploy with make release", replaces: "Deploy with make ship" }, ctx);
+    const mem = readFileSync(path, "utf8");
+    expect(mem.startsWith("# Memory\r\n\r\n")).toBe(true); // header spacing kept
+    expect(mem).not.toMatch(/tabs|make ship/);
+    expect(mem.trimEnd().split("\n").at(-1)).toBe("- Deploy with make release");
+  });
 });
 
 describe("bash", () => {
@@ -219,6 +279,16 @@ describe("permission policy", () => {
     expect(p.check(bash, { command: "git status" }).decision).toBe("allow"); // read-only → low risk
     expect(p.check(bash, { command: "pnpm test --run" }).decision).toBe("allow");
     expect(p.check(bash, { command: "pnpm test && npm publish" }).decision).toBe("ask");
+  });
+
+  it("ask mode: project memory is allowed, user-wide memory asks", () => {
+    const p = new PermissionPolicy(cfg, "ask");
+    expect(p.check(rememberTool, { fact: "a" }).decision).toBe("allow");
+    expect(p.check(rememberTool, { fact: "a", scope: "user" }).decision).toBe("ask");
+    expect(p.check(forgetTool, { fact: "a", scope: "user" }).decision).toBe("ask");
+    expect(new PermissionPolicy(cfg, "auto").check(rememberTool, { fact: "a", scope: "user" }).decision).toBe(
+      "allow",
+    );
   });
 
   it("denies built-in dangerous and configured deny patterns even in yolo", () => {

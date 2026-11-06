@@ -21,14 +21,13 @@ cpSync(join(root, "packages/core/skills"), join(dir, "bin/skills"), { recursive:
 writeFileSync(join(dir, "bin/package.json"), JSON.stringify({ type: "module", private: true }, null, 2) + "\n");
 cpSync(join(root, "apps/web/dist"), join(dir, "web"), { recursive: true });
 cpSync(join(root, "LICENSE"), join(dir, "LICENSE"));
+cpSync(join(root, "THIRD_PARTY_NOTICES.md"), join(dir, "THIRD_PARTY_NOTICES.md"));
+// Licences of the npm packages compiled into cdr.mjs (written by bundle-harness.mjs).
+cpSync(join(root, "dist-harness/THIRD_PARTY_LICENSES.txt"), join(dir, "THIRD_PARTY_LICENSES.txt"));
 cpSync(join(root, ".env.example"), join(dir, ".env.example"));
 writeFileSync(join(dir, "bin/cdr"), '#!/bin/sh\nexec node "$(dirname "$0")/cdr.mjs" "$@"\n');
 chmodSync(join(dir, "bin/cdr"), 0o755);
 writeFileSync(join(dir, "bin/cdr.cmd"), '@echo off\r\nnode "%~dp0cdr.mjs" %*\r\n');
-for (const alias of ["morrow", "harness"]) {
-  cpSync(join(dir, "bin/cdr"), join(dir, `bin/${alias}`));
-  cpSync(join(dir, "bin/cdr.cmd"), join(dir, `bin/${alias}.cmd`));
-}
 writeFileSync(
   join(dir, "README.txt"),
   `CDR ${version}: terminal workspace and web app
@@ -40,7 +39,7 @@ Requires Node.js 22 or newer.
   bin/cdr --help          all commands
 
 Put provider keys (see .env.example) in a .env file in your project or in ~/.harness/.env.
-Documentation: https://github.com/birkmann/harness-engineering#readme
+Documentation: https://github.com/birkmann/cdr#readme
 `,
 );
 rmSync(join(outDir, `${name}.tar.gz`), { force: true });

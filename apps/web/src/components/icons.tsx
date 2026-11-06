@@ -149,3 +149,27 @@ export const IconRefresh = (p: P) => (
     <path d="M20 11a8 8 0 0 0-14.9-4M4 4v4h4M4 13a8 8 0 0 0 14.9 4M20 20v-4h-4" />
   </I>
 );
+export const IconMonitor = (p: P) => (
+  <I {...p}>
+    <rect x="3" y="4" width="18" height="12" rx="1.5" />
+    <path d="M8 20h8M12 16v4" />
+  </I>
+);
+export const IconTablet = (p: P) => (
+  <I {...p}>
+    <rect x="5" y="3" width="14" height="18" rx="2" />
+    <path d="M11 18h2" />
+  </I>
+);
+export const IconPhone = (p: P) => (
+  <I {...p}>
+    <rect x="7" y="3" width="10" height="18" rx="2" />
+    <path d="M11 18h2" />
+  </I>
+);
+export const IconCopy = (p: P) => (
+  <I {...p}>
+    <rect x="8" y="8" width="12" height="12" rx="2" />
+    <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" />
+  </I>
+);

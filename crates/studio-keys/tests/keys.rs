@@ -72,9 +72,9 @@ fn forced_file_backend_via_env() {
     let cfg = tempfile::tempdir().unwrap();
     let fb = tempfile::tempdir().unwrap();
     // SAFETY: only this test touches this variable.
-    unsafe { std::env::set_var("MORROW_KEYS_BACKEND", "file") };
+    unsafe { std::env::set_var("CDR_KEYS_BACKEND", "file") };
     let ks = KeyStore::open(cfg.path(), fb.path()).unwrap();
-    unsafe { std::env::remove_var("MORROW_KEYS_BACKEND") };
+    unsafe { std::env::remove_var("CDR_KEYS_BACKEND") };
     assert_eq!(ks.backend(), "file");
     assert!(ks.backend_info().fallback_reason.is_some());
     ks.set("x", "y").unwrap();
