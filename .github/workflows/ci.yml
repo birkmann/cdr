@@ -17,7 +17,7 @@ jobs:
     name: TypeScript (build, lint, test)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -34,7 +34,7 @@ jobs:
     name: Rust (clippy, test)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: System libraries for Tauri
         # Retries on other mirrors when one stalls; see the script.
         timeout-minutes: 20
