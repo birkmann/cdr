@@ -21,6 +21,7 @@ path = "src/lib.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+studio-env = { path = "../studio-env" }
 studio-git = { path = "../studio-git" }
 studio-pty = { path = "../studio-pty" }
 studio-watch = { path = "../studio-watch" }

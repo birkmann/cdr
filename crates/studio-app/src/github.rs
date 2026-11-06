@@ -362,10 +362,10 @@ fn urlencode(s: &str) -> String {
 
 /// Token from the GitHub CLI, if it is installed and signed in.
 pub fn gh_cli_token() -> Option<String> {
-    let out = std::process::Command::new("gh")
-        .args(["auth", "token"])
-        .output()
-        .ok()?;
+    let mut cmd = std::process::Command::new("gh");
+    cmd.args(["auth", "token"]);
+    studio_env::apply(&mut cmd);
+    let out = cmd.output().ok()?;
     let t = String::from_utf8_lossy(&out.stdout).trim().to_string();
     (out.status.success() && !t.is_empty()).then_some(t)
 }

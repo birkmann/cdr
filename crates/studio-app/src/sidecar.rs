@@ -177,6 +177,13 @@ impl Sidecar {
         let token = random_token();
         let extra_env = self.inner.lock().await.extra_env.clone();
         let mut cmd = Command::new(&node);
+        // Not the AppImage's bundled libraries: they break the system's Node.js.
+        for (name, value) in studio_env::host_env() {
+            match value {
+                Some(v) => cmd.env(name, v),
+                None => cmd.env_remove(name),
+            };
+        }
         cmd.arg(&entry)
             .args([
                 "serve",
@@ -368,10 +375,10 @@ pub fn find_node() -> Option<PathBuf> {
     #[cfg(unix)]
     {
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
-        if let Ok(out) = std::process::Command::new(shell)
-            .args(["-lic", "command -v node"])
-            .output()
-        {
+        let mut cmd = std::process::Command::new(shell);
+        cmd.args(["-lic", "command -v node"]);
+        studio_env::apply(&mut cmd);
+        if let Ok(out) = cmd.output() {
             let s = String::from_utf8_lossy(&out.stdout);
             if let Some(line) = s.lines().rev().find(|l| l.trim_start().starts_with('/')) {
                 let p = PathBuf::from(line.trim());

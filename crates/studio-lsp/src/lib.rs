@@ -331,7 +331,9 @@ impl LspManager {
             return Ok(id);
         }
         let exe = which(&spec.command).ok_or_else(|| Error::NotInstalled(spec.command.clone()))?;
-        let mut child = Command::new(&exe)
+        let mut cmd = Command::new(&exe);
+        studio_env::apply(&mut cmd);
+        let mut child = cmd
             .args(&spec.args)
             .current_dir(&root)
             .stdin(Stdio::piped())

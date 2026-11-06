@@ -56,6 +56,7 @@ fn apply_extra_config(cmd: &mut Command) {
 /// askpass programs configured by the user keep working.
 pub(crate) fn command(dir: &Path, network: bool) -> Command {
     let mut cmd = Command::new("git");
+    studio_env::apply(&mut cmd);
     cmd.current_dir(dir)
         .args(["-c", "core.quotepath=off", "-c", "color.ui=false"])
         .env("LC_ALL", "C")

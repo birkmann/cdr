@@ -1,0 +1,12 @@
+[package]
+name = "studio-env"
+description = "Environment for processes CDR Studio starts, without the AppImage's bundled library paths"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+publish.workspace = true
+
+[dependencies]

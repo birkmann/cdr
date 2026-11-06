@@ -169,6 +169,12 @@ impl PtyManager {
         let mut cmd = CommandBuilder::new(&shell);
         cmd.args(&opts.args);
         cmd.cwd(&opts.cwd);
+        for (name, value) in studio_env::host_env() {
+            match value {
+                Some(v) => cmd.env(name, v),
+                None => cmd.env_remove(name),
+            }
+        }
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
         for k in &opts.env_remove {
