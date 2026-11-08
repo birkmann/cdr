@@ -4091,7 +4091,7 @@ checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 
 [[package]]
 name = "studio-app"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -4123,11 +4123,11 @@ dependencies = [
 
 [[package]]
 name = "studio-env"
-version = "0.3.0"
+version = "0.3.1"
 
 [[package]]
 name = "studio-git"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -4138,7 +4138,7 @@ dependencies = [
 
 [[package]]
 name = "studio-keys"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "apple-native-keyring-store",
  "keyring-core",
@@ -4152,7 +4152,7 @@ dependencies = [
 
 [[package]]
 name = "studio-lsp"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -4163,7 +4163,7 @@ dependencies = [
 
 [[package]]
 name = "studio-pty"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "portable-pty",
  "serde",
@@ -4175,7 +4175,7 @@ dependencies = [
 
 [[package]]
 name = "studio-watch"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "ignore",
  "notify",

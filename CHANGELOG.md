@@ -4,6 +4,8 @@ All notable changes are listed here. The project follows [Semantic Versioning](h
 
 ## Unreleased
 
+## 0.3.1 (2026-11-08)
+
 - Recreations keep a wrapping row, such as a navigation, on one line where the page does. A rounding error in the row's fitted width could push its last item onto a new line.
 - The desktop release build tries bundling up to three times, because it downloads its installer tools from GitHub.
 

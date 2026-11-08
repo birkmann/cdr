@@ -1,6 +1,6 @@
 {
   "name": "@harness/extract",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "description": "Scene → component sets, props, tokens, naming catalog and lint (recreate pipeline).",
   "license": "MIT",

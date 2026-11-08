@@ -9,7 +9,7 @@ export * from "./brand.js";
 export const PROTOCOL_VERSION = 1 as const;
 
 /** CDR release version (kept in sync by `pnpm release:version`). */
-export const HARNESS_VERSION = "0.3.0";
+export const HARNESS_VERSION = "0.3.1";
 
 export type Phase = "plan" | "execute" | "verify" | "review" | "finish";
 export type Risk = "low" | "medium" | "high";

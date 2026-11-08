@@ -1,6 +1,6 @@
 {
   "name": "@harness/client",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "description": "Browser and Node client for the CDR harness API, with a headless session reducer.",
   "license": "MIT",
