@@ -4,6 +4,9 @@ All notable changes are listed here. The project follows [Semantic Versioning](h
 
 ## Unreleased
 
+- Recreations keep a wrapping row, such as a navigation, on one line where the page does. A rounding error in the row's fitted width could push its last item onto a new line.
+- The desktop release build tries bundling up to three times, because it downloads its installer tools from GitHub.
+
 ## 0.3.0 (2026-11-08)
 
 - Desktop: app previews open beside the conversation in the chat view instead of switching to the Code view. The preview shares the right pane with file tabs, and a toolbar button moves it to the Code view when you want it there.
