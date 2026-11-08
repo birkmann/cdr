@@ -108,22 +108,83 @@ pub fn init(path: &Path) -> Result<()> {
 
 /// Returns the working tree status (`git status --porcelain=v2 --branch -z`).
 pub fn status(repo: &Path) -> Result<Status> {
-    let out = run(
-        repo,
-        &[
-            "status",
-            "--porcelain=v2",
-            "--branch",
-            "-z",
-            "--untracked-files=all",
-        ],
-    )?;
+    status_with(repo, &[])
+}
+
+fn status_with(repo: &Path, config: &[&str]) -> Result<Status> {
+    let mut args = config.to_vec();
+    args.extend([
+        "status",
+        "--porcelain=v2",
+        "--branch",
+        "-z",
+        "--untracked-files=all",
+    ]);
+    let out = run(repo, &args)?;
     let mut st = parse_status(&out)?;
     let dir = git_dir(repo)?;
     st.merge_in_progress = dir.join("MERGE_HEAD").exists();
     st.rebase_in_progress = dir.join("rebase-merge").exists() || dir.join("rebase-apply").exists();
     st.cherry_pick_in_progress = dir.join("CHERRY_PICK_HEAD").exists();
     Ok(st)
+}
+
+/// A read-only picture of a project folder that need not be the open workspace.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Summary {
+    pub is_repo: bool,
+    pub status: Option<Status>,
+    /// Lines added and removed in tracked files against HEAD.
+    pub added: u64,
+    pub deleted: u64,
+}
+
+/// The folder is known only from a conversation and was never opened by the user: nothing its
+/// configuration names may run, which rules out fsmonitor hooks, external diff tools and textconv.
+const INERT_CONFIG: &[&str] = &["-c", "core.fsmonitor=false"];
+
+/// Branch, changes and line counts of `path`, without running anything the repository configures.
+pub fn summary(path: &Path) -> Result<Summary> {
+    if !is_repo(path) {
+        return Ok(Summary::default());
+    }
+    let status = status_with(path, INERT_CONFIG)?;
+    let mut args = INERT_CONFIG.to_vec();
+    args.extend([
+        "diff",
+        "--numstat",
+        "--no-ext-diff",
+        "--no-textconv",
+        "HEAD",
+    ]);
+    // Fails before the first commit, when there is no HEAD to compare with.
+    let numstat = cmd::output(path, &args, None)?;
+    let (added, deleted) = if numstat.status.success() {
+        parse_numstat(&String::from_utf8_lossy(&numstat.stdout))
+    } else {
+        (0, 0)
+    };
+    Ok(Summary {
+        is_repo: true,
+        status: Some(status),
+        added,
+        deleted,
+    })
+}
+
+/// Sums `git diff --numstat` output; binary files report `-` and count as nothing.
+fn parse_numstat(text: &str) -> (u64, u64) {
+    text.lines().fold((0, 0), |(added, deleted), line| {
+        let mut fields = line.split('\t');
+        let mut next = || {
+            fields
+                .next()
+                .and_then(|n| n.parse::<u64>().ok())
+                .unwrap_or(0)
+        };
+        (added + next(), deleted + next())
+    })
 }
 
 fn xy(field: &str) -> Result<(ChangeKind, ChangeKind)> {

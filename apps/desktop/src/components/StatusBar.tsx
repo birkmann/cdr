@@ -136,10 +136,12 @@ export function StatusBar({
   const s = st.status;
   const running = sessions.filter((x) => x.status === "running" || x.status === "waiting").length;
   const current = sessions.find((x) => x.id === st.sessionId);
+  // The chat view's project column reports on the conversation's project, which may not be the open folder.
+  const code = st.mode === "code";
   return (
     <footer className="st-statusbar">
       <div className="st-row tight">
-        {st.workspace && st.isRepo && s && (
+        {code && st.workspace && st.isRepo && s && (
           <button className="st-sb" onClick={() => st.setSide("git")} title="Source control">
             <IBranch size={12} /> {s.detached ? `(${s.head})` : s.branch}
             {s.behind > 0 && (
@@ -158,12 +160,12 @@ export function StatusBar({
             )}
           </button>
         )}
-        {st.workspace && s && s.files.length > 0 && (
+        {code && st.workspace && s && s.files.length > 0 && (
           <button className="st-sb" onClick={() => st.setSide("git")}>
             {s.files.length} changed
           </button>
         )}
-        {st.workspace && (
+        {code && st.workspace && (
           <button className="st-sb" onClick={() => st.setBottom("problems")} title="Problems">
             <IWarn size={12} /> Problems
           </button>
@@ -171,7 +173,7 @@ export function StatusBar({
       </div>
       <div className="st-row tight">
         {running > 0 && (
-          <button className="st-sb" onClick={() => st.setSide("agents")}>
+          <button className="st-sb" onClick={() => st.revealRailSection("agents")}>
             <span className="st-spin small" /> {running} agent{running > 1 ? "s" : ""} working
           </button>
         )}

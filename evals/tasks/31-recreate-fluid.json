@@ -1,0 +1,24 @@
+{
+  "id": "31-recreate-fluid",
+  "suite": "recreate",
+  "sandbox": true,
+  "serve": "../packages/capture/test/sites/fluid",
+  "config": {
+    "recreate": {
+      "allowLocal": true,
+      "respectRobots": false
+    }
+  },
+  "task": "Recreate {{url}} exactly 1:1, as it is, and measure it against the live page. It has to hold at every width, not only at the widths it was captured at.",
+  "timeoutMs": 1200000,
+  "checks": [
+    {
+      "type": "recreateGate",
+      "gates": ["pixel", "text", "layout", "interactions", "responsive", "flow"]
+    },
+    {
+      "type": "command",
+      "command": "test -d .harness/recreate"
+    }
+  ]
+}

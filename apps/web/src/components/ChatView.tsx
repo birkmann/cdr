@@ -23,7 +23,7 @@ import { useSession, type UseSessionResult } from "@harness/react";
 import { basename, useApp } from "../app-state";
 import { CDRMark } from "./Brand";
 import { Composer, useSkills, type PendingFile } from "./Composer";
-import { CodeBlock, Markdown, langForPath } from "./Markdown";
+import { CodeBlock, FileLinksContext, Markdown, langForPath } from "./Markdown";
 import { Decisions, Thinking } from "./Thinking";
 import { EffortPicker, ModelPicker, ModePicker, PermissionPicker, type Mode } from "./Pickers";
 import { CodePanel, type OpenDocument, type PreviewHost, type Tab } from "./CodePanel";
@@ -158,17 +158,22 @@ export function ChatView({
   );
   // Jump to the preview whenever the agent publishes one.
   const seenPreview = useRef<number | undefined>(undefined);
+  // Events after the loaded history are happening now, however quickly the run ends after them.
+  const historyEnd = useRef<number | undefined>(undefined);
+  if (historyEnd.current === undefined && s.connected) historyEnd.current = s.lastSeq;
   useEffect(() => {
     if (!s.preview) return;
+    const live = historyEnd.current !== undefined && s.preview.seq > historyEnd.current;
     if (
+      live ||
       (seenPreview.current !== undefined && seenPreview.current !== s.preview.seq) ||
       (seenPreview.current === undefined && !savedView.tab)
     )
-      openPreview();
+      openPreview(true, live);
     seenPreview.current = s.preview.seq;
   }, [s.preview?.seq]);
-  const openPreview = () => {
-    if (previewHost) return previewHost.open();
+  const openPreview = (automatic = false, live = false) => {
+    if (previewHost) return previewHost.open(automatic, live);
     setPanel(true);
     setTab("preview");
   };
@@ -390,7 +395,7 @@ export function ChatView({
               s={s}
               sessionId={id}
               viewKey={viewKey}
-              onOpenPreview={openPreview}
+              onOpenPreview={() => openPreview()}
               onCompare={openCompare}
               onOpenDocument={openDocument}
             />
@@ -673,6 +678,8 @@ function TurnActivity({
           stop_app: "Stopping the app",
           search_unsplash: "Finding photos",
           check_preview: "Checking the preview",
+          check_app: "Play-testing the app",
+          design_system: "Building the design system",
           load_skill: "Reading the skill",
           run_verification: "Checking the changes",
         } as Record<string, string>
@@ -1228,7 +1235,10 @@ function toolSummary(t: ToolCallView): string {
     case "patch_file":
       return String(a.path ?? "");
     case "bash":
+    case "check_app":
       return String(a.command ?? "");
+    case "design_system":
+      return String(a.url ?? (Array.isArray(a.images) ? `${a.images.length} image(s)` : (a.out ?? "")));
     case "grep":
       return `${a.pattern}${a.path ? ` in ${a.path}` : ""}`;
     case "glob":
@@ -1258,6 +1268,8 @@ const TOOL_VERB: Record<string, string> = {
   patch_file: "Edit",
   bash: "Run",
   run_app: "Start app",
+  check_app: "Play-test",
+  design_system: "Design system",
   stop_app: "Stop app",
   grep: "Search",
   glob: "Find",
@@ -1284,8 +1296,12 @@ function ToolGroup({ tools }: { tools: ToolCallView[] }) {
   );
 }
 
+const FILE_TOOLS = new Set(["read_file", "write_file", "patch_file"]);
+
 function ToolRow({ t }: { t: ToolCallView }) {
   const [open, setOpen] = useState(false);
+  const links = useContext(FileLinksContext);
+  const file = FILE_TOOLS.has(t.name) ? links?.resolve(toolSummary(t)) : undefined;
   const isEdit = t.name === "write_file" || t.name === "patch_file";
   const stats = t.diff ? diffStats(t.diff) : undefined;
   return (
@@ -1305,7 +1321,20 @@ function ToolRow({ t }: { t: ToolCallView }) {
           )}
         </span>
         <span className="tool-verb">{TOOL_VERB[t.name] ?? t.name}</span>
-        <span className="tool-arg mono">{toolSummary(t)}</span>
+        <span
+          className={`tool-arg mono ${file ? "tool-arg-file" : ""}`}
+          title={file ? `Open ${file.path}` : undefined}
+          onClick={
+            file
+              ? (e) => {
+                  e.stopPropagation();
+                  links?.open(file.path, file.line);
+                }
+              : undefined
+          }
+        >
+          {toolSummary(t)}
+        </span>
         {stats && (
           <span className="tool-stats">
             <span className="add">+{stats.add}</span> <span className="del">−{stats.del}</span>

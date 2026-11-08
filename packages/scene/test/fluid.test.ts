@@ -94,11 +94,12 @@ describe("a capture measured at other widths of its layout range", () => {
     const root = res.screen.root;
     // the page itself: as wide as the viewport
     expect(root.layout?.fluid).toEqual([{ at: 1000, width: 1000 }]);
-    // the band spans the viewport; the column (centred by its band's layout) keeps its width; the heading's type grows
+    // the band spans the viewport (it fills the page: nothing to record); the column (centred by its band's layout)
+    // keeps its width; the heading's type grows
     const layers = all(root);
-    expect(layers.find((e) => e.name?.startsWith("Section"))?.layout?.fluid).toEqual([
-      { at: 1000, width: 1000 },
-    ]);
+    const band = layers.find((e) => e.name?.startsWith("Section"))!;
+    expect(band.layout?.width).toBe("fill");
+    expect(band.layout?.fluid).toBeUndefined();
     expect(layers.find((e) => e.name?.startsWith("Group"))?.layout?.fluid).toBeUndefined();
     expect(layers.find((e) => e.type === "text")?.layout?.fluid).toEqual([{ at: 1000, fontSize: 32 }]);
   });

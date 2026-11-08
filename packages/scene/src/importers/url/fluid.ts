@@ -91,6 +91,9 @@ export function geometryDiff(a: SceneElement, b: SceneElement, at: number): Scen
   if ((la.position === "absolute") !== (lb.position === "absolute")) return null;
   const out: SceneFluidAt = { at };
   let any = false;
+  // a layer sized by its parent in one conversion (fill, a percentage) and by a px width in the other was laid out by
+  // other rules there: its width and margins say nothing about each other
+  const sameSizing = (typeof la.width === "number") === (typeof lb.width === "number");
   const set = <K extends keyof SceneFluidAt>(k: K, v: SceneFluidAt[K]) => {
     out[k] = v;
     any = true;
@@ -115,7 +118,11 @@ export function geometryDiff(a: SceneElement, b: SceneElement, at: number): Scen
   }
   const ma = four(la.margin),
     mb = four(lb.margin);
-  if ((ma || mb) && (ma ?? [0, 0, 0, 0]).some((v, i) => Math.abs(v - (mb ?? [0, 0, 0, 0])[i]!) > EPS))
+  if (
+    sameSizing &&
+    (ma || mb) &&
+    (ma ?? [0, 0, 0, 0]).some((v, i) => Math.abs(v - (mb ?? [0, 0, 0, 0])[i]!) > EPS)
+  )
     set("margin", (mb ?? [0, 0, 0, 0]).map(r2) as Four);
   // the page's art direction: another picture there (the capture keeps only other crops, not other resolutions)
   if (a.type === "image" && b.image?.src && a.image?.src && a.image.src !== b.image.src)
@@ -280,12 +287,31 @@ function fillMargins(
 
 /** The alt walks of a capture (fig-server `alt`), as snapshots the converter reads (the main walk's page assets). */
 export function altSnapshots(snap: Snapshot): Array<{ width: number; snap: Snapshot }> {
+  const mainNodes = nodesOf(snap);
+  // canvases / videos / iframes: the capture's shot of the same box (a walk takes none), so the box is converted —
+  // and measured — there too instead of being dropped as uncaptured
+  const withShots = (root: Snapshot["root"]) =>
+    root
+      ? (mapTree(root, (n) => {
+          if (
+            "kind" in n &&
+            n.kind === "raster" &&
+            !(n as { src?: string }).src &&
+            typeof n.base === "number"
+          ) {
+            const m = mainNodes.get(n.base) as { src?: string } | undefined;
+            if (m?.src) return { ...n, src: m.src } as SnapNode;
+          }
+          return n;
+        }) as Snapshot["root"])
+      : root;
   return (snap.alt ?? [])
     .filter((a) => a && a.root && typeof a.width === "number")
     .map((a) => ({
       width: Math.round(a.width),
       snap: {
         ...a,
+        root: withShots(a.root),
         version: 1,
         url: a.url ?? snap.url,
         title: a.title ?? snap.title,

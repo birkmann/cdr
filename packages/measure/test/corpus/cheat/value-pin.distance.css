@@ -1,0 +1,2 @@
+/* a value that is loose everywhere but at 1440 px */
+.hero-copy { width: min(640px, calc(480px + 1000 * max(100vw - 1440px, 1440px - 100vw))); }

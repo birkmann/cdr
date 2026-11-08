@@ -6,7 +6,7 @@ import { Markdown } from "@web/components/Markdown";
 import type { CreateGoalRequest, GoalInfo } from "@harness/client";
 import { git, type Branch } from "../ipc";
 import { useStudio } from "../store";
-import { GOAL_STATUS_LABEL } from "./GoalsView";
+import { GOAL_STATUS_LABEL } from "./goals";
 import { CreatePrDialog } from "./GitPanel";
 import { ICheck, IX, IPlay, IPause, IPlus } from "./icons";
 import { confirmDialog } from "./dialogs";

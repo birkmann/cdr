@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { basename, relativeTime, useApp } from "../app-state";
+import { basename, isAutomated, relativeTime, useApp } from "../app-state";
 import { Composer, useSkills, type PendingFile } from "./Composer";
 import { EffortPicker, ModelPicker, ModePicker, PermissionPicker, ProjectPicker, type Mode } from "./Pickers";
 import { CDRMark } from "./Brand";
@@ -64,9 +64,9 @@ export function Home({ projectPath }: { projectPath?: string }) {
     }
   };
 
-  const byNewest = [...sessions].sort((a, b) =>
-    (b.updatedAt || b.createdAt).localeCompare(a.updatedAt || a.createdAt),
-  );
+  const byNewest = sessions
+    .filter((s) => settings.showAutomated || !isAutomated(s))
+    .sort((a, b) => (b.updatedAt || b.createdAt).localeCompare(a.updatedAt || a.createdAt));
   const recent = byNewest.filter((s) => !s.projectMissing).slice(0, 3);
   const projectChats = project ? byNewest.filter((s) => s.projectPath === project) : [];
   const projectInfo = useProjectSummaries(project ? [project] : []);

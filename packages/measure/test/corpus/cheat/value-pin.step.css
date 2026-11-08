@@ -1,0 +1,2 @@
+/* a step of 8 px within a thousandth of a px of 579 px */
+.hero-title { margin-top: calc(12px + clamp(0px, (100vw - 579px) * 1000, 1px) * 8); }

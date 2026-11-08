@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type { LaunchFramework } from "@harness/protocol";
 import type { Tool } from "./types.js";
 import { rel, resolveInProject } from "./paths.js";
+import { lastAppCheck, launchBlocker } from "./check-app.js";
 
 const FRAMEWORKS: LaunchFramework[] = [
   "rust",
@@ -89,7 +90,8 @@ export const setLaunchTool: Tool = {
   description:
     "Give the user a Launch button in the chat for a native program you built (desktop app, game, CLI or server " +
     "that is not a web page), e.g. `cargo run --release` or `python main.py`. Call it once the program builds " +
-    "and runs. The user starts it themselves in a terminal; this tool does not run anything.",
+    "and runs. For a program with a window, play-test it with check_app first: the button is only added once a " +
+    "visual check of the current files passes. The user starts it themselves; this tool does not run anything.",
   parameters: {
     type: "object",
     properties: {
@@ -120,6 +122,8 @@ export const setLaunchTool: Tool = {
     const abs = resolveInProject(ctx.projectRoot, args.cwd || ".");
     if (!existsSync(abs) || !statSync(abs).isDirectory())
       return { ok: false, output: `No such folder: ${args.cwd}.` };
+    const blocked = launchBlocker(ctx.projectRoot, command);
+    if (blocked) return { ok: false, output: blocked };
     const cwd = rel(ctx.projectRoot, abs);
     const framework =
       args.framework && FRAMEWORKS.includes(args.framework) ? args.framework : detectFramework(abs, command);
@@ -130,9 +134,16 @@ export const setLaunchTool: Tool = {
       ...(args.title ? { title: args.title } : {}),
       framework,
     });
-    return {
-      ok: true,
-      output: `The user now has a Launch button for \`${command}\`. Do not run it again yourself just to show it.`,
-    };
+    const check = lastAppCheck(ctx.projectRoot, command);
+    const notes = [
+      `The user now has a Launch button for \`${command}\`. Do not run it again yourself just to show it.`,
+    ];
+    if (check?.verdict === "unverified")
+      notes.push("Its window was not looked at: tell the user that the appearance is unchecked.");
+    if (check?.verdict === "fail")
+      notes.push(
+        `check_app still reports problems; tell the user what is still wrong:\n${check.problems.map((p) => `- ${p}`).join("\n")}`,
+      );
+    return { ok: true, output: notes.join("\n") };
   },
 };

@@ -1,4 +1,4 @@
-import { memo, useState } from "react";
+import { createContext, memo, useContext, useState, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import hljs from "highlight.js/lib/common";
@@ -97,6 +97,46 @@ export function CodeBlock({ code, lang }: { code: string; lang?: string }) {
   );
 }
 
+/** Lets a host app turn references to project files in messages into links. */
+export interface FileLinks {
+  /** The project file a reference names; undefined when there is no such file. */
+  resolve(ref: string): { path: string; line?: number } | undefined;
+  open(path: string, line?: number): void;
+  icon?(path: string): ReactNode;
+}
+export const FileLinksContext = createContext<FileLinks | null>(null);
+
+/** A reference shown as a link when it names a project file; otherwise `fallback`. */
+export function FileLink({
+  reference,
+  children,
+  fallback,
+}: {
+  reference: string;
+  children: ReactNode;
+  fallback: ReactNode;
+}) {
+  const links = useContext(FileLinksContext);
+  const target = links?.resolve(reference);
+  if (!links || !target) return <>{fallback}</>;
+  return (
+    <button
+      type="button"
+      className="file-link"
+      title={target.line ? `${target.path}:${target.line}` : target.path}
+      onClick={(e) => {
+        e.stopPropagation();
+        links.open(target.path, target.line);
+      }}
+    >
+      {links.icon?.(target.path)}
+      <span>{children}</span>
+    </button>
+  );
+}
+
+const isFileHref = (href: string) => href.startsWith("file:") || !/^[a-z][a-z0-9+.-]*:|^\/\/|^#/i.test(href);
+
 export const Markdown = memo(function Markdown({ text }: { text: string }) {
   return (
     <div className="md">
@@ -106,17 +146,30 @@ export const Markdown = memo(function Markdown({ text }: { text: string }) {
           code({ className, children }) {
             const lang = /language-([\w+-]+)/.exec(className ?? "")?.[1];
             const code = String(children ?? "");
-            if (!lang && !code.includes("\n")) return <code className="inline">{children}</code>;
+            if (!lang && !code.includes("\n")) {
+              const inline = <code className="inline">{children}</code>;
+              return (
+                <FileLink reference={code} fallback={inline}>
+                  {code}
+                </FileLink>
+              );
+            }
             return <CodeBlock code={code.replace(/\n$/, "")} lang={lang} />;
           },
           pre({ children }) {
             return <>{children}</>;
           },
           a({ href, children }) {
-            return (
+            const link = (
               <a href={href} target="_blank" rel="noreferrer noopener">
                 {children}
               </a>
+            );
+            if (!href || !isFileHref(href)) return link;
+            return (
+              <FileLink reference={href.replace(/^file:\/\//, "")} fallback={link}>
+                {children}
+              </FileLink>
             );
           },
         }}

@@ -47,6 +47,28 @@ export function MarkdownPreview({ path }: { path: string }) {
   if (current === null) return <div className="st-empty">Loading…</div>;
 
   return (
+    <MarkdownBody
+      root={st.workspace?.root}
+      path={path}
+      text={current}
+      onOpenFile={(target) => st.openTab({ kind: "file", path: target })}
+    />
+  );
+}
+
+/** A Markdown file rendered from `text`; its images load from `root`. */
+export function MarkdownBody({
+  root,
+  path,
+  text,
+  onOpenFile,
+}: {
+  root?: string;
+  path: string;
+  text: string;
+  onOpenFile(target: string): void;
+}) {
+  return (
     <div className="st-scroll-page">
       <article className="md st-md-preview">
         <ReactMarkdown
@@ -78,7 +100,7 @@ export function MarkdownPreview({ path }: { path: string }) {
                       if (/^(https?|mailto):/i.test(href)) void openUrl(href);
                     } else {
                       const target = resolveRelative(path, href.split("#")[0]!);
-                      if (target && !target.endsWith("/")) st.openTab({ kind: "file", path: target });
+                      if (target && !target.endsWith("/")) onOpenFile(target);
                     }
                   }}
                 >
@@ -87,11 +109,13 @@ export function MarkdownPreview({ path }: { path: string }) {
               );
             },
             img({ src, alt, width, height }) {
-              return <WorkspaceImage base={path} src={src} alt={alt} width={width} height={height} />;
+              return (
+                <WorkspaceImage root={root} base={path} src={src} alt={alt} width={width} height={height} />
+              );
             },
           }}
         >
-          {current}
+          {text}
         </ReactMarkdown>
       </article>
     </div>
@@ -99,20 +123,20 @@ export function MarkdownPreview({ path }: { path: string }) {
 }
 
 function WorkspaceImage({
+  root,
   base,
   src,
   alt,
   width,
   height,
 }: {
+  root?: string;
   base: string;
   src?: string;
   alt?: string;
   width?: number | string;
   height?: number | string;
 }) {
-  const st = useStudio();
-  const root = st.workspace?.root;
   const local = !!src && !isExternal(src) && !src.startsWith("data:");
   const [url, setUrl] = useState<string | undefined>(local ? undefined : src);
 

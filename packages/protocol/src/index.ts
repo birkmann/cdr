@@ -369,6 +369,13 @@ export type EventBody =
       text?: number;
       /** the section's band on the live page per captured width (px from the top of the full-page shot) */
       bands?: { width: number; y: number; h: number }[];
+      /**
+       * why the section is below its threshold or was sent to repair: its pixels at the captured widths, its layout at
+       * the widths between them (overlaps, cut text), or CSS that does not flow
+       */
+      reason?: "pixel" | "responsive" | "flow";
+      /** a repair was undone: it broke the section at a width between the captures, or did not improve it */
+      reverted?: boolean;
     }
   | {
       /** a screenshot of the live page, written to the run folder while it is captured (shown while waiting) */
@@ -492,7 +499,17 @@ export interface RecreateConfig {
     altMs?: number;
     rasters?: number;
   };
-  gates?: { pixel?: number; text?: number; heightPct?: number; responsivePixel?: number; singleUse?: number };
+  gates?: {
+    pixel?: number;
+    text?: number;
+    heightPct?: number;
+    responsivePixel?: number;
+    /** page height within this many percent of the live page at every sweep width (default 5) */
+    sweepHeightPct?: number;
+    /** sections the emitter may keep at their fitted geometry instead of reflowing (default 0) */
+    fittedSections?: number;
+    singleUse?: number;
+  };
   /** model roles (or model refs) per stage */
   models?: { naming?: ModelRole | string; vision?: ModelRole | string; repair?: ModelRole | string };
   /** extra emitter modules (paths relative to the project root) */
@@ -503,6 +520,11 @@ export interface RecreateConfig {
   remoteUrl?: string;
   /** capture sessions (device classes) run at once, each in its own browser (default 3) */
   captureParallel?: number;
+  /**
+   * which widths are captured when none are given: one variant per layout range of the page (`ranges`, default: every
+   * range measured) or one per device class (`devices`: phone, tablet, desktop; quicker on pages with many switches)
+   */
+  capturePlan?: "ranges" | "devices";
 }
 
 /** Result of checking one acceptance criterion (autonomous workflow review). */
@@ -700,6 +722,16 @@ export interface HarnessConfig {
   mcpServers?: Record<string, McpServerConfig>;
   /** 1:1 recreation of live web pages */
   recreate?: RecreateConfig;
+  /** Design systems from a URL or images (design_system). */
+  designSystem?: {
+    /** Vision-capable model role or provider/model that reads brands from images (default: the executor). */
+    model?: ModelRole | string;
+  };
+  /** Visual play-test of native programs (check_app). */
+  appCheck?: {
+    /** Vision-capable model role or provider/model that judges the captured frames (default: the executor). */
+    model?: ModelRole | string;
+  };
   /** Workspace checkpoints before every turn, restorable from the UIs (default enabled). */
   checkpoints?: {
     enabled?: boolean;

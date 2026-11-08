@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { INITIAL_TABS, MAX_GROUPS, tabOps, type Tabs } from "./store";
+import { DEFAULT_LAYOUT, INITIAL_TABS, MAX_GROUPS, parseLayout, tabOps, type Tabs } from "./store";
 
 const keys = (s: Tabs, g: number) => s.tabs.filter((t) => (s.groups[t.key] ?? 0) === g).map((t) => t.key);
 const file = (path: string) => ({ kind: "file" as const, path });
@@ -22,6 +22,18 @@ describe("editor tabs", () => {
     s = tabOps.followPreview(s, "s1");
     expect(keys(s, 0)).toEqual(["preview:s1", "preview:s2", "file:a"]);
     expect(s.activeIn).toEqual(["preview:s1"]);
+  });
+
+  it("keeps conversations and previews across a folder switch", () => {
+    let s = tabOps.open(INITIAL_TABS, { kind: "chat", sessionId: "s1" });
+    s = tabOps.open(s, file("a"));
+    s = tabOps.split(s, "file:a", 1);
+    s = tabOps.open(s, { kind: "preview", sessionId: "s1" });
+    s = tabOps.open(s, file("b"));
+    const kept = tabOps.keepConversations(s);
+    expect(kept.tabs.map((t) => t.key)).toEqual(["chat:s1", "preview:s1"]);
+    expect(kept.activeIn).toEqual(["chat:s1", "preview:s1"]);
+    expect(tabOps.keepConversations(tabOps.open(INITIAL_TABS, file("a")))).toBe(INITIAL_TABS);
   });
 
   it("leaves tabs alone when no preview is visible", () => {
@@ -130,5 +142,46 @@ describe("editor tabs", () => {
     s = tabOps.replace(s, "chat:new:2", { kind: "chat", sessionId: "s1" });
     expect(s.tabs.map((t) => t.key)).toEqual(["file:a", "chat:s1", "file:b"]);
     expect(s.focused).toBe(1);
+  });
+});
+
+describe("the saved layout", () => {
+  it("starts in the chat view with the project column open", () => {
+    expect(parseLayout(null)).toEqual(DEFAULT_LAYOUT);
+    expect(parseLayout(null).mode).toBe("chat");
+    expect(parseLayout(null).rail).toBe(true);
+  });
+
+  it("moves a layout from before the chat view to it, keeping its panels", () => {
+    const layout = parseLayout('{"side":"git","bottom":"terminal","agentPanel":false,"agentDock":"left"}');
+    expect(layout).toMatchObject({
+      mode: "chat",
+      side: "git",
+      bottom: "terminal",
+      agentPanel: false,
+      agentDock: "left",
+      rail: true,
+    });
+  });
+
+  it.each(["agents", "goals", "nonsense"])("replaces the removed side panel %s with the explorer", (side) => {
+    expect(parseLayout(JSON.stringify({ side })).side).toBe("files");
+  });
+
+  it("keeps a closed side panel closed", () => {
+    expect(parseLayout('{"side":null}').side).toBeNull();
+  });
+
+  it("remembers the view and the column state", () => {
+    const layout = parseLayout('{"mode":"code","rail":false,"railCollapsed":{"goals":true}}');
+    expect(layout).toMatchObject({ mode: "code", rail: false, railCollapsed: { goals: true } });
+  });
+
+  it.each(['{"mode":"other"}', '{"railCollapsed":null}'])("ignores invalid values in %s", (raw) => {
+    expect(parseLayout(raw)).toEqual(DEFAULT_LAYOUT);
+  });
+
+  it("falls back to the default when the saved value is corrupt", () => {
+    expect(parseLayout("{oops")).toEqual(DEFAULT_LAYOUT);
   });
 });

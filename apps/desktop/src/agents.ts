@@ -25,7 +25,7 @@ export function originLabel(s: SessionInfo): string | undefined {
 export function originTitle(s: SessionInfo, parentTitle?: string): string {
   if (s.parentSessionId)
     return `Started by the agent of “${parentTitle ?? "another conversation"}” with spawn_agent`;
-  if (s.goalId) return "Runs a goal (Goals view)";
+  if (s.goalId) return "Runs a goal (see the project column)";
   if (s.forkedFrom)
     return s.forkedFrom.messageId
       ? "Branched from another conversation"
@@ -96,7 +96,7 @@ export function buildTree(list: SessionInfo[]): AgentTree {
 /**
  * Split sessions into the active part (every running or waiting agent wherever it works, plus the
  * finished subagents of an active parent) and the rest. The active part is not limited to the open
- * folder, so the Agents view always lists what the status bar counts.
+ * folder, so the conversation list always shows what the status bar counts.
  */
 export function splitActive(sessions: SessionInfo[]): { active: SessionInfo[]; rest: SessionInfo[] } {
   const byId = new Map(sessions.map((s) => [s.id, s]));

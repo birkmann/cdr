@@ -213,7 +213,11 @@ export class RemoteCaptureDriver implements CaptureDriver {
         skipped.push("live shots (remote driver without a local browser to shoot the output)");
       else
         try {
-          shots = await this.shoot(target, o.shotWidths, { signal: o.signal, guard: o.guard });
+          shots = await this.shoot(target, o.shotWidths, {
+            signal: o.signal,
+            guard: o.guard,
+            probe: o.shotProbe,
+          });
           for (const shot of shots)
             try {
               o.onShot?.(shot);
@@ -225,13 +229,32 @@ export class RemoteCaptureDriver implements CaptureDriver {
           skipped.push(`live shots (${(e as Error).message})`);
         }
     }
+    let probes: Shot[] = [];
+    if (o.probeWidths?.length && this.o.local)
+      try {
+        probes = await this.shoot(target, o.probeWidths, {
+          signal: o.signal,
+          guard: o.guard,
+          probe: o.shotProbe,
+          factsOnly: true,
+        });
+        for (const p of probes)
+          try {
+            o.onProbe?.(p);
+          } catch {
+            /* a listener never fails the capture */
+          }
+      } catch (e) {
+        if (e instanceof CaptureError && e.code === "cancelled") throw e;
+        skipped.push(`layout facts (${(e as Error).message})`);
+      }
     const finalUrl =
       typeof snapshot.finalUrl === "string"
         ? snapshot.finalUrl
         : typeof snapshot.url === "string"
           ? snapshot.url
           : target;
-    return { snapshot, finalUrl, skipped, shots, ms: Date.now() - t0 };
+    return { snapshot, finalUrl, skipped, shots, ...(probes.length ? { probes } : {}), ms: Date.now() - t0 };
   }
 
   async shoot(url: string, widths: number[], o: ShotOptions = {}): Promise<Shot[]> {

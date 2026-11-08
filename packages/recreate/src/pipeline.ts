@@ -36,6 +36,7 @@ import {
 import {
   devicePlan,
   layoutSwitches,
+  planCaptures,
   pageScreens,
   pageSections,
   planSessions,
@@ -69,6 +70,7 @@ import {
   type NamingPlan,
 } from "@harness/extract";
 import { getEmitter, loadEmitters, type FileMap } from "@harness/codegen";
+import type { SceneLayout } from "@harness/protocol";
 import {
   comparePage,
   DEFAULT_GATES,
@@ -80,10 +82,16 @@ import {
   LAYOUT_CHECK_JS,
   OUTPUT_PROBE_JS,
   sweepWidths,
+  sweepPlan,
+  layoutCheck,
+  flowLint,
+  sectionClasses,
   parseVerdict,
   sectionBand,
   VISION_SYSTEM,
   visionPrompt,
+  type FlowRule,
+  type LayoutFacts,
   type MeasureReport,
 } from "@harness/measure";
 import {
@@ -116,7 +124,26 @@ export interface RepairTask {
   maxAttempts: number;
   widths: { width: number; pixel: number; live: Buffer; out: Buffer }[];
   threshold: number;
+  /** why it is repaired: its pixels at the captured widths, or its layout between them */
+  reason?: "pixel" | "responsive" | "flow";
+  /** what is wrong with the section at widths between the captured ones (the live page has none of it) */
+  sweep?: { width: number; issues: string[]; out?: Buffer }[];
+  /** why the previous attempt's patch was not written */
+  rejected?: string[];
+  /** widths the page's variants switch at (media queries there are breakpoints, not pins) */
+  boundaries?: number[];
 }
+
+/** What one repair attempt did: changed the files, or was rejected (and why). */
+export interface RepairOutcome {
+  changed: boolean;
+  rejected?: string[];
+  note?: string;
+}
+
+/** The comment that opens a repair's CSS in styles.css (a pass is undone section by section by it). */
+export const repairMarker = (id: string, attempt: number) =>
+  `/* repair: section ${id}, attempt ${attempt} */`;
 
 export interface RecreateHost {
   projectRoot: string;
@@ -129,8 +156,8 @@ export interface RecreateHost {
   consent(o: { url: string; reason: string }): Promise<RecreateConsent | null>;
   /** model call; absent = deterministic stages only (fallback names, no vision verdict) */
   chat?(req: ChatRequest): Promise<string>;
-  /** the agent patches one section; true when it changed the file */
-  repair?(task: RepairTask): Promise<boolean>;
+  /** the agent patches one section: true (or `changed`) when it changed the file; `rejected` says why it did not */
+  repair?(task: RepairTask): Promise<boolean | RepairOutcome>;
   /** run `npm install && npm run build` in converted projects (needs the network) */
   runBuilds?(dir: string): Promise<{ ok: boolean; output: string }>;
   /** check every section against the live page while building (default true) */
@@ -154,6 +181,13 @@ export const CONSENT_REASON = (url: string) =>
   `Recreates ${url} 1:1 from its live DOM, including text, images, fonts and logos. You are responsible for how you use the result. Assets will be stored under .harness/recreate and kept out of git.`;
 
 const DEFAULT_WIDTHS = [390, 768, 1440];
+/**
+ * emitter output rules that fail the flow gate (CSS added after the build always does: ADDED_RULES): the emitter
+ * writes flow layout, so a pin or a scaled layout outside the sections it kept fitted is a defect
+ */
+const FLOW_GATING: FlowRule[] = ["media-pin", "value-pin", "zoom"];
+/** texts the output takes out of the flow while the live page keeps them in it fail the flow gate */
+const FLOW_OUT_OF_FLOW_GATES = true;
 const tierOf = (w: number, i: number) => (i === 0 ? 0 : w < 768 ? w : w < 1024 ? 768 : 1024);
 const NAMING_BATCH = 30;
 const REPAIR_ATTEMPTS = 2;
@@ -296,6 +330,7 @@ class Runner {
     this.dir.writeJson(`capture/live/${shot.width}.json`, {
       texts: shot.texts ?? [],
       overflowPx: shot.overflowPx ?? 0,
+      height: shot.height,
       ...(shot.probe !== undefined ? { probe: shot.probe } : {}),
     });
     this.emit({
@@ -307,6 +342,31 @@ class Runner {
       path: this.dir.rel(`capture/live/${shot.width}.png`),
     });
   };
+
+  /** The live page's layout facts at a probe width (no screenshot): written as soon as they are taken. */
+  private probesWritten = new Set<number>();
+  onProbe = (p: Shot) => {
+    this.probesWritten.add(p.width);
+    // a probe width that also has a live shot keeps the shot's facts
+    if (this.shotsWritten.has(p.width)) return;
+    this.dir.writeJson(`capture/live/${p.width}.json`, {
+      texts: p.texts ?? [],
+      overflowPx: p.overflowPx ?? 0,
+      height: p.height,
+      ...(p.probe !== undefined ? { probe: p.probe } : {}),
+    });
+  };
+
+  /** The widths the static output is checked at besides the captured ones (sweepPlan); `n`: the measurement's number. */
+  plan(n = this.m.measures ?? 0) {
+    const variants = this.m.variants ?? [];
+    return sweepPlan({
+      captured: variants.map((v) => v.width),
+      measured: (this.m.sessions ?? []).flatMap((s) => [s.width, ...s.alt]),
+      boundaries: variants.map((v) => v.minWidth).filter((w) => w > 0),
+      seed: `${this.m.id}:${n}`,
+    });
+  }
 
   get url() {
     return this.m.request.url;
@@ -373,25 +433,35 @@ class Runner {
       ? [...new Set(this.m.request.widths.map((w) => Math.round(w)))].sort((a, b) => a - b)
       : null;
     if (widths) {
-      // the widest capture is also walked at 1920 px: wide screens follow measured geometry, not a guess
-      this.m.sessions = widths.map((w, i) => ({
+      // each given width is one variant, applying from its device class; it is walked again across its own layout
+      // range (the range's start, device widths, steps of a few hundred px; the widest up to 1920 px), so the output
+      // follows measured geometry between the widths instead of fitted values. Its range ends at the next variant or
+      // at the page's own next layout switch (probed): past it the page has a layout that was not captured.
+      const mins = widths.map((w, i) => tierOf(w, i));
+      const switches = await this.layoutProbe().catch((e) => {
+        if (e instanceof CaptureError && ["cancelled", "browser_unavailable"].includes(e.code)) throw e;
+        return [] as number[];
+      });
+      const plans = planCaptures(
+        [...new Set([...mins.filter((m) => m > 0), ...switches])].sort((a, b) => a - b),
+        widths,
+      ).filter((p) => widths.includes(p.width));
+      this.m.sessions = widths.map((w) => ({
         width: w,
-        alt: i === widths.length - 1 && w < 1800 ? [1920] : [],
+        alt: plans.find((p) => p.width === w)?.alt ?? [],
         menus: [],
       }));
-      this.m.variants = widths.map((w, i) => ({ width: w, minWidth: tierOf(w, i), session: i }));
+      this.m.variants = widths.map((w, i) => ({
+        width: w,
+        minWidth: mins[i]!,
+        session: i,
+        alt: plans.find((p) => p.width === w)?.alt ?? [],
+      }));
       return { detail: `widths given: ${widths.join(", ")}` };
     }
     let switches: number[] = [];
     try {
-      const probe = await this.driver.probe(this.url, {
-        guard: this.guard,
-        respectRobots: this.cfg.respectRobots,
-        signal: this.host.signal,
-        onPeek: this.onPeek,
-      });
-      this.dir.writeJson("capture/layout.json", probe);
-      switches = layoutSwitches(probe.breakpoints);
+      switches = await this.layoutProbe();
     } catch (e) {
       if (
         e instanceof CaptureError &&
@@ -402,7 +472,10 @@ class Runner {
         `layout probe failed (${(e as Error).message}); capturing at ${DEFAULT_WIDTHS.join(", ")}`,
       );
     }
-    const plans = devicePlan(switches);
+    // one variant per layout range of the page (every range measured: no width between captures shows a layout the
+    // page does not have there), or one per device class (`recreate.capturePlan: "devices"`: quicker on pages with
+    // many switches; the ranges between devices are then reported as not captured)
+    const plans = this.cfg.capturePlan === "devices" ? devicePlan(switches) : planCaptures(switches);
     const sessions = planSessions(plans);
     this.m.sessions = sessions.map((s) => ({
       width: s.width,
@@ -410,13 +483,25 @@ class Runner {
       menus: s.variants.map((v) => v.width).filter((w) => w !== s.width),
     }));
     this.m.variants = sessions.flatMap((s, i) =>
-      s.variants.map((v) => ({ width: v.width, minWidth: v.minWidth, session: i })),
+      s.variants.map((v) => ({ width: v.width, minWidth: v.minWidth, session: i, alt: v.alt })),
     );
     this.m.variants.sort((a, b) => a.width - b.width);
     if (this.m.variants.length) this.m.variants[0].minWidth = 0;
     return {
       detail: `switches ${switches.join(", ") || "none"}; variants ${this.m.variants.map((v) => `${v.width}≥${v.minWidth}`).join(", ")}`,
     };
+  }
+
+  /** The page's own layout switches (the probe, recorded in capture/layout.json). */
+  async layoutProbe(): Promise<number[]> {
+    const probe = await this.driver.probe(this.url, {
+      guard: this.guard,
+      respectRobots: this.cfg.respectRobots,
+      signal: this.host.signal,
+      onPeek: this.onPeek,
+    });
+    this.dir.writeJson("capture/layout.json", probe);
+    return layoutSwitches(probe.breakpoints);
   }
 
   // ------------------------------------------------------------------------------------------------ capture
@@ -427,6 +512,10 @@ class Runner {
     // widths between and beyond the captures: shot live too (the responsive gate), each in the session of its device class
     const sweep = sweepWidths(variants.map((v) => v.width));
     this.m.sweep = sweep;
+    // and layout facts (no screenshot) at the sweep plan's grid and variant boundaries: the live page's own overlaps
+    // and heights there, which the output is compared with
+    const probe = this.plan(0).live.filter((w) => !sweep.includes(w));
+    this.m.probe = probe;
     const sessionFor = (w: number) => {
       const by = sessions.map((x, i) => ({ i, w: x.width })).sort((a, b) => a.w - b.w);
       const cls = (x: number) => (x < 600 ? 0 : x < 1024 ? 1 : 2);
@@ -438,6 +527,7 @@ class Runner {
       const s = sessions[i];
       const mine = variants.filter((v) => v.session === i);
       const extra = sweep.filter((w) => sessionFor(w) === i);
+      const facts = probe.filter((w) => sessionFor(w) === i);
       return this.driver.capture(
         this.url,
         { width: s.width, alt: s.alt, menus: s.menus },
@@ -447,6 +537,7 @@ class Runner {
           budgets: this.cfg.budgets,
           shotWidths: [...mine.map((v) => v.width), ...extra],
           shotProbe: LAYOUT_CHECK_JS,
+          ...(facts.length ? { probeWidths: facts, onProbe: this.onProbe } : {}),
           signal: this.host.signal,
           log: (msg) => this.host.log?.(`capture ${s.width}px: ${msg}`),
           onPeek: this.onPeek,
@@ -465,7 +556,8 @@ class Runner {
       this.m.finalUrl = res.finalUrl;
       skipped.push(...res.skipped.map((x) => `${s.width}px: ${x}`));
       for (const v of mine) {
-        const snap = v.width === s.width ? res.snapshot : sessionSnapshot(res.snapshot, v.width, s.alt);
+        // each variant keeps the walks of its own layout range (the session walked those of all its variants)
+        const snap = sessionSnapshot(res.snapshot, v.width, v.alt ?? s.alt);
         if (!snap) {
           skipped.push(`variant ${v.width}px (not walked)`);
           continue;
@@ -474,6 +566,7 @@ class Runner {
       }
       // a driver that does not report shots as they come (a test double): written now
       for (const shot of res.shots) if (!this.shotsWritten.has(shot.width)) this.onShot(shot);
+      for (const p of res.probes ?? []) if (!this.probesWritten.has(p.width)) this.onProbe(p);
     }
     this.m.variants = variants.filter((v) => this.dir.exists(`capture/${v.width}.snapshot.json`));
     if (!this.m.variants.length) throw new Error("no width could be captured");
@@ -508,6 +601,12 @@ class Runner {
     const tagged = tagSections(ps.screens, sections);
     this.dir.writeJson("scene/screens.json", tagged);
     this.dir.writeJson("scene/sections.json", sections);
+    // the fitted geometry too, when the run may keep sections fitted (gates.fittedSections): the build falls back to it
+    // section by section where the flow version misses the live page
+    if (this.fittedBudget() > 0) {
+      const fit = pageScreens(caps, undefined, { flow: false });
+      this.dir.writeJson("scene/screens.fitted.json", tagSections(fit.screens, pageSections(fit.screens)));
+    } else this.dir.remove("scene/screens.fitted.json");
     this.dir.writeJson("scene/fonts.json", ps.fonts);
     this.dir.writeJson("scene/page.json", {
       page: ps.page,
@@ -523,6 +622,10 @@ class Runner {
 
   screens(): SceneScreen[] {
     return this.dir.readJson<SceneScreen[]>("scene/screens.json");
+  }
+  /** sections the build may keep at their fitted geometry (gates.fittedSections, default 0: none) */
+  fittedBudget(): number {
+    return Math.max(0, Math.floor(this.cfg.gates?.fittedSections ?? DEFAULT_GATES.fittedSections));
   }
   sections(): Section[] {
     return this.dir.readJson<Section[]>("scene/sections.json");
@@ -568,6 +671,8 @@ class Runner {
     );
     this.writeFiles("out/static", files);
     this.addOutput("static", "out/static");
+    // the stylesheet as the build wrote it: what is added later (a repair, the agent) is linted on its own (flow gate)
+    if (typeof files["styles.css"] === "string") this.dir.write("build/styles.base.css", files["styles.css"]);
     const widths = (this.m.variants ?? []).map((v) => v.width);
     const checks =
       this.host.sectionChecks !== false && widths.every((w) => this.dir.exists(`capture/live/${w}.png`));
@@ -589,42 +694,290 @@ class Runner {
     }
     for (const [k, s] of sections.entries()) this.emit({ ...base(s, k), status: "checking" });
     let results = await this.checkSections(sections, widths);
+    // a section whose flow version misses its band may keep its fitted geometry, as many as the run allows
+    // (gates.fittedSections): kept only where that is closer to the live page
+    const fitted = await this.fallBack(sections, widths, threshold, results);
+    if (fitted.length) results = await this.checkSections(sections, widths);
+    // between the captures: each section's layout at the sweep widths (only when repairs may follow)
+    let sweep = repairAllowed ? await this.sectionSweep() : null;
+    const reasonOf = (id: string): RepairTask["reason"] => {
+      if (results.get(id)!.worst > threshold) return "pixel";
+      const found = sweep?.issues.get(id) ?? [];
+      if (!found.length) return undefined;
+      // only CSS that does not flow (texts placed by coordinates the page keeps in flow): the flow reason
+      return found.every((x) => x.startsWith("flow:")) ? "flow" : "responsive";
+    };
+    const reasons = new Map(sections.map((s) => [s.id, reasonOf(s.id)]));
     const status = new Map<string, "ok" | "below-threshold" | "repaired">(
-      sections.map((s) => [s.id, results.get(s.id)!.worst <= threshold ? "ok" : "below-threshold"]),
+      sections.map((s) => [s.id, reasons.get(s.id) ? "below-threshold" : "ok"]),
     );
+    const rejected = new Map<string, string[]>();
+    const reverted = new Set<string>();
+    const boundaries = (this.m.variants ?? []).map((v) => v.minWidth).filter((w) => w > 0);
+    const indexRel = "out/static/index.html",
+      cssRel = "out/static/styles.css";
     for (let attempt = 1; repairAllowed && attempt <= REPAIR_ATTEMPTS; attempt++) {
       const failing = sections
         .map((s, k) => ({ s, k }))
         .filter(({ s }) => status.get(s.id) === "below-threshold");
       if (!failing.length) break;
       this.cancelled();
-      for (const { s, k } of failing) this.emit({ ...base(s, k), status: "building" });
+      for (const { s, k } of failing)
+        this.emit({ ...base(s, k), status: "building", reason: reasons.get(s.id) });
+      const before = {
+        html: this.dir.read(indexRel).toString("utf8"),
+        css: this.dir.read(cssRel).toString("utf8"),
+        results,
+        sweep,
+      };
       // patches to one file: the host serialises its writes; the model calls run side by side
-      const changed = await mapLimit(failing, REPAIR_PARALLEL, ({ s, k }) =>
+      const outcomes = await mapLimit(failing, REPAIR_PARALLEL, ({ s, k }) =>
         this.host.repair!({
           runId: this.m.id,
-          file: this.dir.rel("out/static/index.html"),
+          file: this.dir.rel(indexRel),
           section: { id: s.id, label: s.label, kind: s.kind, index: k },
           attempt,
           maxAttempts: REPAIR_ATTEMPTS,
           widths: results.get(s.id)!.widths,
           threshold,
-        }).catch((e) => {
-          this.host.log?.(`repair of ${s.id} failed: ${(e as Error).message}`);
-          return false;
-        }),
+          reason: reasons.get(s.id),
+          sweep: this.sweepTask(s.id, sweep),
+          ...(rejected.get(s.id)?.length ? { rejected: rejected.get(s.id) } : {}),
+          boundaries,
+        })
+          .then((o): RepairOutcome => (typeof o === "boolean" ? { changed: o } : o))
+          .catch((e): RepairOutcome => {
+            this.host.log?.(`repair of ${s.id} failed: ${(e as Error).message}`);
+            return { changed: false };
+          }),
       );
-      if (!changed.some(Boolean)) break;
+      failing.forEach(({ s }, i) => rejected.set(s.id, outcomes[i]!.rejected ?? []));
+      const changed = failing.filter((_, i) => outcomes[i]!.changed);
+      if (!changed.length) {
+        // every patch was rejected: the next attempt gets the reasons
+        if (failing.some(({ s }) => rejected.get(s.id)?.length)) continue;
+        break;
+      }
       results = await this.checkSections(sections, widths);
-      for (const { s } of failing) if (results.get(s.id)!.worst <= threshold) status.set(s.id, "repaired");
+      const after = before.sweep ? await this.sectionSweep() : null;
+      // a patch stays only if it helped and broke nothing at any width: no new overlap or cut text between the
+      // captures, the page height no further from the live page's where the section changed, its pixels better
+      const undo = changed.filter(
+        ({ s }) => !this.keepRepair(s.id, reasons.get(s.id), before, { results, sweep: after }),
+      );
+      if (undo.length) {
+        this.revertRepairs(
+          undo.map(({ s }) => s.id),
+          attempt,
+          before,
+          undo.length === changed.length,
+        );
+        for (const { s } of undo) {
+          results.set(s.id, before.results.get(s.id)!);
+          reverted.add(s.id);
+        }
+        sweep = before.sweep && attempt < REPAIR_ATTEMPTS ? await this.sectionSweep() : after;
+      } else sweep = after;
+      for (const { s } of changed) {
+        if (undo.some((u) => u.s.id === s.id)) continue;
+        reverted.delete(s.id);
+        const next = reasonOf(s.id);
+        if (!next) status.set(s.id, "repaired");
+        else reasons.set(s.id, next);
+      }
     }
     let below = 0;
     for (const [k, s] of sections.entries()) {
       const st = status.get(s.id)!;
       if (st === "below-threshold") below++;
-      this.emit({ ...base(s, k), status: st, pixel: results.get(s.id)!.worst });
+      this.emit({
+        ...base(s, k),
+        status: st,
+        pixel: results.get(s.id)!.worst,
+        ...(st !== "ok" && reasons.get(s.id) ? { reason: reasons.get(s.id) } : {}),
+        ...(reverted.has(s.id) ? { reverted: true } : {}),
+      });
     }
-    return { detail: `${sections.length} sections, ${below} below the band threshold` };
+    return {
+      detail: `${sections.length} sections, ${below} below the band threshold${reverted.size ? `, ${reverted.size} repair(s) undone` : ""}`,
+    };
+  }
+
+  /**
+   * The fitted fallback (gates.fittedSections > 0): sections below their threshold, worst first, are swapped for their
+   * fitted conversion one at a time and kept when their band gets closer to the live page. Sections holding a menu or
+   * widget control stay in flow (their targets are the flow scene's). → the sections kept fitted (out/static/fitted.json).
+   */
+  async fallBack(
+    sections: Section[],
+    widths: number[],
+    threshold: number,
+    results: Map<string, { worst: number }>,
+  ): Promise<string[]> {
+    const budget = this.fittedBudget();
+    this.dir.remove("out/static/fitted.json");
+    if (!budget || !this.dir.exists("scene/screens.fitted.json")) return [];
+    const fit = this.dir.readJson<SceneScreen[]>("scene/screens.fitted.json");
+    let screens = this.screens();
+    const kept: string[] = [];
+    const candidates = sections
+      .filter((s) => results.get(s.id)!.worst > threshold)
+      .sort((a, b) => results.get(b.id)!.worst - results.get(a.id)!.worst);
+    for (const s of candidates) {
+      if (kept.length >= budget) break;
+      const next = spliceFitted(screens, fit, s.id);
+      if (!next) continue;
+      this.writeFiles("out/static", this.emitStatic(next));
+      const after = await this.checkSections([s], widths);
+      if (after.get(s.id)!.worst < results.get(s.id)!.worst - 1e-4) {
+        screens = next;
+        kept.push(s.id);
+        this.host.log?.(
+          `section ${s.id} keeps its fitted geometry (pixel ${(after.get(s.id)!.worst * 100).toFixed(1)} %)`,
+        );
+      }
+    }
+    // the page as kept (the last check may have been of a swap that was not kept)
+    const files = this.emitStatic(screens);
+    this.writeFiles("out/static", files);
+    if (typeof files["styles.css"] === "string") this.dir.write("build/styles.base.css", files["styles.css"]);
+    if (kept.length) this.dir.writeJson("out/static/fitted.json", kept);
+    return kept;
+  }
+
+  /** The static output of these screens. */
+  emitStatic(screens: SceneScreen[]): FileMap {
+    return getEmitter("static")!.emit(
+      { screens, fonts: this.fonts(), page: this.pageName() },
+      this.emitOptions(),
+    );
+  }
+
+  /**
+   * Every section's layout at the widths the live page has facts for (between and beyond the captures): the output
+   * shot facts-only in two browsers, each width compared with the live page (layoutCheck). → per section the issues
+   * the live page does not have, and per width the page's and the sections' heights.
+   */
+  async sectionSweep(): Promise<SectionSweep | null> {
+    const ws = [...new Set([...(this.m.probe ?? []), ...(this.m.sweep ?? [])])]
+      .filter((w) => this.dir.exists(`capture/live/${w}.json`))
+      .sort((a, b) => a - b);
+    if (!ws.length) return null;
+    const page = pathToFileURL(this.dir.path("out/static/index.html")).href;
+    const half = Math.ceil(ws.length / 2);
+    const shots = (
+      await Promise.all(
+        [ws.slice(0, half), ws.slice(half)]
+          .filter((c) => c.length)
+          .map((c) =>
+            this.driver.shoot(page, c, {
+              guard: false,
+              probe: LAYOUT_CHECK_JS,
+              factsOnly: true,
+              signal: this.host.signal,
+            }),
+          ),
+      )
+    ).flat();
+    const live = new Map(this.liveFacts(ws).map((l) => [l.width, l]));
+    const issues = new Map<string, string[]>();
+    const outOfFlow = new Map<string, Set<string>>();
+    const heights = new Map<number, { page?: number; live?: number; sections: Record<string, number> }>();
+    const add = (id: string | undefined, msg: string) => {
+      if (!id) return;
+      issues.set(id, [...(issues.get(id) ?? []), msg]);
+    };
+    for (const o of shots) {
+      const l = live.get(o.width);
+      const c = layoutCheck(o.width, o, l?.probe ? l : null, undefined, 1, true);
+      for (const p of c.pairs ?? [])
+        add(p.section, `${o.width}px: "${p.a}" overlaps ${p.kind === "media" ? "an image" : `"${p.b}"`}`);
+      for (const x of c.clipped ?? []) add(x.section, `${o.width}px: "${x.text}" is cut off by its box`);
+      // texts the output takes out of the flow that the live page keeps in it: the section's CSS does not flow
+      const at = new Map(((o.probe as LayoutFacts | undefined)?.anchors ?? []).map((a) => [a.k, a.s]));
+      for (const k of c.outOfFlow ?? []) {
+        const id = at.get(k);
+        if (id) (outOfFlow.get(id) ?? outOfFlow.set(id, new Set()).get(id)!).add(k.slice(2));
+      }
+      const f = o.probe as LayoutFacts | undefined;
+      const lf = l?.probe as LayoutFacts | undefined;
+      heights.set(o.width, { page: f?.docHeight, live: lf?.docHeight, sections: f?.sections ?? {} });
+    }
+    for (const [id, texts] of outOfFlow)
+      add(
+        id,
+        `flow: ${[...texts]
+          .slice(0, 3)
+          .map((t) => `"${t}"`)
+          .join(", ")} placed by coordinates; the page keeps ${texts.size === 1 ? "it" : "them"} in its flow`,
+      );
+    return { issues, heights };
+  }
+
+  /** The section's sweep issues per width, for its repair task. */
+  sweepTask(id: string, sweep: SectionSweep | null): RepairTask["sweep"] {
+    const by = new Map<number, string[]>();
+    for (const msg of sweep?.issues.get(id) ?? []) {
+      if (msg.startsWith("flow:")) {
+        by.set(0, [...(by.get(0) ?? []), msg.slice(6)]);
+        continue;
+      }
+      const w = Number(msg.slice(0, msg.indexOf("px")));
+      by.set(w, [...(by.get(w) ?? []), msg.slice(msg.indexOf(":") + 2)]);
+    }
+    return [...by].map(([width, issues]) => ({ width, issues }));
+  }
+
+  /** Did the pass's patch of section `id` help without breaking anything? (see build) */
+  keepRepair(
+    id: string,
+    reason: RepairTask["reason"],
+    before: { results: Map<string, { worst: number }>; sweep: SectionSweep | null },
+    after: { results: Map<string, { worst: number }>; sweep: SectionSweep | null },
+  ): boolean {
+    const threshold = Math.max((this.cfg.gates?.pixel ?? DEFAULT_GATES.pixel) * 3, 0.03);
+    const p0 = before.results.get(id)?.worst ?? 1,
+      p1 = after.results.get(id)?.worst ?? 1;
+    const pixelOk =
+      reason === "pixel" || reason === undefined ? p1 < p0 - 1e-4 : p1 <= Math.max(threshold, p0);
+    if (!pixelOk) return false;
+    if (!before.sweep || !after.sweep) return true;
+    const was = new Set(before.sweep.issues.get(id) ?? []);
+    const now = after.sweep.issues.get(id) ?? [];
+    if (now.some((x) => !was.has(x))) return false;
+    if ((reason === "responsive" || reason === "flow") && now.length >= was.size) return false;
+    for (const [w, a] of after.sweep.heights) {
+      const b = before.sweep.heights.get(w);
+      if (!b || a.live === undefined || a.page === undefined || b.page === undefined) continue;
+      const sectionMoved = Math.abs((a.sections[id] ?? 0) - (b.sections[id] ?? 0)) > 1;
+      if (sectionMoved && Math.abs(a.page - a.live) > Math.abs(b.page - a.live) + 2) return false;
+    }
+    return true;
+  }
+
+  /**
+   * Undo the pass's patches of these sections: their CSS block (by its repair marker) and their markup (between the
+   * section markers) back to what they were before the pass. `all`: every patch of the pass is undone, so the files
+   * are restored as a whole (also what a repair wrote without markers).
+   */
+  revertRepairs(ids: string[], attempt: number, before: { html: string; css: string }, all: boolean) {
+    const indexRel = "out/static/index.html",
+      cssRel = "out/static/styles.css";
+    if (all) {
+      this.dir.write(indexRel, before.html);
+      this.dir.write(cssRel, before.css);
+      return;
+    }
+    let css = this.dir.read(cssRel).toString("utf8");
+    let html = this.dir.read(indexRel).toString("utf8");
+    for (const id of ids) {
+      css = withoutRepairBlock(css, id, attempt);
+      const old = [...before.html.matchAll(sectionRe(id))].map((m) => m[0]);
+      let i = 0;
+      html = html.replace(sectionRe(id), (m) => old[i++] ?? m);
+    }
+    this.dir.write(cssRel, css);
+    this.dir.write(indexRel, html);
   }
 
   /** Every section's band at every width from one output shot per width: live crop vs. output crop. */
@@ -684,27 +1037,12 @@ class Runner {
       }));
     if (!live.length) return { status: "skipped" as const, detail: "no live shots were taken" };
     const targets = this.m.outputs.filter((o) => o.target === "static");
+    // every measurement checks a few widths the ones before did not (the plan's rotating widths)
+    const plan = this.plan(this.m.measures ?? 0);
+    this.m.measures = (this.m.measures ?? 0) + 1;
     for (const t of targets) {
-      // the output at the captured widths and at the sweep widths: two browsers side by side
-      const sweepWs = this.m.sweep ?? sweepWidths(widths);
-      const [shots, sweepOut] = await Promise.all([
-        this.driver.shoot(
-          pathToFileURL(this.dir.path(t.path, "index.html")).href,
-          live.map((l) => l.width),
-          {
-            guard: false,
-            probe: OUTPUT_PROBE_JS,
-            signal: this.host.signal,
-          },
-        ),
-        sweepWs.length
-          ? this.driver.shoot(pathToFileURL(this.dir.path(t.path, "index.html")).href, sweepWs, {
-              guard: false,
-              probe: LAYOUT_CHECK_JS,
-              signal: this.host.signal,
-            })
-          : Promise.resolve([]),
-      ]);
+      const page = pathToFileURL(this.dir.path(t.path, "index.html")).href;
+      const sweep = await this.sweepOutput(page, plan);
       const captured: Record<number, string[]> = {};
       const expectations: Record<number, ReturnType<typeof liveExpectations>> = {};
       for (const w of widths) {
@@ -712,43 +1050,40 @@ class Runner {
         captured[w] = textsOfSnapshot(snap);
         expectations[w] = liveExpectations(snap);
       }
-      // the responsive sweep: the output at widths between and beyond the captures, checked for its layout and
-      // against the live page where it was shot
-      const sweepLive = sweepWs
-        .filter((w) => this.dir.exists(`capture/live/${w}.png`))
-        .map((w) => ({
-          width: w,
-          png: this.dir.read(`capture/live/${w}.png`),
-          ...this.dir.readJson<{ texts: string[]; overflowPx: number; probe?: unknown }>(
-            `capture/live/${w}.json`,
-          ),
-        }));
-      for (const o of sweepOut) this.dir.write(`measure/${t.target}/sweep/${o.width}.png`, o.png);
+      for (const o of sweep.out)
+        if (o.png?.length) this.dir.write(`measure/${t.target}/sweep/${o.width}.png`, o.png);
       const { report, images } = measure({
         target: t.target,
         sweep: {
-          out: sweepOut,
-          live: sweepLive,
-          // each variant's measured span (its capture width and its alt walks)
-          spans: this.screens()
-            .filter((x) => x.responsive || !x.root.meta?.overlayOf)
-            .filter((x) => typeof x.root.meta?.overlayOf !== "string")
-            .map((x) => {
-              const ws = [x.width, ...(x.responsive?.measured ?? [])];
-              return [Math.min(...ws), Math.max(...ws)] as [number, number];
-            }),
+          out: sweep.out,
+          live: this.liveFacts([...sweep.out.map((o) => o.width)]),
+          spans: this.spans(),
+          plan: { grid: plan.grid, boundaries: plan.boundaries, rotating: plan.rotating },
         },
         live,
-        out: shots,
+        out: sweep.captured,
         captured,
         expectations,
         mask: Object.fromEntries(widths.map((w) => [w, this.mediaAt(w)])),
         gates: this.cfg.gates,
+        flow: this.flowInput(t.path),
       });
       for (const img of images) {
         this.dir.write(`measure/${t.target}/${img.width}/live.png`, img.live);
         this.dir.write(`measure/${t.target}/${img.width}/out.png`, img.out);
         this.dir.write(`measure/${t.target}/${img.width}/diff.png`, img.diff);
+      }
+      // the worst failing widths that had no screenshot: shot now, for the compare page and the agent's crops
+      const worst = (report.sweep ?? [])
+        .filter((c) => !c.pass && !this.dir.exists(`measure/${t.target}/sweep/${c.width}.png`))
+        .sort((a, b) => b.issues.length - a.issues.length || (b.pairs?.length ?? 0) - (a.pairs?.length ?? 0))
+        .slice(0, 2)
+        .map((c) => c.width);
+      if (worst.length) {
+        const shots = await this.driver
+          .shoot(page, worst, { guard: false, probe: LAYOUT_CHECK_JS, signal: this.host.signal })
+          .catch(() => []);
+        for (const o of shots) this.dir.write(`measure/${t.target}/sweep/${o.width}.png`, o.png);
       }
       // the vision verdict, when a vision-capable model is configured
       if (this.host.chat) report.vision = await this.vision(report, images).catch(() => undefined);
@@ -780,6 +1115,78 @@ class Runner {
       comparePage(this.reports, { title: this.pageName(), sourceUrl: this.m.finalUrl ?? this.url }),
     );
     return { detail: this.reports.map((r) => formatReport(r).split("\n")[0]).join("; ") };
+  }
+
+  /** Each variant's measured span (its capture width and its alt walks): pixels and heights must match there. */
+  spans(): [number, number][] {
+    return this.screens()
+      .filter((x) => x.responsive || !x.root.meta?.overlayOf)
+      .filter((x) => typeof x.root.meta?.overlayOf !== "string")
+      .map((x) => {
+        const ws = [x.width, ...(x.responsive?.measured ?? [])];
+        return [Math.min(...ws), Math.max(...ws)] as [number, number];
+      });
+  }
+
+  /** The live page's facts (and shot, where taken) at these widths, from the capture. */
+  liveFacts(ws: number[]) {
+    return [...new Set(ws)]
+      .filter((w) => this.dir.exists(`capture/live/${w}.json`))
+      .map((w) => ({
+        width: w,
+        ...(this.dir.exists(`capture/live/${w}.png`) ? { png: this.dir.read(`capture/live/${w}.png`) } : {}),
+        ...this.dir.readJson<{ texts: string[]; overflowPx: number; probe?: unknown }>(
+          `capture/live/${w}.json`,
+        ),
+      }));
+  }
+
+  /**
+   * The output at the captured widths (screenshots and interaction probes), at the widths the live page was
+   * screenshotted at (layout facts and screenshots) and at the rest of the sweep plan (layout facts only, resized in
+   * place): a few browsers side by side.
+   */
+  async sweepOutput(page: string, plan: ReturnType<Runner["plan"]>) {
+    const widths = (this.m.variants ?? []).map((v) => v.width);
+    const shotWs = (this.m.sweep ?? sweepWidths(widths)).filter((w) => !widths.includes(w));
+    const factWs = plan.all.filter((w) => !shotWs.includes(w) && !widths.includes(w));
+    const half = Math.ceil(factWs.length / 2);
+    const chunks = [factWs.slice(0, half), factWs.slice(half)].filter((c) => c.length);
+    const o = { guard: false as const, signal: this.host.signal };
+    const [captured, shots, ...facts] = await Promise.all([
+      this.driver.shoot(page, widths, { ...o, probe: OUTPUT_PROBE_JS }),
+      shotWs.length ? this.driver.shoot(page, shotWs, { ...o, probe: LAYOUT_CHECK_JS }) : Promise.resolve([]),
+      ...chunks.map((c) => this.driver.shoot(page, c, { ...o, probe: LAYOUT_CHECK_JS, factsOnly: true })),
+    ]);
+    return { captured, out: [...shots, ...facts.flat()].sort((a, b) => a.width - b.width) };
+  }
+
+  /** The output's stylesheet for the flow gate: linted against the build's own (what was added after it). */
+  flowInput(rel: string) {
+    const cssPath = `${rel}/styles.css`,
+      htmlPath = `${rel}/index.html`;
+    if (!this.dir.exists(cssPath) || !this.dir.exists(htmlPath)) return undefined;
+    const html = this.dir.read(htmlPath).toString("utf8");
+    const { sections, media } = sectionClasses(html);
+    const fitted = this.fittedSections();
+    const lint = flowLint({
+      css: this.dir.read(cssPath).toString("utf8"),
+      ...(this.dir.exists("build/styles.base.css")
+        ? { baseline: this.dir.read("build/styles.base.css").toString("utf8") }
+        : {}),
+      scope: { ids: [...sections.keys()], classes: [...sections.values()].flatMap((c) => [...c]) },
+      mediaClasses: media,
+      boundaries: (this.m.variants ?? []).map((v) => v.minWidth).filter((w) => w > 0),
+      exempt: fitted.flatMap((id) => [...(sections.get(id) ?? [])]),
+    });
+    return { lint, gating: FLOW_GATING, outOfFlow: FLOW_OUT_OF_FLOW_GATES, fitted };
+  }
+
+  /** Sections the emitter kept at their fitted geometry (they do not reflow). */
+  fittedSections(): string[] {
+    return this.dir.exists("out/static/fitted.json")
+      ? this.dir.readJson<string[]>("out/static/fitted.json")
+      : [];
   }
 
   /** One verdict per width; the model calls run side by side, each full-page image decoded once. */
@@ -1030,6 +1437,92 @@ class Runner {
     }
     return { detail: notes.join("; ") || "nothing to convert" };
   }
+}
+
+/**
+ * The screens with section `id` taken from the fitted conversion in every variant that has it: its content and own
+ * layout the fitted one's, its place in its parent the flow one's (ids of the fitted subtree prefixed, they come from
+ * another conversion). Null when no variant could be swapped or the section holds a control that opens or switches
+ * something (its targets are the flow scene's).
+ */
+export function spliceFitted(flow: SceneScreen[], fitted: SceneScreen[], id: string): SceneScreen[] | null {
+  let swapped = 0;
+  const find = (e: SceneElement, p: SceneElement | null): [SceneElement, SceneElement | null] | null => {
+    if (e.meta?.section === id) return [e, p];
+    for (const c of e.children ?? []) {
+      const r = find(c, e);
+      if (r) return r;
+    }
+    return null;
+  };
+  const interactive = (e: SceneElement): boolean =>
+    !!e.interaction || !!e.states || (e.children ?? []).some(interactive);
+  const prefix = (e: SceneElement): SceneElement => ({
+    ...e,
+    id: `f-${e.id}`,
+    ...(e.children ? { children: e.children.map(prefix) } : {}),
+  });
+  const OUTER = [
+    "position",
+    "x",
+    "y",
+    "right",
+    "bottom",
+    "margin",
+    "alignSelf",
+    "grow",
+    "constraints",
+    "z",
+  ] as const;
+  const out = flow.map((s) => {
+    const f = fitted.find(
+      (x) =>
+        x.width === s.width &&
+        (x.root.meta?.overlayOf === undefined) === (s.root.meta?.overlayOf === undefined),
+    );
+    if (!f || s.root.meta?.overlayOf !== undefined) return s;
+    const root = structuredClone(s.root);
+    const a = find(root, null),
+      b = find(f.root, null);
+    if (!a || !b || !a[1] || interactive(a[0]) || interactive(b[0])) return s;
+    const [mine, parent] = a;
+    const theirs = prefix(structuredClone(b[0]));
+    const layout: SceneLayout = { ...theirs.layout };
+    for (const k of OUTER) delete layout[k];
+    for (const k of OUTER)
+      if (mine.layout?.[k] !== undefined) (layout as Record<string, unknown>)[k] = mine.layout[k];
+    // the band keeps the width its parent gives it in flow; its height is the fitted one's (its content is placed)
+    if (mine.layout?.width === "fill" || typeof mine.layout?.width === "string")
+      layout.width = mine.layout.width;
+    parent.children = parent.children!.map((c) =>
+      c === mine
+        ? { ...theirs, id: mine.id, layout, meta: { ...theirs.meta, section: id, fitted: true } }
+        : c,
+    );
+    swapped++;
+    return { ...s, root };
+  });
+  return swapped ? out : null;
+}
+
+/** One sweep of the output for the repair loop: per section its issues, per width the heights. */
+interface SectionSweep {
+  issues: Map<string, string[]>;
+  heights: Map<number, { page?: number; live?: number; sections: Record<string, number> }>;
+}
+
+const escRe = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+/** A section's copies in index.html, markers included. */
+export const sectionRe = (id: string) =>
+  new RegExp(`<!-- section:${escRe(id)} -->[\\s\\S]*?<!-- /section -->`, "g");
+
+/** `css` without the block a repair of section `id` added in `attempt` (from its marker to the next marker or the end). */
+export function withoutRepairBlock(css: string, id: string, attempt: number): string {
+  const marker = `\n${repairMarker(id, attempt)}`;
+  const i = css.indexOf(marker);
+  if (i < 0) return css;
+  const j = css.indexOf("\n/* repair: section ", i + marker.length);
+  return css.slice(0, i) + (j < 0 ? "" : css.slice(j));
 }
 
 /** The live crop of a section vs. the output's crop of the same section. */

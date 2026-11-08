@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import type { SessionInfo } from "@harness/client";
-import { basename, useApp } from "../app-state";
+import { basename, isAutomated, useApp } from "../app-state";
 import { CDRMark } from "./Brand";
 import { groupByDate } from "../session-groups";
 import { alertDialog, confirmDialog } from "./Dialogs";
@@ -26,14 +26,19 @@ export function Sidebar({
   onSearch(): void;
   onToggle(): void;
 }) {
-  const { sessions, route, navigate, client, refreshSessions, connection, settings } = useApp();
+  const { sessions, route, navigate, client, refreshSessions, connection, settings, updateSettings } =
+    useApp();
   const [q, setQ] = useState("");
+  const openId = route.name === "chat" ? route.id : undefined;
+  const automated = useMemo(() => sessions.filter(isAutomated).length, [sessions]);
   const sorted = useMemo(
     () =>
       [...sessions]
+        // the open conversation stays listed even when it is an automated one
+        .filter((s) => settings.showAutomated || s.id === openId || !isAutomated(s))
         .filter((s) => !q || `${s.title ?? ""} ${s.projectPath}`.toLowerCase().includes(q.toLowerCase()))
         .sort((a, b) => (b.updatedAt || b.createdAt).localeCompare(a.updatedAt || a.createdAt)),
-    [sessions, q],
+    [sessions, q, settings.showAutomated, openId],
   );
   const del = async (s: SessionInfo) => {
     const ok = await confirmDialog(
@@ -110,7 +115,23 @@ export function Sidebar({
           <IconTerminal /> All conversations
         </button>
       </div>
-      <div className="history-heading">Recents</div>
+      <div className="history-heading">
+        Recents
+        {automated > 0 && (
+          <button
+            className={`ghost tiny automated-toggle ${settings.showAutomated ? "on" : ""}`}
+            aria-pressed={settings.showAutomated}
+            onClick={() => updateSettings((s) => ({ showAutomated: !s.showAutomated }))}
+            title={
+              settings.showAutomated
+                ? "Hide goal runs and software-factory agents"
+                : "Show goal runs and software-factory agents"
+            }
+          >
+            {settings.showAutomated ? "Hide" : "Show"} automated · {automated}
+          </button>
+        )}
+      </div>
       <label className="search">
         <IconSearch size={14} />
         <input

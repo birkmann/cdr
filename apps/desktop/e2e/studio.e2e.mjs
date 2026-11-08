@@ -169,6 +169,12 @@ try {
     await waitFor(async () => (await text(".st-welcome")).includes("demo-repo"), "recent repo on welcome page");
   });
 
+  await step("the app starts in the chat view and switches to the code view", async () => {
+    await waitFor(() => js(`return !!document.querySelector('.st-body.mode-chat .st-conversations')`), "chat view");
+    await clickText(".st-view-toggle button", "Code");
+    await waitFor(() => js(`return !!document.querySelector('.st-body.mode-code')`), "code view");
+  });
+
   await step("open a recent repository", async () => {
     await clickText(".st-welcome .st-link", "demo-repo");
     await waitFor(async () => (await text(".st-titlebar")).includes("demo-repo"), "repo name in title bar");
@@ -342,17 +348,18 @@ try {
   });
 
   await step("goals: create a draft goal", async () => {
-    await click('.st-activity-btn[aria-label="Goals"]');
-    await click('.st-panel-head button[aria-label="New goal"]');
+    await clickText(".st-view-toggle button", "Chat");
+    await click('.st-rail button[aria-label="New goal"]');
     await setValue(".st-goal-inner input", "Make the answer configurable");
     await setValue('.st-list-input input', "pnpm test passes");
     await clickText(".st-goal-inner button", "Save draft");
-    await waitFor(async () => (await text(".st-goal-row")).includes("Make the answer configurable"), "goal in list");
+    await clickText(".st-view-toggle button", "Chat");
+    await waitFor(async () => (await text(".st-rail-row")).includes("Make the answer configurable"), "goal in list");
     await waitFor(() => existsSync(join(repo, ".harness/goals")), "goal file in repo");
   });
 
   await step("goals: run unattended in a worktree until the budget stops it", async () => {
-    await clickText(".st-goal-row", "Make the answer configurable");
+    await clickText(".st-rail-row", "Make the answer configurable");
     await clickText(".st-goal-inner button", "Run now");
     await waitFor(async () => (await text(".st-goal-inner")).includes("Started round"), "goal timeline", 30000);
     // The mock model never satisfies the criterion, so the goal stops after its rounds.
@@ -365,7 +372,7 @@ try {
     if (!branches.includes("cdr/goal-")) throw new Error(`goal branch missing: ${branches}`);
     await clickText(".st-goal-inner button", "Discard");
     await clickText(".st-dialog button", "Discard");
-    await waitFor(async () => !(await text(".st-goal-row")).includes("Make the answer configurable") || (await text(".st-goal-inner .st-goal-status")).includes("Discarded"), "goal discarded");
+    await waitFor(async () => (await text(".st-goal-inner .st-goal-status")).includes("Discarded") || !(await text(".st-goal-inner")).includes("Make the answer configurable"), "goal discarded");
   });
 
   await step("settings dialog and theme switch", async () => {

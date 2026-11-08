@@ -1,4 +1,5 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { RunDir, runRecreate } from "@harness/recreate";
 import { fakeDriver } from "../../recreate/test/fake-driver.js";
@@ -8,12 +9,21 @@ import {
   Harness,
   MockProvider,
   askConsent,
+  attemptLines,
+  compareScores,
   discoverSkills,
   matchSkills,
+  measureRefusal,
+  recordMeasure,
+  recreateInSession,
   recreateTools,
   repairSection,
+  resetAttempts,
+  restoredMeasured,
   resumeRequest,
+  scoreOf,
 } from "@harness/core";
+import type { MeasureReport } from "@harness/measure";
 import { reduceSession, initialSessionState } from "@harness/client";
 import { MOCK_MODELS, tempProject, toolCtx } from "./helpers.js";
 
@@ -220,7 +230,7 @@ describe("repair (bounded model call)", () => {
       for await (const e of mock.stream({ model: "m", messages })) if (e.type === "text") text += e.text;
       return text;
     };
-    expect(await repairSection(ctx, "executor", task)).toBe(true);
+    expect(await repairSection(ctx, "executor", task)).toEqual({ changed: true, note: "smaller heading" });
     expect(readFileSync(join(root, "out/styles.css"), "utf8")).toContain("font-size: 36px");
     const html = readFileSync(join(root, "out/index.html"), "utf8");
     expect(html).toContain('<div class="w">');
@@ -238,9 +248,110 @@ describe("repair (bounded model call)", () => {
       const root = setup();
       const ctx = toolCtx(root);
       ctx.complete = async () => JSON.stringify({ html });
-      expect(await repairSection(ctx, "executor", task)).toBe(false);
+      const r = await repairSection(ctx, "executor", task);
+      expect(r.changed).toBe(false);
+      expect(r.rejected?.length).toBeGreaterThan(0);
       expect(readFileSync(join(root, "out/index.html"), "utf8")).toBe(PAGE);
     }
+  });
+
+  it("rejects markup that brings its own styles", async () => {
+    const root = setup();
+    const ctx = toolCtx(root);
+    ctx.complete = async () =>
+      JSON.stringify({
+        html: '<section data-section="hero" class="hero"><h1 class="t" style="position:absolute;top:40px">Gear for every trail</h1><img src="assets/a.png" alt=""></section>',
+      });
+    const r = await repairSection(ctx, "executor", task);
+    expect(r.rejected?.join()).toMatch(/style attributes/);
+    expect(readFileSync(join(root, "out/index.html"), "utf8")).toBe(PAGE);
+  });
+
+  // the flow lint's corpus (packages/measure/test/corpus): patches that fit the checked widths, and patches that flow
+  const CORPUS = join(dirname(fileURLToPath(import.meta.url)), "../../measure/test/corpus");
+  const corpus = (kind: string) =>
+    readdirSync(join(CORPUS, kind))
+      .filter((f) => f.endsWith(".css"))
+      .map((f) => ({ name: f, css: readFileSync(join(CORPUS, kind, f), "utf8") }));
+  const HERO = `<html><head></head><body>
+<!-- section:hero -->
+<section data-section="hero" class="hero-row"><nav class="hero-nav"></nav><h1 class="hero-title">Gear for every trail</h1><p class="hero-copy">Since 1987</p><div class="hero-grid"></div><img class="hero-media" src="assets/a.png" alt=""></section>
+<!-- /section -->
+</body></html>`;
+  const heroSetup = () => {
+    const root = tempProject();
+    mkdirSync(join(root, "out"), { recursive: true });
+    writeFileSync(join(root, "out/index.html"), HERO);
+    writeFileSync(join(root, "out/styles.css"), ".hero-title { font-size: 40px; }\n");
+    return root;
+  };
+  const heroTask = { ...task, boundaries: [768, 1024] };
+
+  it("rejects every patch of the cheat corpus with a reason and writes nothing; the reasons reach the next attempt", async () => {
+    const cheats = corpus("cheat");
+    expect(cheats.length).toBeGreaterThanOrEqual(10);
+    for (const f of cheats) {
+      const root = heroSetup();
+      const ctx = toolCtx(root);
+      const mock = new MockProvider({
+        replies: [
+          { text: JSON.stringify({ css: f.css, note: "fit" }) },
+          { text: JSON.stringify({ note: "nothing" }) },
+        ],
+      });
+      ctx.complete = async (_role, messages) => {
+        let text = "";
+        for await (const e of mock.stream({ model: "m", messages })) if (e.type === "text") text += e.text;
+        return text;
+      };
+      const r = await repairSection(ctx, "executor", heroTask);
+      expect(r.changed, f.name).toBe(false);
+      expect(r.rejected?.[0], f.name).toMatch(new RegExp(`^${f.name.split(".")[0]}:`));
+      expect(readFileSync(join(root, "out/index.html"), "utf8")).toBe(HERO);
+      expect(readFileSync(join(root, "out/styles.css"), "utf8")).toBe(".hero-title { font-size: 40px; }\n");
+      // the second attempt is told why the first one was not written
+      await repairSection(ctx, "executor", { ...heroTask, attempt: 2, rejected: r.rejected });
+      const second = mock.calls[1]!.messages[1]!;
+      expect(typeof second.content === "string" && second.content).toContain(
+        `Your previous patch was rejected and not written:\n- ${r.rejected![0]}`,
+      );
+    }
+  });
+
+  it("writes every patch of the honest corpus", async () => {
+    for (const f of corpus("honest")) {
+      const root = heroSetup();
+      const ctx = toolCtx(root);
+      ctx.complete = async () => JSON.stringify({ css: f.css, note: "flows" });
+      const r = await repairSection(ctx, "executor", heroTask);
+      expect(r, f.name).toEqual({ changed: true, note: "flows" });
+      expect(readFileSync(join(root, "out/styles.css"), "utf8")).toContain(
+        "/* repair: section hero, attempt 1 */",
+      );
+    }
+  });
+
+  it("tells the model what breaks between the captured widths and why the section is repaired", async () => {
+    const root = heroSetup();
+    const ctx = toolCtx(root);
+    let prompt = "";
+    let system = "";
+    ctx.complete = async (_role, messages) => {
+      system = String(messages[0]!.content);
+      prompt = String(messages[1]!.content);
+      return JSON.stringify({});
+    };
+    await repairSection(ctx, "executor", {
+      ...heroTask,
+      reason: "responsive",
+      sweep: [{ width: 488, issues: ['"Summit tent" overlaps "Learn more"'] }],
+    });
+    expect(prompt).toContain("its layout breaks at widths between the captured ones");
+    expect(prompt).toContain('- 488px: "Summit tent" overlaps "Learn more"');
+    expect(system).toMatch(
+      /checked again at the captured widths and at many widths between them that you are not shown/,
+    );
+    expect(system).toMatch(/Rejected before it is written/);
   });
 });
 
@@ -290,6 +401,19 @@ describe("client reducer", () => {
         pixel: 0.01,
       },
       {
+        type: "recreate.section",
+        runId,
+        index: 1,
+        total: 2,
+        id: "hero",
+        kind: "hero",
+        label: "hero",
+        status: "below-threshold",
+        pixel: 0.002,
+        reason: "responsive",
+        reverted: true,
+      },
+      {
         type: "recreate.measured",
         runId,
         target: "static",
@@ -305,6 +429,17 @@ describe("client reducer", () => {
     expect(run.stages.capture.status).toBe("done");
     expect(run.sections).toEqual([
       { index: 0, total: 2, id: "header", kind: "header", label: "header", status: "ok", pixel: 0.01 },
+      {
+        index: 1,
+        total: 2,
+        id: "hero",
+        kind: "hero",
+        label: "hero",
+        status: "below-threshold",
+        pixel: 0.002,
+        reason: "responsive",
+        reverted: true,
+      },
     ]);
     expect(run.comparePath).toBe("c.html");
     expect(s.timeline.filter((t) => t.kind === "event")).toHaveLength(2);
@@ -317,8 +452,15 @@ describe("recreate evals", () => {
     const tasks = loadEvalTasks(join(__dirname, "../../../evals"), undefined, "recreate");
     expect(tasks.map((t) => t.id)).toEqual([
       "30-recreate-fixture",
+      "31-recreate-fluid",
+      "32-recreate-repair-honest",
       "33-plain-brief-no-copy",
     ]);
+    // every recreation task requires the gates that hold at every width
+    for (const t of tasks.filter((x) => x.id.startsWith("3") && x.id !== "33-plain-brief-no-copy"))
+      expect(t.checks.find((c) => c.type === "recreateGate")).toMatchObject({
+        gates: expect.arrayContaining(["responsive", "flow"]),
+      });
     expect(WORKFLOW_PRESETS.recreate.phases[0].tools).toContain("recreate_capture");
     const root = tempProject();
     expect(recreateGateCheck(root, { type: "recreateGate" }).passed).toBe(false);
@@ -341,5 +483,165 @@ describe("recreate evals", () => {
     );
     writeFileSync(join(dir, "manifest.json"), manifest(false));
     expect(recreateGateCheck(root, { type: "recreateGate" }).passed).toBe(false);
+  });
+});
+
+describe("recreate beside a running agent", () => {
+  it("runs while another conversation holds the project, unless it copies its output into the project", async () => {
+    const root = tempProject();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const h = new Harness({
+      providers: { mock: new MockProvider({ handler: async () => (await gate, { text: "ok" }) }) },
+      skipGlobalConfig: true,
+      loadEnv: false,
+      configOverrides: MOCK_MODELS,
+    });
+    const agent = h.createSession({ projectPath: root });
+    const running = agent.chat("work");
+    await new Promise((r) => setTimeout(r, 20));
+    const opts = { yes: true, shareCheckout: true, stopAfter: "consent" as const };
+
+    // only its own .harness/recreate folder: no lock, no checkpoint
+    const s = h.createSession({ projectPath: root });
+    const r = await recreateInSession(s, { url: "https://example.com" }, opts);
+    expect(r.status).toBe("success");
+    expect(s.events.some((e) => e.type === "checkpoint.created")).toBe(false);
+    expect(s.isRunning).toBe(false);
+
+    // `out` writes into the project, so it still waits its turn; so does a run that did not ask to share
+    const out = h.createSession({ projectPath: root });
+    await expect(recreateInSession(out, { url: "https://example.com", out: "site" }, opts)).rejects.toThrow(
+      /busy/,
+    );
+    await expect(
+      recreateInSession(out, { url: "https://example.com" }, { yes: true, stopAfter: "consent" }),
+    ).rejects.toThrow(/busy/);
+
+    release();
+    await running;
+  });
+});
+
+describe("repair attempts", () => {
+  type Gate = { name: string; pass: boolean; detail: string };
+  const report = (o: { failing?: string[]; sweepFail?: number; pixel?: number }): MeasureReport => {
+    const names = ["pixel", "text", "layout", "interactions", "responsive", "flow"];
+    const gates: Gate[] = names.map((name) => ({ name, pass: !o.failing?.includes(name), detail: "" }));
+    return {
+      target: "static",
+      at: "",
+      widths: [
+        {
+          width: 390,
+          pixel: o.pixel ?? 0.02,
+          liveHeight: 900,
+          outHeight: 900,
+          textReal: 0,
+          textDrift: 0,
+          hscroll: 0,
+          bands: [],
+        },
+      ] as unknown as MeasureReport["widths"],
+      gates,
+      pass: gates.every((g) => g.pass),
+      sweep: Array.from({ length: 50 }, (_, i) => ({
+        width: 320 + i * 40,
+        pass: i >= (o.sweepFail ?? 0),
+        issues: [],
+      })) as unknown as MeasureReport["sweep"],
+    };
+  };
+  const run = () => {
+    const dir = new RunDir(tempProject(), "20261107-185113-acme-com-abc");
+    dir.write("out/static/styles.css", "v1");
+    dir.write("out/static/index.html", "<p>v1</p>");
+    dir.write("out/static/assets/a.png", "img");
+    dir.write("measure/static/report.json", JSON.stringify(report({ failing: ["pixel"] })));
+    dir.write("compare/index.html", "compare v1");
+    return dir;
+  };
+
+  it("ranks a newly failing responsive or flow gate as worse, whatever the pixels did", () => {
+    const base = scoreOf(report({ failing: ["pixel"], pixel: 0.05 }));
+    expect(compareScores(scoreOf(report({ failing: ["responsive"], pixel: 0.001 })), base)).toBeGreaterThan(
+      0,
+    );
+    expect(compareScores(scoreOf(report({ failing: ["pixel"], sweepFail: 20 })), base)).toBeGreaterThan(0);
+    expect(compareScores(scoreOf(report({ failing: ["pixel"], pixel: 0.0501 })), base)).toBe(0);
+    expect(compareScores(scoreOf(report({ failing: [] })), base)).toBeLessThan(0);
+  });
+
+  it("tells the agent to report after the first measure instead of repairing", () => {
+    const dir = run();
+    const a = recordMeasure(dir, report({ failing: ["pixel"] }));
+    expect(a).toMatchObject({ n: 1, verdict: "first", best: 1, restored: false });
+    expect(attemptLines(a, false).join("\n")).toMatch(
+      /give the user the summary .* and stop\. Repair only when the user asked/,
+    );
+    expect(attemptLines(a, true).join("\n")).toMatch(/every gate passes/);
+  });
+
+  it("puts the best version back over a worse one, says to stop, then refuses until a rebuild", () => {
+    const dir = run();
+    recordMeasure(dir, report({ failing: ["pixel"], sweepFail: 10 }));
+    // a patch that breaks the page, written outside the tools (bash), measured worse
+    dir.write("out/static/styles.css", "broken");
+    dir.write("out/static/extra.js", "x");
+    dir.write("measure/static/report.json", JSON.stringify(report({ failing: ["pixel", "responsive"] })));
+    dir.write("compare/index.html", "compare broken");
+    const worse = recordMeasure(dir, report({ failing: ["pixel", "responsive"], sweepFail: 30 }));
+    expect(worse).toMatchObject({ n: 2, verdict: "worse", best: 1, restored: true, stale: 1 });
+    expect(readFileSync(dir.path("out/static/styles.css"), "utf8")).toBe("v1");
+    expect(readFileSync(dir.path("compare/index.html"), "utf8")).toBe("compare v1");
+    expect(existsSync(dir.path("out/static/assets/a.png"))).toBe(true);
+    const ev = restoredMeasured(dir);
+    expect(ev).toMatchObject({ type: "recreate.measured", target: "static" });
+    expect((ev as { gates: Gate[] }).gates.find((g) => g.name === "responsive")?.pass).toBe(true);
+    expect(attemptLines(worse, false).join("\n")).toMatch(
+      /put back to measure #1.*\n.*Next: the next section/s,
+    );
+
+    const same = recordMeasure(dir, report({ failing: ["pixel"], sweepFail: 10 }));
+    expect(same).toMatchObject({ verdict: "same", stale: 2, restored: false });
+    expect(attemptLines(same, false).join("\n")).toMatch(
+      /Next: 2 measures without improvement\. Stop repairing/,
+    );
+
+    // an improvement becomes the new best and resets the count
+    dir.write("out/static/styles.css", "v2");
+    const better = recordMeasure(dir, report({ failing: ["pixel"], sweepFail: 2 }));
+    expect(better).toMatchObject({ n: 4, verdict: "better", best: 4, stale: 0 });
+    expect(measureRefusal(dir)).toBeNull();
+    for (let i = 0; i < 4; i++) recordMeasure(dir, report({ failing: ["pixel"], sweepFail: 2 }));
+    expect(measureRefusal(dir)).toMatch(/last 4 measures .* did not improve on measure #4.*recreate_build/s);
+    expect(readFileSync(dir.path("out/static/styles.css"), "utf8")).toBe("v2");
+
+    resetAttempts(dir);
+    expect(measureRefusal(dir)).toBeNull();
+    expect(recordMeasure(dir, report({ failing: ["pixel"] })).verdict).toBe("first");
+  });
+});
+
+describe("model calls with images", () => {
+  it("refuse a model that cannot view images instead of answering blind", async () => {
+    const provider = new MockProvider({ handler: async () => ({ text: '{"verdict":"different"}' }) });
+    let vision: boolean | undefined = false;
+    const caps = provider.capabilities.bind(provider);
+    provider.capabilities = () => ({ ...caps(), vision });
+    const h = new Harness({
+      providers: { mock: provider },
+      skipGlobalConfig: true,
+      loadEnv: false,
+      configOverrides: MOCK_MODELS,
+    });
+    const s = h.createSession({ projectPath: tempProject() });
+    const img = [
+      { role: "user" as const, content: "compare", images: [{ mimeType: "image/png", data: "AA==" }] },
+    ];
+    await expect(s.complete("executor", img)).rejects.toThrow(/cannot view images/);
+    expect(await s.complete("executor", [{ role: "user", content: "name it" }])).toContain("different");
+    vision = undefined;
+    expect(await s.complete("executor", img)).toContain("different");
   });
 });

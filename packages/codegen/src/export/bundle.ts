@@ -334,6 +334,8 @@ export interface OverlayPlacement {
   height: number;
   centred?: boolean;
   /** the page reflows (fluidVariants) down to this width: the panel's content too, scaled only below it */ fluid?: number;
+  /** the width the opening variant applies from (a variant that reflows down to it is never scaled) */
+  minWidth?: number;
   /** the opener's ancestors measured across the variant's range (ExportScreen.openerSpans of this overlay) */
   spans?: ReadonlyArray<ReadonlyArray<readonly [number, number, number]>>;
 }
@@ -417,7 +419,8 @@ export function overlayPanelCss(
       `${sel} > [data-overlay-panel] { ${box} top: ${top}; max-height: calc(100% - ${top});${docked ? " border-radius: 0; box-shadow: none;" : ""}${e.from === "none" ? "" : ` transform: ${e.from};`} }`,
     );
     lines.push(
-      `${sel} > [data-overlay-panel] > main { height: ${Math.round(place.height * 100) / 100}px; zoom: min(1, calc(100vw / ${Math.round(place.fluid ?? W)}px)); }`,
+      // scaled below the width the page reflows down to; a page that reflows at every width (fluid 0) never is
+      `${sel} > [data-overlay-panel] > main { height: ${Math.round(place.height * 100) / 100}px;${(place.fluid ?? W) > 0 && (place.fluid ?? W) > (place.minWidth ?? 0) ? ` zoom: min(1, calc(100vw / ${Math.round(place.fluid ?? W)}px));` : ""} }`,
     );
     lines.push(`${sel}[data-open] > [data-overlay-panel] { transform: none; }`);
     return lines.filter((l) => !l.endsWith("{ }")).join("\n");
@@ -513,15 +516,28 @@ export function pinnedIr(s: ExportScreen): IrElement {
     for (const n of layers)
       if (n.style["z-index"] !== undefined && /^-?\d+$/.test(n.style["z-index"]))
         n.style = { ...n.style, "z-index": String(zOf(n) * 2 + (isFixed(n) ? 1 : 0)) };
-  for (const n of layers) {
+  let sticky = false;
+  // (a pinned layer inside a wrapper of the page root too: a masthead in its container; never inside a pinned one)
+  const pinnedLayers: IrElement[] = [];
+  const collect = (n: IrElement) => {
+    for (const c of n.children) {
+      if (c.kind !== "el") continue;
+      if (c.id && pins[c.id]) pinnedLayers.push(c);
+      else collect(c);
+    }
+  };
+  if (root) collect(root);
+  for (const n of pinnedLayers) {
     const p = n.id ? pins[n.id] : undefined;
     if (!p) continue;
-    if (p.behavior === "sticky") {
-      if (n.style.position !== "absolute")
+    // a pinned layer in the page's flow (a sticky header the import kept in flow) sticks to the top as it scrolls
+    if (p.behavior === "sticky" || n.style.position !== "absolute") {
+      if (n.style.position !== "absolute") {
         n.style = { ...n.style, position: "sticky", top: n.style.top ?? "0px" };
+        sticky = true;
+      }
       continue;
     }
-    if (n.style.position !== "absolute") continue;
     const style: Record<string, string> = { ...n.style, position: "fixed" };
     const bottom = p.y !== undefined && p.h ? vh - p.y - p.h : -1;
     if (p.y !== undefined && p.h && p.y + p.h / 2 > vh / 2 && bottom >= 0) {
@@ -530,6 +546,11 @@ export function pinnedIr(s: ExportScreen): IrElement {
     }
     n.style = style;
   }
+  // a sticky layer sticks to the nearest scroll container: the page's clipping boxes clip without being one
+  if (sticky)
+    for (const box of [ir, root])
+      if (box && /^(hidden|auto)$/.test(box.style.overflow ?? ""))
+        box.style = { ...box.style, overflow: "clip" };
   return ir;
 }
 
@@ -567,6 +588,7 @@ function overlayMarkup(
                 pageWidth: s.width,
                 height: o.height,
                 fluid: s.responsive?.fluid,
+                minWidth: s.responsive?.minWidth,
                 spans: s.openerSpans?.[id],
               }
             : undefined,
@@ -601,7 +623,10 @@ export function buildHtmlFiles(all: ExportScreen[], o: BundleOptions): FileMap {
     // term of its rules stops there; capWideCss centres that layout on wider screens
     const widest = page.screens[page.screens.length - 1]!;
     const webPage = page.screens.every((x) => x.platform === "web");
-    const capAt = webPage ? widestMeasured(widest) : 0;
+    // (a variant measured across its range — URL capture, flow — continues the page's own lines past its widest
+    // measurement: a centred column keeps centring, a full-bleed band keeps spanning; no cap)
+    const flows = !!(widest as ExportScreen & { measured?: unknown[] }).measured?.length;
+    const capAt = webPage && !flows ? widestMeasured(widest) : 0;
     let current: ExportScreen | null = null;
     const capVw = (r: string) =>
       capAt > 0 && current === widest ? r.replace(/100vw/g, `min(100vw, ${capAt}px)`) : r;
@@ -660,7 +685,9 @@ export function buildHtmlFiles(all: ExportScreen[], o: BundleOptions): FileMap {
           page.responsive ? `${scope} > [data-bp="${min}"] > main` : `${scope} > main`,
         ),
       );
-    if (web)
+    const widestFlows = !!(page.screens[page.screens.length - 1] as ExportScreen & { measured?: unknown[] })
+      .measured?.length;
+    if (web && !widestFlows)
       rules.push(
         `/* ${page.name}: wider than ever measured → the widest measured layout, centred */`,
         capWideCss(page, (min) =>

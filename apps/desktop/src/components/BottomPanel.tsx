@@ -88,16 +88,15 @@ export function BottomPanel() {
           problems.length > 0 && <span className="st-count">{problems.length}</span>,
         )}
         {tab("output", "Harness log")}
-        <div className="st-grow" />
-        {view === "terminal" && (
-          <>
-            {terms.map((t) => (
+        <div className="st-term-tabs">
+          {view === "terminal" &&
+            terms.map((t) => (
               <span
                 key={t.id}
                 className={`st-term-tab ${t.id === activeTerm ? "on" : ""} ${t.exited ? "exited" : ""}`}
               >
                 <button
-                  className="ghost tiny"
+                  className="ghost tiny st-term-tab-label"
                   onClick={() => setActiveTerm(t.id)}
                   title={t.command ?? t.title}
                 >
@@ -112,16 +111,17 @@ export function BottomPanel() {
                 </button>
               </span>
             ))}
-            <button
-              className="ghost icon tiny"
-              title="New terminal"
-              aria-label="New terminal"
-              disabled={!root}
-              onClick={() => addTerm()}
-            >
-              <IPlus size={14} />
-            </button>
-          </>
+        </div>
+        {view === "terminal" && (
+          <button
+            className="ghost icon tiny"
+            title="New terminal"
+            aria-label="New terminal"
+            disabled={!root}
+            onClick={() => addTerm()}
+          >
+            <IPlus size={14} />
+          </button>
         )}
         <button
           className="ghost icon tiny"

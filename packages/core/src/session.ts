@@ -44,7 +44,7 @@ import {
 } from "./sandbox.js";
 import { branchExists, git, repoRoot } from "./git.js";
 import { ProviderRegistry, modelConnectionProblem, type Provider } from "./providers/index.js";
-import { collect } from "./providers/types.js";
+import { collect, hasImages } from "./providers/types.js";
 import { recreateTools } from "./recreate/tools.js";
 import { SessionStore, rebuildMessages, summarize } from "./session-store.js";
 import { branchCut, branchEventsToMerge, planDeletion } from "./conversation.js";
@@ -649,12 +649,19 @@ export class Session {
 
   // ------------------------------------------------------------------ running
 
-  /** Run work that is not an agent run (e.g. `recreateInSession`) as this session's run: lock, status, cancel(). */
-  runExclusive<T>(fn: () => Promise<T>): Promise<T> {
+  /**
+   * Run work that is not an agent run (e.g. `recreateInSession`) as this session's run: lock, status, cancel().
+   * `projectLock: false` is for work that never touches the project's files (a recreation that only writes its
+   * own `.harness/recreate/<run>` folder): it may run beside an agent in the same checkout, so it takes neither
+   * the project lock nor a turn checkpoint (which would contend with that agent's for the shadow index.lock).
+   */
+  runExclusive<T>(fn: () => Promise<T>, o: { projectLock?: boolean } = {}): Promise<T> {
+    const lock = o.projectLock !== false;
     return this.exclusive(async () => {
-      await this.startTurn();
+      if (lock) await this.takeCheckpoint("turn");
+      await this.ensureMcp();
       return fn();
-    });
+    }, lock);
   }
 
   /**
@@ -667,7 +674,7 @@ export class Session {
     await this.ensureMcp();
   }
 
-  private async exclusive<T>(fn: () => Promise<T>): Promise<T> {
+  private async exclusive<T>(fn: () => Promise<T>, projectLock = true): Promise<T> {
     this.syncFromStore();
     if (this.isRunning) throw new Error("Session is already running");
     if (this.checkpointBusy) throw new Error("A checkpoint operation is in progress");
@@ -678,7 +685,7 @@ export class Session {
     let release: (() => void) | undefined;
     try {
       // Read-only subagents share their parent's checkout and must not take its lock.
-      if (!this.readOnly) release = acquireProjectLock(this.projectRoot, this.id);
+      if (!this.readOnly && projectLock) release = acquireProjectLock(this.projectRoot, this.id);
       this.setStatus("running");
       return await fn();
     } finally {
@@ -783,6 +790,10 @@ export class Session {
     o: { maxTokens?: number } = {},
   ): Promise<string> {
     const m = this.model(roleOrRef);
+    // A model that cannot see the images would answer blind (the provider drops them with a note); a caller that
+    // sends images (the recreate vision verdict) gets an error instead and goes on without that answer.
+    const blind = () => hasImages(messages) && m.provider.capabilities(m.model).vision === false;
+    if (blind()) throw new Error(`${m.ref} cannot view images`);
     const res = await collect(
       m.provider.stream({ model: m.model, messages, signal: this.signal, maxTokens: o.maxTokens ?? 8000 }),
     );
@@ -798,6 +809,8 @@ export class Session {
       model: m.ref,
       purpose: "other",
     });
+    // it only turned out during this call (the provider rejected the images and resent the text)
+    if (blind()) throw new Error(`${m.ref} cannot view images`);
     return res.text;
   }
 

@@ -14,7 +14,15 @@ import type { PermissionPolicy } from "./permissions.js";
 import type { VerifyRunner } from "./verify.js";
 import { compactMessages, contextLimit, contextTokens, type HistoryLog } from "./context.js";
 import { ReasoningSummarizer } from "./reasoning-summary.js";
-import { estimateTokens, isAbortError, newId, redact, safeJsonParse, truncateMiddle } from "./util.js";
+import {
+  abortError,
+  estimateTokens,
+  isAbortError,
+  newId,
+  redact,
+  safeJsonParse,
+  truncateMiddle,
+} from "./util.js";
 
 export interface AgentHost {
   projectRoot: string;
@@ -121,6 +129,38 @@ export interface AgentResult {
   edited: string[];
   diffs: { path: string; diff: string }[];
   error?: string;
+}
+
+/**
+ * Consume a provider stream but give up as soon as the run is cancelled. Providers honour `signal`
+ * themselves; this keeps a run from staying "running" when one stalls or ignores it.
+ */
+async function* untilAborted<T>(source: AsyncIterable<T>, signal: AbortSignal): AsyncIterable<T> {
+  const iterator = source[Symbol.asyncIterator]();
+  let onAbort: (() => void) | undefined;
+  const cancelled = new Promise<never>((_, reject) => {
+    if (signal.aborted) return reject(abortError());
+    onAbort = () => reject(abortError());
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+  cancelled.catch(() => {}); // settled late, after the loop has moved on
+  try {
+    while (true) {
+      const next = iterator.next();
+      next.catch(() => {}); // loses the race with an abort; its rejection is not unhandled
+      const step = await Promise.race([next, cancelled]);
+      if (step.done) return;
+      yield step.value;
+    }
+  } finally {
+    if (onAbort) signal.removeEventListener("abort", onAbort);
+    // Close the provider stream without waiting: an aborted provider may only settle when it finishes.
+    try {
+      void Promise.resolve(iterator.return?.()).catch(() => {});
+    } catch {
+      /* a cancelled provider may throw while closing */
+    }
+  }
 }
 
 export async function runAgent(o: RunAgentOptions): Promise<AgentResult> {
@@ -269,14 +309,17 @@ export async function runAgent(o: RunAgentOptions): Promise<AgentResult> {
         });
       };
       const sentCount = messages.length;
-      for await (const ev of o.provider.stream({
-        model: o.model,
-        reasoningEffort: host.config.reasoningEffort,
-        messages,
-        tools: specs.length ? specs : undefined,
-        temperature: o.temperature ?? host.config.temperature,
-        signal: host.signal,
-      })) {
+      for await (const ev of untilAborted(
+        o.provider.stream({
+          model: o.model,
+          reasoningEffort: host.config.reasoningEffort,
+          messages,
+          tools: specs.length ? specs : undefined,
+          temperature: o.temperature ?? host.config.temperature,
+          signal: host.signal,
+        }),
+        host.signal,
+      )) {
         if (ev.type === "text") {
           thoughts?.finish();
           text += ev.text;

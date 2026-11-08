@@ -29,6 +29,8 @@ export interface ProviderCapabilities {
   tools: boolean;
   json: boolean;
   reasoning?: boolean;
+  /** Accepts image input: false when configured so or learned from a rejected image; undefined when unknown. */
+  vision?: boolean;
   contextWindow: number;
 }
 

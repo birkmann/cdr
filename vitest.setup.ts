@@ -14,6 +14,9 @@ process.env.HARNESS_HOME = mkdtempSync(join(tmpdir(), "harness-home-"));
 // Chats put the files they create in ~/Documents/CDR by default; keep tests out of the real home.
 process.env.CDR_OUTPUT_DIR = mkdtempSync(join(tmpdir(), "harness-output-"));
 
+// check_app must never capture or type into windows on the developer's screen; tests inject a fake backend.
+process.env.CDR_WINDOW_CAPTURE = "off";
+
 // Browsers returned to @harness/capture's pool wait for reuse; close them (and delete their profiles) before
 // the worker exits, which does not run process "exit" handlers.
 afterAll(async () => {

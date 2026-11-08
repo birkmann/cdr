@@ -24,6 +24,24 @@
           },
           "type": "object"
         },
+        "appCheck": {
+          "additionalProperties": false,
+          "description": "Visual play-test of native programs (check_app).",
+          "properties": {
+            "model": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/ModelRole"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "Vision-capable model role or provider/model that judges the captured frames (default: the executor)."
+            }
+          },
+          "type": "object"
+        },
         "checkpoints": {
           "additionalProperties": false,
           "description": "Workspace checkpoints before every turn, restorable from the UIs (default enabled).",
@@ -58,6 +76,24 @@
             },
             "repoMapDepth": {
               "type": "number"
+            }
+          },
+          "type": "object"
+        },
+        "designSystem": {
+          "additionalProperties": false,
+          "description": "Design systems from a URL or images (design_system).",
+          "properties": {
+            "model": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/ModelRole"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "Vision-capable model role or provider/model that reads brands from images (default: the executor)."
             }
           },
           "type": "object"
@@ -487,6 +523,14 @@
           "description": "capture sessions (device classes) run at once, each in its own browser (default 3)",
           "type": "number"
         },
+        "capturePlan": {
+          "description": "which widths are captured when none are given: one variant per layout range of the page (`ranges`, default: every range measured) or one per device class (`devices`: phone, tablet, desktop; quicker on pages with many switches)",
+          "enum": [
+            "ranges",
+            "devices"
+          ],
+          "type": "string"
+        },
         "driver": {
           "description": "capture driver: cdp (local Chrome, default) or remote (POST to a capture service)",
           "enum": [
@@ -518,6 +562,10 @@
         "gates": {
           "additionalProperties": false,
           "properties": {
+            "fittedSections": {
+              "description": "sections the emitter may keep at their fitted geometry instead of reflowing (default 0)",
+              "type": "number"
+            },
             "heightPct": {
               "type": "number"
             },
@@ -528,6 +576,10 @@
               "type": "number"
             },
             "singleUse": {
+              "type": "number"
+            },
+            "sweepHeightPct": {
+              "description": "page height within this many percent of the live page at every sweep width (default 5)",
               "type": "number"
             },
             "text": {

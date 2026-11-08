@@ -18,7 +18,7 @@
 <h3 align="center"><a href="https://github.com/birkmann/cdr/releases"><ins>Download CDR</ins></a></h3>
 
 <p align="center">
-  <img src="docs/images/desktop-agents.png" alt="CDR Studio with three agent conversations side by side: two agents at work, each with a pasted screenshot and its steps, and a new conversation waiting for its first message" width="960" />
+  <img src="docs/images/desktop-chat.png" alt="CDR Studio's chat view: conversations grouped into working, waiting and settled with a permission request answered in the list, a running conversation with its steps in the middle, and its project with branch, agents and changes on the right" width="960" />
 </p>
 
 ## Features

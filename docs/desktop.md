@@ -55,21 +55,43 @@ Rust (crates/studio-app)                ▼
 
 ## Using the app
 
-<img src="images/desktop-editor.png" alt="CDR Studio with the file tree, an open source file, and the agent answering a question about the code" width="960" />
+The app has two views of the same window. The **Chat** / **Code** switch in the title bar (Ctrl+Shift+U) changes between them. It only rearranges the window: open files, terminals and the conversation stay as they are.
+
+### Chat view
+
+The app starts here. Read it from left to right: what exists, what you are working on, what it touches.
+
+<img src="images/desktop-chat.png" alt="CDR Studio's chat view: the conversation list, a running conversation in the middle, and its project with branch, agents and changes on the right" width="960" />
+
+| Column | What it shows |
+|---|---|
+| **Conversations** | Every conversation in any folder or sandbox, with its project. **Working** lists what runs now, with elapsed time, a stop button per conversation and **Stop all**. **Waiting** lists what is blocked on you; permission requests from a conversation or its subagents are answered right in the list. **Settled** lists the rest by date, with a delete button on hover. Search by title or project, or filter by one project (Ctrl+R focuses the search). Ctrl+click or middle-click opens a conversation in an editor tab. Conversations whose folder is gone are listed under **Folder deleted**. |
+| **Conversation** | The conversation and its message box, or the new-conversation screen. The header reads `project / title`: click the project to narrow the list to it, click the title to rename. A new conversation starts in the project you just left; **Work in** picks another folder or a new sandbox. |
+| **Project** | The selected conversation's project, whether or not it is open in the editor. **Repository**: branch and line counts, with branch switching when the project is the open folder. **Agents**: what runs in this project and the conversation's subagents, with model, tokens and a stop button. **Changes**: click a file to see its diff. **Goals**: define a goal with acceptance criteria, a budget, permissions, models and an optional schedule, then run it unattended and review its checkpoints; merge, open a pull request, request changes or discard it. **Preview**: the conversation's published page. Collapse any section; hide the column with the button in the title bar. It also gives way when the window is narrow. |
+
+**Files beside the chat.** Click a file name in a message or a tool step and it opens on the right, next to the conversation, without leaving the chat view. The conversation and the file share the space evenly (drag the divider to change it). The file pane has tabs, a narrow folder tree with file search, Markdown rendering, line wrapping and a button that opens the file in the Code view. Files are read-only here and update as the agent changes them. Each project keeps its own tabs. **Browse files** in the project column opens the pane without a link. Names only become links when the project really has such a file; a name that fits several files stays plain text.
+
+**Previews beside the chat.** A page the agent publishes while you watch opens on the right, next to the conversation, as a **Preview** tab that shares the pane with file tabs. Open it again from the card in the conversation or the project column's **Preview** section. Each conversation keeps its own preview, and it stays loaded while you look at a file. The button in the pane's toolbar moves it to the Code view, which is the only way a preview leaves the Chat view.
+
+You get an OS notification when an agent waits for you while the window is in the background; clicking it selects that conversation. The **N waiting** button in the title bar does the same from either view. See [agent-control.md](agent-control.md).
+
+### Code view
+
+The Code view of a project is an editor layout: files on the left, editors and previews in the middle, the conversation on the right. Opening it switches to the selected conversation's project; if files have unsaved changes, it stays on the current project and says so. Anything that needs an editor (a file you open here, a diff, a commit, a goal, a terminal) goes to this view by itself. Previews do not: they stay in the Chat view unless you open one in the Code view.
+
+<img src="images/desktop-editor.png" alt="CDR Studio's code view with the file tree, an open source file, and the conversation on the right" width="960" />
 
 | Area | What you can do |
 |---|---|
-| **Explorer** (Ctrl+Shift+E) | Browse files with Git decorations. Create, rename and delete files and folders, and send a file to the agent. |
+| **Explorer** (Ctrl+Shift+E) | Browse files with Git decorations. Create, rename and delete files and folders, and send a file to the agent. The top shows the selected conversation: its folder (click to reveal the folder its preview was published from, such as `.harness/chess-game`), **Open preview**, and **Show its files** when it works in another folder. With no folder open, the explorer opens the selected conversation's folder by itself; switching folders keeps conversation and preview tabs open. |
 | **Editor** | Tabs and syntax highlighting for common languages. Split into up to four groups side by side with Ctrl+\\, the split button, or by dragging a tab to the left or right edge of an editor; a group closes when its last tab does. Save with Ctrl+S; find and replace with Ctrl+F. The gutter marks changed lines. Diagnostics come from language servers, and files reload when the agent changes them on disk. |
 | **Search** (Ctrl+Shift+F) | Search the project with regex, case and whole-word options and include globs, then replace all matches. |
 | **Source control** (Ctrl+Shift+G) | Stage, unstage and discard files or single hunks, then commit or amend. Abort or continue a merge or rebase, and resolve conflicts in a three-way view. Manage branches (checkout, merge, rebase, rename, delete), stashes, pull requests and agent worktrees. The sparkle button in the message box writes a commit message from the staged changes, or from all changes when nothing is staged, with the model chosen in the agent panel. |
 | **History** | View the commit graph across all branches, search it and inspect commits file by file. Cherry-pick, create a branch from a commit, or check one out. |
 | **Title bar** | Switch repositories, open a folder, or clone. Switch or create branches. A single sync button publishes, pulls, pushes or fetches, depending on the branch state. |
 | **Clone** | Paste a URL or pick one of your GitHub repositories. Progress is shown while cloning and can be cancelled. |
-| **Agent panel** (Ctrl+L) | The same conversation view as the web app, with modes, models, thinking effort, permissions, approvals, plans, previews and Continue job. "@ Context" attaches the current file, the uncommitted diff or the Problems list. The conversation name at the top of the panel opens your history: every conversation, newest first, with the open folder's conversations on top and a search box. With no folder open, a conversation works in a sandbox under `~/.harness/sandboxes/`. Click its name in the conversation header to open it in the Explorer, or click the arrow next to it to show it in the system file manager. |
-| **Conversations in tabs** | Run and watch several conversations at once. Each conversation has one header row: its title, then the code panel, history, split and + buttons. In the agent panel, the arrow button moves the conversation into an editor tab (or drag it beside an editor to split). In a conversation tab, the split button starts another conversation to the side and + starts a new one in place. In narrow groups the header and message box drop the folder, token count and picker labels so everything stays on one line. In the Agents view, Ctrl+click, middle-click or drag a conversation to open it in a tab. The palette has **Agent: New conversation in editor tab** and **Agent: New conversation to the side**. With two permission prompts on screen, Y and N answer only the conversation you clicked into. |
-| **Agents** (Ctrl+Shift+A) | **Running** lists every running or waiting agent in any folder, with where it came from, elapsed time, model and tokens, a stop button per agent and **Stop all**. **All** adds the conversations of the open folder (or the sandboxes) with a delete button. The approvals inbox answers permission requests from every agent; you get an OS notification when the window is in the background. See [agent-control.md](agent-control.md). |
-| **Goals** (Ctrl+Shift+J) | Define a goal with acceptance criteria, a budget, permissions, models and an optional schedule, then run it unattended. Review its checkpoints and criteria. Merge the result, open a pull request, request changes or discard it. |
+| **Chat column** (Ctrl+L) | The same conversation view as the web app, with modes, models, thinking effort, permissions, approvals, plans, previews and Continue job. "@ Context" attaches the current file, the uncommitted diff or the Problems list. The conversation name at the top of the panel opens your history: every conversation, newest first, with the open folder's conversations on top and a search box. With no folder open, a conversation works in a sandbox under `~/.harness/sandboxes/`. Click its name in the conversation header to open it in the Explorer, or click the arrow next to it to show it in the system file manager. |
+| **Conversations in tabs** | Run and watch several conversations at once. Each conversation has one header row: its title, then the code panel, history, split and + buttons. In the agent panel, the arrow button moves the conversation into an editor tab (or drag it beside an editor to split). In a conversation tab, the split button starts another conversation to the side and + starts a new one in place. In narrow groups the header and message box drop the folder, token count and picker labels so everything stays on one line. In the chat view's list, Ctrl+click or middle-click a conversation to open it in a tab. The palette has **Agent: New conversation in editor tab** and **Agent: New conversation to the side**. With two permission prompts on screen, Y and N answer only the conversation you clicked into. |
 | **Panel** (Ctrl+J) | Terminals, Problems with "Ask agent to fix errors", and the harness log. |
 | **Open file** (Ctrl+O) | Choose a file in the native file dialog. Files in the current folder open in an editor tab. For a file outside it, Studio offers to switch to the containing folder; save modified files first. With no folder open, Studio opens the file's containing folder. |
 | **Open folder** (Ctrl+K, then Ctrl+O) | Choose a workspace folder. |
@@ -77,6 +99,10 @@ Rust (crates/studio-app)                ▼
 | **Command palette** (Ctrl+Shift+P or F1) | Search commands: Git actions, themes, package scripts and the harness. |
 | **Zoom** | Ctrl+mouse wheel, Ctrl + / Ctrl − (also on the numpad) and Ctrl+0 scale the whole interface, like VS Code. The level is remembered; the status bar shows it when it is not 100% and resets it on click. |
 | **Settings** (Ctrl+,) | Theme, file icons, provider keys, GitHub sign-in, clone folder and harness status. |
+
+<img src="images/desktop-agents.png" alt="CDR Studio's code view with three conversations side by side in editor tabs: two agents at work and a new conversation waiting for its first message" width="960" />
+
+Ctrl+Shift+A and Ctrl+Shift+J go to the Agents and Goals sections of the chat view's project column. Ctrl+I starts a new conversation.
 
 ### File icons
 
@@ -92,7 +118,7 @@ During a task the agent can call `spawn_agent`.
 
 - **Read-only helpers** share the checkout.
 - **Writing helpers** get a worktree under `.harness/worktrees/` on a `cdr/<parent>/<task>` branch. Their work is committed there, and the parent merges it.
-- **Watching them.** Each helper appears under its parent in the Agents view and has its own log and approvals.
+- **Watching them.** Each helper appears under its parent in the chat view's project column and has its own log. A helper's approvals appear under its parent in the conversation list.
 - **Limits.** By default at most three helpers run at once per agent, with a maximum depth of two. No new helper starts while eight agents already run in the window. Change this with `agents.maxConcurrent`, `agents.maxDepth` and `agents.maxActive` in `cdr.config.json`.
 - **Keeping them under control.** [agent-control.md](agent-control.md) explains where every agent comes from, what it costs, how to stop and clean it up, and how to run many at once.
 
@@ -133,7 +159,11 @@ cargo test --workspace         # Rust tests (git, pty, watch, keys, lsp, app)
 cargo clippy --workspace -- -D warnings
 pnpm --filter desktop build    # type-check and build the UI
 
-# End-to-end through the real app (WebDriver; mock model, temporary repo, no network):
+# The window layout in a browser, on any platform: the real UI and harness server with a mock model;
+# only the Rust commands are replaced. E2E_BROWSER=webkit runs the macOS app's engine.
+pnpm build && pnpm --filter desktop build && pnpm --filter desktop test:e2e:shell
+
+# End-to-end through the real app (WebDriver, not available on macOS; mock model, temporary repo, no network):
 cargo install tauri-driver --locked          # once; needs WebKitWebDriver on Linux
 pnpm --filter desktop build && cargo build -p studio-app --features tauri/custom-protocol
 pnpm --filter desktop test:e2e               # STUDIO_BIN=<path to AppImage> tests a release bundle

@@ -53,6 +53,13 @@ pub async fn workspace_open(path: String, state: State<'_, AppState>) -> CmdResu
     })
 }
 
+/// Lets the file commands read a conversation's project without opening it or adding it to the recent list.
+#[tauri::command]
+pub async fn workspace_allow(path: String, state: State<'_, AppState>) -> CmdResult<()> {
+    state.allow(&PathBuf::from(&path))?;
+    Ok(())
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RecentEntry {

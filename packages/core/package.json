@@ -29,6 +29,7 @@
     "@harness/protocol": "workspace:*",
     "@harness/recreate": "workspace:*",
     "@harness/capture": "workspace:*",
-    "@harness/measure": "workspace:*"
+    "@harness/measure": "workspace:*",
+    "@harness/design-system": "workspace:*"
   }
 }

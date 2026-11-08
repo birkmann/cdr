@@ -311,7 +311,9 @@ describe.each([
     expect(page).toMatch(/<div data-bp="0" className=\{styles\.\w+\}>/);
     const pageCss = asText(files["src/pages/Home.module.css"]);
     expect(pageCss).toMatch(/@media \(min-width: 768px\) \{[\s\S]*display: none;/);
-    expect(pageCss).toContain("100vw");
+    // the page flows: as tall as its content, no value pinned to a captured width (the fluid values are the components')
+    expect(pageCss).toMatch(/height: auto/);
+    expect(pageCss).not.toMatch(/1000 \*|\* 1000/);
     // module CSS: classes, no element selectors or globals
     expect(Object.keys(files).some((k) => k.endsWith(".module.css") && k.startsWith("src/components/"))).toBe(
       true,

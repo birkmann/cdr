@@ -33,6 +33,7 @@ export * from "./attachments.js";
 export * from "./sandbox.js";
 export * from "./commit-message.js";
 export * from "./project-summary.js";
+export * from "./recreate/attempts.js";
 export * from "./recreate/host.js";
 export * from "./recreate/tools.js";
 export * from "./recreate/run.js";

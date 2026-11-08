@@ -88,7 +88,7 @@ pub struct DirEntry {
     /// Path relative to the root, with forward slashes.
     pub path: String,
     pub is_dir: bool,
-    /// Ignored by `.gitignore` or the built-in rules (shown dimmed).
+    /// Ignored by `.gitignore` or the built-in rules (the explorer shows these like any other entry).
     pub ignored: bool,
 }
 
@@ -355,6 +355,12 @@ impl State {
                 if kind == ChangeKind::Modified && p.is_dir() {
                     continue;
                 }
+                // FSEvents reports a deleted file's whole history (create, remove, modify) in one event.
+                let kind = if kind == ChangeKind::Modified && !p.exists() {
+                    ChangeKind::Removed
+                } else {
+                    kind
+                };
                 self.record(rel, kind, None);
                 if kind == ChangeKind::Created && p.is_dir() {
                     self.created_dir(p);

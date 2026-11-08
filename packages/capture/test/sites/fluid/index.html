@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Fluid Field Notes – a page that flows</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <!--
+      Fixture site for CDR's recreate tests: a page whose layout changes without media queries, the case a recreation
+      fitted to its captured widths gets wrong in between. An auto-fit grid (its column count follows the width), clamp()
+      type and spacing, a navigation that wraps, long unbreakable words, aspect-ratio media, a sticky header, text over a
+      picture by design, a container query and one media query.
+    -->
+    <header class="top">
+      <div class="top-bar">
+        <a class="brand" href="/">Fluid Field Notes</a>
+        <nav class="nav" aria-label="Main">
+          <a href="#guides">Guides</a>
+          <a href="#gear">Gear reviews</a>
+          <a href="#routes">Routes and maps</a>
+          <a href="#weather">Mountain weather</a>
+          <a href="#about">About us</a>
+        </nav>
+      </div>
+    </header>
+
+    <main>
+      <section class="intro">
+        <div class="intro-text">
+          <p class="kicker">Issue 14 · Autumn</p>
+          <h1>Walking the Donaudampfschifffahrtsgesellschaftsweg from source to sea</h1>
+          <p class="lead">
+            Twenty-one days, four countries and one very long word: notes from a walk along the river, with the maps,
+            the gear that held up and the huts that were open.
+          </p>
+          <a class="cta" href="#routes">Read the route notes</a>
+        </div>
+        <figure class="intro-media">
+          <img src="img/wide.png" alt="The river valley at dawn" width="1200" height="500" />
+          <figcaption class="over">Photo: the valley at 6:40 in the morning</figcaption>
+        </figure>
+      </section>
+
+      <section class="guides" id="guides">
+        <h2>Guides for every season</h2>
+        <div class="grid">
+          <article class="tile">
+            <img src="img/a.png" alt="A tent on a ridge" width="400" height="260" />
+            <h3>Pitching on a ridge</h3>
+            <p>Wind, guy lines and the three knots that matter.</p>
+          </article>
+          <article class="tile">
+            <img src="img/b.png" alt="Boots in snow" width="400" height="260" />
+            <h3>Early snow</h3>
+            <p>What changes in October above two thousand metres, and what to pack for it.</p>
+          </article>
+          <article class="tile">
+            <img src="img/c.png" alt="A map and a compass" width="400" height="260" />
+            <h3>Map and compass</h3>
+            <p>Taking a bearing in fog.</p>
+          </article>
+          <article class="tile">
+            <img src="img/a.png" alt="A hut in the evening" width="400" height="260" />
+            <h3>Hut etiquette</h3>
+            <p>Booking, boots off, lights out at ten.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="notes" id="routes">
+        <h2>Route notes</h2>
+        <div class="cards">
+          <div class="card">
+            <h3>Stage 1: Donaueschingen to Tuttlingen</h3>
+            <p>Flat, quiet, and the source is a fountain in a palace garden. 34 km.</p>
+          </div>
+          <div class="card">
+            <h3>Stage 2: Tuttlingen to Sigmaringen</h3>
+            <p>The gorge: limestone cliffs, three castles, no shop for 28 km.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="facts" id="weather">
+        <ul class="chips">
+          <li>Weather: changeable</li>
+          <li>Daylight: 10 h 40 min</li>
+          <li>Huts open: 17 of 24</li>
+          <li>Snow line: 2,100 m</li>
+          <li>Rivers: high</li>
+        </ul>
+      </section>
+    </main>
+
+    <footer class="foot" id="about">
+      <p>Fluid Field Notes is a fixture site for CDR tests. Text and pictures are placeholders.</p>
+      <p class="small">Set in Acme Sans (SIL Open Font License).</p>
+    </footer>
+  </body>
+</html>

@@ -1699,6 +1699,28 @@ textarea:focus {
 .md h3 {
   font-size: 1.05em;
 }
+.file-link {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+  vertical-align: baseline;
+}
+.file-link:hover,
+.tool-arg-file:hover {
+  text-decoration: underline;
+}
+.tool-arg-file {
+  color: var(--accent);
+}
+.file-link img {
+  align-self: center;
+}
 .md code.inline {
   background: var(--code-bg);
   padding: 1px 5px;
@@ -2582,7 +2604,8 @@ textarea.plan-edit {
   margin: 0;
   accent-color: var(--accent);
 }
-.preview-preparing {
+.preview-preparing,
+.preview-failed {
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -2593,16 +2616,22 @@ textarea.plan-edit {
   text-align: center;
   color: var(--text-2);
 }
-.preview-preparing strong {
+.preview-preparing strong,
+.preview-failed strong {
   color: var(--text);
   font-size: 15px;
   font-weight: 500;
 }
-.preview-preparing p {
+.preview-preparing p,
+.preview-failed p {
   max-width: 280px;
   margin: 0;
   font-size: 13px;
   line-height: 1.6;
+}
+.preview-failed p {
+  max-width: 360px;
+  overflow-wrap: anywhere;
 }
 .recreate-live {
   flex: 1;
@@ -3075,6 +3104,19 @@ kbd {
   color: var(--muted);
   padding: 0 10px 3px;
   font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.automated-toggle {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.automated-toggle:hover,
+.automated-toggle.on {
+  color: var(--text-2);
 }
 .search {
   margin-bottom: 3px;
@@ -4185,6 +4227,15 @@ textarea::placeholder {
   margin: -12px 0 22px;
   min-width: 0;
 }
+.automated-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: -12px 0 22px;
+}
+.storage-note + .automated-filter {
+  margin-top: -14px;
+}
 .storage-note code {
   font-family: var(--mono);
   font-size: 12px;
@@ -4927,7 +4978,11 @@ button.danger:hover:not(:disabled) {
   box-shadow: inset -1px 0 0 var(--bg-elev);
 }
 .rr-seg.failed {
-  background-image: repeating-linear-gradient(135deg, transparent 0 3px, rgba(0, 0, 0, 0.35) 3px 5px) !important;
+  background-image: repeating-linear-gradient(
+    135deg,
+    transparent 0 3px,
+    rgba(0, 0, 0, 0.35) 3px 5px
+  ) !important;
 }
 .rr-seg.hover {
   outline: 2px solid var(--text);

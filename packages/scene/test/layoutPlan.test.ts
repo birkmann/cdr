@@ -66,12 +66,13 @@ describe("layout ranges of a page", () => {
 
   it("captures one width per range: the default widths, else the most common device width inside, measured at the range ends and common device widths", () => {
     expect(planCaptures([480, 768, 960, 1025, 1200])).toEqual([
-      { width: 390, minWidth: 0, alt: [320, 360, 375, 393, 412, 479] },
-      { width: 600, minWidth: 480, alt: [480, 767] },
-      { width: 768, minWidth: 768, alt: [810, 820, 959] },
+      // (each range also 24 px inside both its ends: ALT_EDGE)
+      { width: 390, minWidth: 0, alt: [320, 344, 360, 375, 393, 412, 455, 479] },
+      { width: 600, minWidth: 480, alt: [480, 504, 743, 767] },
+      { width: 768, minWidth: 768, alt: [792, 810, 820, 935, 959] },
       { width: 1024, minWidth: 960, alt: [960] },
-      { width: 1180, minWidth: 1025, alt: [1025] },
-      { width: 1440, minWidth: 1200, alt: [1200, 1280, 1366, 1536, 1680, 1728, 1920] },
+      { width: 1180, minWidth: 1025, alt: [1025, 1049] },
+      { width: 1440, minWidth: 1200, alt: [1200, 1224, 1280, 1366, 1536, 1680, 1728, 1896, 1920] },
     ]);
   });
 
@@ -83,12 +84,12 @@ describe("layout ranges of a page", () => {
         s.variants.map((v) => v.width),
       ]),
     ).toEqual([
-      [390, [320, 360, 375, 393, 412, 479], [390]],
+      [390, [320, 344, 360, 375, 393, 412, 455, 479], [390]],
       // the other variants first, then the measured widths
-      [768, [600, 480, 767, 810, 820, 959], [600, 768]],
+      [768, [600, 480, 504, 743, 767, 792, 810, 820, 935, 959], [600, 768]],
       // more walks than one capture has time for: the desktop class is captured twice, side by side
-      [1024, [1180, 960, 1025], [1024, 1180]],
-      [1440, [1200, 1280, 1366, 1536, 1680, 1728, 1920], [1440]],
+      [1024, [1180, 960, 1025, 1049], [1024, 1180]],
+      [1440, [1200, 1224, 1280, 1366, 1536, 1680, 1728, 1896, 1920], [1440]],
     ]);
     // one capture per class while it fits
     expect(planSessions(planCaptures([480, 768, 960, 1025, 1200]), 20).map((s) => s.width)).toEqual([
@@ -98,9 +99,9 @@ describe("layout ranges of a page", () => {
 
   it("without switches the default widths split the page; two captures in one range share it", () => {
     expect(planCaptures([])).toEqual([
-      { width: 390, minWidth: 0, alt: [320, 360, 375, 393, 412, 579, 767] },
-      { width: 768, minWidth: 768, alt: [810, 820, 992, 1024, 1215, 1280, 1366, 1439] },
-      { width: 1440, minWidth: 1440, alt: [1536, 1680, 1728, 1920] },
+      { width: 390, minWidth: 0, alt: [320, 344, 360, 375, 393, 412, 579, 743, 767] },
+      { width: 768, minWidth: 768, alt: [792, 810, 820, 992, 1024, 1215, 1280, 1366, 1415, 1439] },
+      { width: 1440, minWidth: 1440, alt: [1464, 1536, 1680, 1728, 1896, 1920] },
     ]);
   });
 
@@ -111,9 +112,9 @@ describe("layout ranges of a page", () => {
   it("one variant per device: each from the site switch nearest it, measured inside its own layout range only", () => {
     // ten-ish ranges become phone (0+), tablet (768+) and desktop (1025+); 480–767 stays phone, 960–1024 tablet
     expect(devicePlan([480, 768, 960, 1025, 1200])).toEqual([
-      { width: 390, minWidth: 0, alt: [320, 360, 375, 393, 412, 479] },
-      { width: 768, minWidth: 768, alt: [810, 820, 959] },
-      { width: 1440, minWidth: 1025, alt: [1200, 1280, 1366, 1536, 1680, 1728, 1920] },
+      { width: 390, minWidth: 0, alt: [320, 344, 360, 375, 393, 412, 455, 479] },
+      { width: 768, minWidth: 768, alt: [792, 810, 820, 935, 959] },
+      { width: 1440, minWidth: 1025, alt: [1200, 1224, 1280, 1366, 1536, 1680, 1728, 1896, 1920] },
     ]);
     expect(
       planSessions(devicePlan([480, 768, 960, 1025, 1200])).map((ss) => [ss.width, ss.variants.length]),

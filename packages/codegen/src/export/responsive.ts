@@ -362,7 +362,11 @@ export function fluidVariants<T extends FluidScreen>(screens: T[]): T[] {
   const changed = new Map<string, T>();
   const vwOf = new Map<string, string>();
   for (const p of exportPages(screens.filter((s) => !s.overlayOf))) {
-    if (!p.responsive || p.screens.length < 2 || !p.screens.every((s) => s.platform === "web" && !s.adapted))
+    if (
+      !p.responsive ||
+      (p.screens.length < 2 && !p.screens[0]?.measured?.length) ||
+      !p.screens.every((s) => s.platform === "web" && !s.adapted)
+    )
       continue;
     const vs = p.screens.map((s) => screens.find((x) => x.nodeId === s.nodeId)!);
     // read the captured values, write into copies
@@ -417,7 +421,9 @@ export function fluidVariants<T extends FluidScreen>(screens: T[]): T[] {
         i === vs.length - 1
           ? `min(${vw}, ${num(Math.max(W, ...(s.measured ?? []).map((m) => m.width)), 3)}px)`
           : vw;
-      if (s.measured?.length) {
+      // a URL capture's variant flows (no pins, no scaling) even when no other width of its range could be walked (a
+      // layout range a few px wide): its values stay the captured ones there
+      if (s.measured?.length || vs.some((v) => v.measured?.length)) {
         const m = measuredFluid(s, i, irs[i]!);
         vwOf.set(s.nodeId, top(m.vw));
         changed.set(s.nodeId, {
@@ -546,7 +552,8 @@ export function fluidVariants<T extends FluidScreen>(screens: T[]): T[] {
       : undefined;
     if (!owner || s.platform !== "web") continue;
     const ir = structuredClone(s.ir);
-    reflowIr(ir, owner.width, undefined, vwOf.get(owner.nodeId));
+    // (a measured variant's menus flow like it: heights follow their content, never pinned)
+    reflowIr(ir, owner.width, undefined, vwOf.get(owner.nodeId), { flow: !!owner.measured?.length });
     changed.set(s.nodeId, { ...s, ir });
   }
   const out = changed.size ? screens.map((s) => changed.get(s.nodeId) ?? s) : screens;
@@ -560,7 +567,7 @@ export function fluidVariants<T extends FluidScreen>(screens: T[]): T[] {
 }
 
 function hasFitWidth(ir: IrElement): boolean {
-  if ("data-narrowed" in ir.attrs) return true;
+  if (FIT_ATTRS.some((a) => a in ir.attrs)) return true;
   return ir.children.some((c) => c.kind === "el" && hasFitWidth(c));
 }
 
@@ -586,27 +593,65 @@ const MEASURED_PROPS = [
  */
 function measuredFluid(s: FluidScreen, i: number, ir: IrElement): { min: number; fit: number; vw: string } {
   const W = s.width;
-  const ms = [...s.measured!].filter((m) => Math.abs(m.width - W) >= 1).sort((a, b) => a.width - b.width);
+  const ms = [...(s.measured ?? [])]
+    .filter((m) => Math.abs(m.width - W) >= 1)
+    .sort((a, b) => a.width - b.width);
   const lowest = ms[0] && ms[0].width < W ? ms[0] : null;
   const min = i === 0 ? 0 : Math.round(s.responsive?.minWidth ?? 0);
-  const fit =
-    i === 0
-      ? Math.min(Math.round(W), lowest ? Math.round(lowest.width) : Math.round(W * FLUID_FIT))
-      : Math.min(Math.round(W), Math.max(min, lowest ? Math.round(lowest.width) : min));
-  const vw = min < fit ? `max(100vw, ${fit}px)` : "100vw";
+  // the variant reflows over its whole range: no width below which its layout is scaled (zoom) or frozen (a floored
+  // viewport term); the values continue their measured trend there (lowest: kept for the record)
+  void lowest;
+  const fit = min;
+  const vw = "100vw";
   const own = designBoxes(ir, W);
   const mine = irPaths(ir);
-  const theirs = ms.map((m) => ({ W: m.width, paths: irPaths(m.ir) }));
+  const theirs = ms.map((m) => ({ W: m.width, paths: irPaths(m.ir), boxes: designBoxes(m.ir, m.width) }));
+  const artImages: IrElement[] = [];
   for (const [key, me] of mine) {
     const partners = theirs.flatMap((t) => {
       const o = t.paths.get(key);
       return o && sameContext(me, o) ? [{ st: o.el.style, W: t.W }] : [];
     });
+    // a picture no other width measured (a video's frame is captured at the capture width only: the measured trees
+    // keep its box as it was) filling its box's width: it keeps its proportions as the box narrows or widens, as a
+    // picture on the page does
+    {
+      const full = me.el.style.width === "100%";
+      const wa = pxOf(me.el.style.width) ?? (full ? (own.get(me.el)?.box ?? null) : null),
+        ha = pxOf(me.el.style.height);
+      const box = me.parent ? (own.get(me.parent)?.content ?? null) : null;
+      // (measured elsewhere at another width but the same height, its height is fixed: not this case)
+      const same = partners.every(
+        (p) => p.st.height === me.el.style.height && p.st.width === me.el.style.width,
+      );
+      const fills = full || (wa !== null && box !== null && Math.abs(box - wa) <= 1);
+      if (same && wa && ha && fills && pictureBox(me.el) && !isAbs(me.el.style)) {
+        // (100%, not auto + stretch: in a row an auto width is the picture's natural one)
+        me.el.style = {
+          ...me.el.style,
+          width: "100%",
+          height: "auto",
+          "aspect-ratio": `${num(wa, 3)} / ${num(ha, 3)}`,
+        };
+        delete me.el.style["align-self"];
+        continue;
+      }
+    }
     if (!partners.length) continue;
     const style = { ...me.el.style };
     let any = false;
+    let heightAuto = false;
     const wa = pxOf(me.el.style.width),
       ha = pxOf(me.el.style.height);
+    // a box around an art-directed image (another picture at some measured widths, each keeping its proportions): the
+    // picture shown sizes the box, as on the page (img width 100%, height auto), so the box switches with the picture
+    const artBox = artDirectedBox(me.el, key, own, theirs);
+    if (artBox) {
+      // (the image itself is changed once every element is done: its measured partners still match it as they are)
+      artImages.push(artBox);
+      style.height = "auto";
+      any = true;
+    }
     // media keeping its proportions at every measured width: its height follows its own width
     const aspect =
       !!wa &&
@@ -630,6 +675,7 @@ function measuredFluid(s: FluidScreen, i: number, ir: IrElement): { min: number;
     for (const prop of MEASURED_PROPS) {
       const v0 = me.el.style[prop];
       if (v0 === undefined) continue;
+      if (artBox && (prop === "height" || prop === "min-height")) continue;
       if (prop === "height" && aspect) {
         style.height = "auto";
         continue;
@@ -647,10 +693,11 @@ function measuredFluid(s: FluidScreen, i: number, ir: IrElement): { min: number;
             ? nb
             : -nb
           : 0;
-      const off = `1000 * max(${vw} - ${num(W, 3)}px, ${num(W, 3)}px - ${vw})`;
       const next = parts.map((part, k) => {
         const v = pxOf(part);
         if (v === null) return part;
+        // a text narrowed to its longest line here (a fitted capture): its box in the page, at every width (a narrower
+        // value at the capture width alone would be a pin)
         const n = narrowed(k);
         const pts: Array<[number, number]> = [[W, v + n]];
         for (const p of partners) {
@@ -659,28 +706,33 @@ function measuredFluid(s: FluidScreen, i: number, ir: IrElement): { min: number;
           const y = tp && tp.length === parts.length ? pxOf(tp[k]) : null;
           if (y !== null) pts.push([p.W, y]);
         }
-        // vertical geometry that does not follow the viewport along a line (it changes where text wraps onto another
-        // line: a step function) keeps the value of the nearest measured width instead of blending neighbours
-        const vertical =
-          prop === "height" ||
-          prop === "min-height" ||
-          prop === "top" ||
-          prop === "bottom" ||
-          prop === "row-gap" ||
-          ((prop === "padding" || prop === "margin") && parts.length === 4 && (k === 0 || k === 2));
-        const css = vertical && !linear(pts) ? stepCss(pts, W, vw) : pwlCss(pts, W, vw);
-        if (n) {
-          any = true;
-          const line = css ?? `${num(v + n, 3)}px`;
-          return n > 0
-            ? `min(${line}, calc(${num(v, 3)}px + ${off}))`
-            : `max(${line}, calc(${num(v, 3)}px - ${off}))`;
+        // a height that changes where text wraps onto another line (no line through the measured heights) is the
+        // height of the box's content: the box follows it (height: auto) instead of a value fitted to the measured widths
+        if (
+          (prop === "height" || prop === "min-height") &&
+          !linear(pts) &&
+          contentDriven(me.el) &&
+          contentFills(me.el, v)
+        ) {
+          heightAuto = true;
+          return "auto";
         }
-        if (css === null) return part;
+        const css = fluidValue(pts, W, vw, TYPE_PROPS.has(prop) ? TYPE_TOL : FLUID_TOL);
+        if (css === null) {
+          if (!n) return part;
+          any = true;
+          return `${num(v + n, 3)}px`;
+        }
         any = true;
         return css;
       });
       style[prop] = next.join(" ");
+      if (heightAuto) {
+        any = true;
+        if (prop === "min-height") delete style["min-height"];
+        else style.height = "auto";
+        heightAuto = false;
+      }
     }
     if (any) me.el.style = style;
     if (me.el.tag === "img" && me.parent)
@@ -694,9 +746,57 @@ function measuredFluid(s: FluidScreen, i: number, ir: IrElement): { min: number;
         }),
       );
   }
-  reflowIr(ir, W, own, vw, { widths: false });
+  for (const img of artImages) {
+    img.style = { ...img.style, position: "static", width: "100%", height: "auto", display: "block" };
+    delete img.style.inset;
+  }
+  reflowIr(ir, W, own, vw, { widths: false, flow: true });
+  keepBelow(ir);
   stripFitWidths(ir);
   return { min, fit, vw };
+}
+
+/**
+ * The image filling `box` when it is art-directed (another picture at some measured widths) and the box keeps one
+ * proportion per picture (the picture's own): the box then follows the picture shown. Null otherwise.
+ */
+function artDirectedBox(
+  box: IrElement,
+  key: string,
+  own: ReadonlyMap<IrElement, DesignBox>,
+  theirs: ReadonlyArray<{
+    W: number;
+    paths: Map<string, { el: IrElement; parent: IrElement | null }>;
+    boxes: ReadonlyMap<IrElement, DesignBox>;
+  }>,
+): IrElement | null {
+  const kids = elKids(box);
+  const img = kids.find((c) => c.tag === "img" && c.style.width === "100%" && c.style.height === "100%");
+  if (!img || kids.length !== 1 || pxOf(box.style.height) === null || !img.attrs.src) return null;
+  const imgKey = `${key}/img:${img.name ?? ""}#0`;
+  // the box's width as its layout sets it (a px width or its container's), its height as measured
+  const at = (el: IrElement, boxes: ReadonlyMap<IrElement, DesignBox>, src: string) => ({
+    w: pxOf(el.style.width) ?? boxes.get(el)?.box ?? null,
+    h: pxOf(el.style.height),
+    src,
+  });
+  const pts = [
+    at(box, own, img.attrs.src),
+    ...theirs.flatMap((t) => {
+      const b = t.paths.get(key)?.el,
+        i = t.paths.get(imgKey)?.el;
+      return b && i?.attrs.src ? [at(b, t.boxes, i.attrs.src)] : [];
+    }),
+  ];
+  if (!pts.some((p) => p.src !== img.attrs.src)) return null;
+  const ratios = new Map<string, number[]>();
+  for (const p of pts) {
+    if (p.w === null || p.h === null || !(p.w > 0)) return null;
+    ratios.set(p.src, [...(ratios.get(p.src) ?? []), p.h / p.w]);
+  }
+  for (const rs of ratios.values())
+    if (Math.max(...rs) - Math.min(...rs) > 0.02 * Math.max(...rs)) return null;
+  return img;
 }
 
 /**
@@ -711,6 +811,12 @@ function artDirection(
   others: ReadonlyArray<{ W: number; src: string }>,
 ): void {
   const mine = img.attrs.src ?? "";
+  // the widths the page's own <picture> switches at (captured source media): a switch between two measured widths
+  // lands there instead of halfway
+  const known = (img.attrs["data-picture-switches"] ?? "")
+    .split(",")
+    .map(Number)
+    .filter((n) => n > 0);
   if (!mine || !others.some((o) => o.src && o.src !== mine)) return;
   const pts = [{ W, src: mine }, ...others.filter((o) => o.src)].sort((a, b) => a.W - b.W);
   // runs of one picture: [from, to) in viewport px
@@ -718,7 +824,9 @@ function artDirection(
   pts.forEach((p, k) => {
     const last = runs[runs.length - 1];
     if (last && last.src === p.src) return;
-    const from = k === 0 ? 0 : Math.round((pts[k - 1]!.W + p.W) / 2);
+    const lo = k === 0 ? 0 : pts[k - 1]!.W;
+    const at = known.find((x) => x > lo && x <= p.W);
+    const from = k === 0 ? 0 : (at ?? Math.round((lo + p.W) / 2));
     if (last) last.to = from;
     runs.push({ from, to: null, src: p.src });
   });
@@ -745,13 +853,201 @@ function artDirection(
 /** `data-narrowed` (fromDsl: how much a text was narrowed to its longest line) is read by measuredFluid only: never exported. */
 function stripFitWidths(ir: IrElement): void {
   const visit = (e: IrElement) => {
-    if ("data-narrowed" in e.attrs) {
-      const { "data-narrowed": _n, ...rest } = e.attrs;
+    if (FIT_ATTRS.some((a) => a in e.attrs)) {
+      const rest = { ...e.attrs };
+      for (const a of FIT_ATTRS) delete rest[a];
       e.attrs = rest;
     }
     elKids(e).forEach(visit);
   };
   visit(ir);
+}
+/**
+ * A box that now follows its content (`height: auto`, no minimum) keeps the room the page leaves below its flow as
+ * bottom padding (`data-below`, scene convert: an empty last box's margin, a collapsed margin).
+ */
+function keepBelow(ir: IrElement): void {
+  const visit = (e: IrElement) => {
+    const below = Number(e.attrs["data-below"]);
+    if (below > 0 && e.style.height === "auto" && !e.style["min-height"]) {
+      const pad = (e.style.padding ?? "0px").trim().split(/\s+/);
+      const [t, r, b, l] =
+        pad.length === 4
+          ? pad
+          : pad.length === 2
+            ? [pad[0], pad[1], pad[0], pad[1]]
+            : pad.length === 3
+              ? [pad[0], pad[1], pad[2], pad[1]]
+              : [pad[0], pad[0], pad[0], pad[0]];
+      const pb = pxOf(b);
+      if (pb !== null) e.style = { ...e.style, padding: `${t} ${r} ${num(pb + below, 3)}px ${l}` };
+    }
+    elKids(e).forEach(visit);
+  };
+  visit(ir);
+}
+
+/** fromDsl's marks for the fluid pass (never exported) */
+const FIT_ATTRS = ["data-narrowed", "data-picture-switches", "data-breaks-words", "data-below"];
+
+/** A box whose height is its content's: text that wraps, or a flex / grid box whose children all flow. */
+function contentDriven(e: IrElement): boolean {
+  if (e.raw) return false;
+  const kids = elKids(e).filter((c) => c.style.display !== "none");
+  if (!kids.length) return wraps(e);
+  // its flowing children (placed layers take no room) each with a size of their own or as tall as their content (a
+  // child filling it, `height: 100%`, as well: it is the content); a flex box, or a block whose children all flow
+  const flow = kids.filter((c) => !isAbs(c.style));
+  const block =
+    !isFlex(e.style) && /^(block|flow-root|)$/.test(e.style.display ?? "") && flow.length === kids.length;
+  return (
+    (isFlex(e.style) || block) &&
+    flow.length > 0 &&
+    flow.every((c) =>
+      /%/.test(c.style.height ?? "")
+        ? contentDriven(c)
+        : ownLength(c.style.height) ||
+          c.style["aspect-ratio"] !== undefined ||
+          // as tall as its content: only if that content flows too (a box of placed layers alone would be nothing)
+          (/^(auto|fit-content|min-content|max-content)$/.test(c.style.height ?? "auto") &&
+            (!elKids(c).some((k) => k.style.display !== "none") || contentDriven(c))),
+    )
+  );
+}
+
+/**
+ * Whether a box's flowing children can account for its height `H` (px) at the design width: with every flowing child
+ * of a known height, they (with the gaps and the vertical padding) reach it. A card whose heading is placed (absolute)
+ * over 48 px of icons is 192 px tall by its grid row, not by its content: following its content would collapse it.
+ * True when a flowing child's height is not known (text: it may well be the content).
+ */
+function contentFills(e: IrElement, H: number): boolean {
+  const flow = elKids(e).filter((c) => c.style.display !== "none" && !isAbs(c.style));
+  const hs = flow.map((c) => pxOf(c.style.height));
+  if (!flow.length || hs.some((h) => h === null)) return true;
+  const pad = (e.style.padding ?? "0px")
+    .trim()
+    .split(/\s+/)
+    .map((x) => pxOf(x) ?? 0);
+  const padV = pad.length === 4 ? pad[0]! + pad[2]! : pad.length >= 1 ? 2 * pad[0]! : 0;
+  const margins = flow.map((c) => {
+    const m = (c.style.margin ?? "0px")
+      .trim()
+      .split(/\s+/)
+      .map((x) => pxOf(x) ?? 0);
+    return m.length === 4 ? m[0]! + m[2]! : m.length >= 1 ? 2 * m[0]! : 0;
+  });
+  const gap = pxOf(e.style["row-gap"] ?? e.style.gap) ?? 0;
+  const est = isRow(e.style)
+    ? Math.max(...hs.map((h, i) => h! + margins[i]!))
+    : hs.reduce<number>((t, h, i) => t + h! + margins[i]!, 0) + gap * (flow.length - 1);
+  return est + padV >= H - 4;
+}
+
+/** An element that is a picture: an img, or a box holding only one (a figure, a video's frame). */
+function pictureBox(e: IrElement): boolean {
+  if (e.tag === "img") return true;
+  const kids = elKids(e);
+  return (
+    kids.length === 1 && (kids[0]!.tag === "img" || (kids[0]!.tag === "picture" && pictureBox(kids[0]!)))
+  );
+}
+
+/** Tolerance of fluidValue: every measured point within this many px of the value. */
+export const FLUID_TOL = 1;
+/** …and for type (size, line height, letter spacing), where a fraction of a px rewraps a line */
+export const TYPE_TOL = 0.05;
+const TYPE_PROPS = new Set(["font-size", "line-height", "letter-spacing"]);
+
+/** The continuous piecewise-linear value through `knots` (ends extended), at viewport width x. */
+function pwlAt(knots: ReadonlyArray<[number, number]>, x: number): number {
+  if (knots.length === 1) return knots[0]![1];
+  let j = 0;
+  while (j < knots.length - 2 && x > knots[j + 1]![0]) j++;
+  const [a, b] = [knots[j]!, knots[j + 1]!];
+  return a[1] + ((b[1] - a[1]) * (x - a[0])) / (b[0] - a[0]);
+}
+
+/**
+ * The simplest continuous value that holds every measured `[viewport width, px]` point within FLUID_TOL: a constant,
+ * one line, or a piecewise line with one or two knots at measured widths (the ends at the outermost measured widths,
+ * continued beyond them). Nothing simpler fits: the value at the design width `W`, constant over the variant's
+ * range. Never a step or a value pinned to one width. Null when the value is constant. → CSS (pwlCss form, anchored
+ * at `W`).
+ */
+export function fluidValue(
+  points: ReadonlyArray<[number, number]>,
+  W: number,
+  vw = "100vw",
+  /** px every measured point may be off (type needs far less than boxes: a fraction of a px rewraps a line) */
+  tol = FLUID_TOL,
+): string | null {
+  const fit = fluidFit(points, W, tol);
+  if (!fit) return null;
+  return pwlCss(
+    [...fit, ...(fit.some((p) => p[0] === W) ? [] : [[W, pwlAt(fit, W)] as [number, number]])],
+    W,
+    vw,
+  );
+}
+
+/** The knots fluidValue uses (null: constant). Exported for tests that evaluate the value numerically. */
+export function fluidFit(
+  points: ReadonlyArray<[number, number]>,
+  W: number,
+  tol = FLUID_TOL,
+): Array<[number, number]> | null {
+  const pts = [...new Map(points.map((p) => [p[0], p] as const)).values()].sort((a, b) => a[0] - b[0]);
+  if (pts.length < 2) return null;
+  const at =
+    pts.find((p) => p[0] === W) ?? pts.reduce((a, b) => (Math.abs(b[0] - W) < Math.abs(a[0] - W) ? b : a));
+  if (pts.every((p) => Math.abs(p[1] - at[1]) <= tol)) return null;
+  const holds = (knots: Array<[number, number]>) =>
+    pts.every((p) => Math.abs(pwlAt(knots, p[0]) - p[1]) <= tol);
+  const first = pts[0]!,
+    last = pts[pts.length - 1]!;
+  const inner = pts.slice(1, -1);
+  // a kink between two measured widths (a column reaching its max-width, clamp()): lines through the measured points
+  // on either side, meeting where the page's value turns
+  const line = (g: Array<[number, number]>) => {
+    const [a, b] = [g[0]!, g[g.length - 1]!];
+    const k = b[0] === a[0] ? 0 : (b[1] - a[1]) / (b[0] - a[0]);
+    return { k, c: a[1] - k * a[0] };
+  };
+  const fits = (g: Array<[number, number]>) => {
+    if (g.length < 2) return null;
+    const l = line(g);
+    return g.every((p) => Math.abs(l.k * p[0] + l.c - p[1]) <= tol) ? l : null;
+  };
+  const meet = (l: { k: number; c: number }, r: { k: number; c: number }, lo: number, hi: number) => {
+    if (Math.abs(l.k - r.k) < 1e-9) return null;
+    const x = (r.c - l.c) / (l.k - r.k);
+    return x >= lo - 1e-6 && x <= hi + 1e-6 ? ([x, l.k * x + l.c] as [number, number]) : null;
+  };
+  const n = pts.length;
+  // simplest first: one line; one knot (at a measured width, else where two lines meet); two knots (likewise)
+  if (holds([first, last])) return [first, last];
+  for (const k of inner) if (holds([first, k, last])) return [first, k, last];
+  for (let i = 2; i <= n - 2; i++) {
+    const l = fits(pts.slice(0, i)),
+      r = fits(pts.slice(i));
+    const x = l && r ? meet(l, r, pts[i - 1]![0], pts[i]![0]) : null;
+    if (x && holds([first, x, last])) return [first, x, last];
+  }
+  for (let a = 0; a < inner.length; a++)
+    for (let b = a + 1; b < inner.length; b++)
+      if (holds([first, inner[a]!, inner[b]!, last])) return [first, inner[a]!, inner[b]!, last];
+  for (let i = 2; i <= n - 4; i++)
+    for (let j = i + 2; j <= n - 2; j++) {
+      const a = fits(pts.slice(0, i)),
+        b = fits(pts.slice(i, j)),
+        c = fits(pts.slice(j));
+      const x = a && b ? meet(a, b, pts[i - 1]![0], pts[i]![0]) : null;
+      const y = b && c ? meet(b, c, pts[j - 1]![0], pts[j]![0]) : null;
+      if (x && y && holds([first, x, y, last])) return [first, x, y, last];
+    }
+  // nothing simpler holds: the design width's value all along (continuous, and exact where it was designed)
+  return null;
 }
 
 /** Do the measured `[width, px]` points (three or more) lie on one straight line (±1 px)? Two points always do. */
@@ -761,33 +1057,6 @@ export function linear(points: ReadonlyArray<[number, number]>): boolean {
   const [a, b] = [pts[0]!, pts[pts.length - 1]!];
   if (b[0] === a[0]) return true;
   return pts.every(([x, y]) => Math.abs(a[1] + ((b[1] - a[1]) * (x - a[0])) / (b[0] - a[0]) - y) <= 1);
-}
-
-/**
- * The value of the nearest measured width (a step halfway between two measured widths), anchored at the design width
- * `W` (exactly its px there): a box whose height changes where its text wraps onto another line. Null when constant.
- * `clamp(0px, (vw − m) × 1000, 1px) × Δ` switches by Δ px within a thousandth of a px past the midpoint m.
- */
-export function stepCss(points: ReadonlyArray<[number, number]>, W: number, vw = "100vw"): string | null {
-  const pts = [...new Map(points.map((p) => [p[0], p] as const)).values()].sort((a, b) => a[0] - b[0]);
-  const at = pts.findIndex((p) => p[0] === W);
-  if (at < 0 || pts.length < 2) return null;
-  const terms = [`${num(pts[at]![1], 3)}px`];
-  for (let j = at + 1; j < pts.length; j++) {
-    const d = pts[j]![1] - pts[j - 1]![1];
-    if (Math.abs(d) >= 0.01)
-      terms.push(
-        `clamp(0px, (${vw} - ${num((pts[j - 1]![0] + pts[j]![0]) / 2, 3)}px) * 1000, 1px) * ${num(d, 3)}`,
-      );
-  }
-  for (let j = at - 1; j >= 0; j--) {
-    const d = pts[j]![1] - pts[j + 1]![1];
-    if (Math.abs(d) >= 0.01)
-      terms.push(
-        `clamp(0px, (${num((pts[j]![0] + pts[j + 1]![0]) / 2, 3)}px - ${vw}) * 1000, 1px) * ${num(d, 3)}`,
-      );
-  }
-  return terms.length === 1 ? null : `calc(${terms.join(" + ")})`;
 }
 
 /**
@@ -1043,7 +1312,8 @@ export function reflowIr(
   D: number,
   boxes: ReadonlyMap<IrElement, DesignBox> = designBoxes(main, D),
   vw = "100vw",
-  o: { widths?: boolean } = {},
+  /** widths: shrink rules for boxes (not for measured variants); flow: heights follow content, never pinned */
+  o: { widths?: boolean; flow?: boolean } = {},
 ): void {
   const delta = `max(0px, ${num(D, 3)}px - ${vw})`;
   /** |viewport − D|: 0 only at the design width, where a growing box is pinned to its captured height */
@@ -1060,8 +1330,14 @@ export function reflowIr(
     const w = st.width;
     // wrapping text narrows down to its longest word, never breaking inside one (`anywhere` would let it)
     const text = TEXT_TAGS.test(e.tag) && st["white-space"] !== "pre" && st["white-space"] !== "nowrap";
+    // (unless the page breaks it inside words itself: then it narrows with its box, breaking a word that is too long)
     if (parent && ownLength(w) && !e.raw && text)
-      Object.assign(st, { "min-width": "min-content", "overflow-wrap": "break-word" });
+      Object.assign(
+        st,
+        "data-breaks-words" in e.attrs
+          ? { "min-width": "0px", "overflow-wrap": "anywhere" }
+          : { "min-width": "min-content", "overflow-wrap": "break-word" },
+      );
     // icons and icon-sized controls keep their size (sites never squeeze them): no per-variant shrink rule either
     const small = !text && (pxOf(w) ?? Infinity) <= SMALL_BOX;
     if (o.widths !== false && parent && ownLength(w) && !e.raw && !st["max-width"] && !small) {
@@ -1113,8 +1389,15 @@ export function reflowIr(
           padV
         : 0;
       // grows away from the design width only (max-height pins it there), and only around text that wraps
-      if ((H === null || sum <= H + 1) && wraps(e))
-        Object.assign(st, { height: "auto", "min-height": h, "max-height": `calc(${h} + 1000 * ${off})` });
+      if ((H === null || sum <= H + 1) && wraps(e)) {
+        if (!o.flow)
+          Object.assign(st, { height: "auto", "min-height": h, "max-height": `calc(${h} + 1000 * ${off})` });
+        // flow: a box of flowing content is as tall as its content; one taller than its content keeps that as its
+        // minimum (and still grows with it) — unless its flow cannot account for its height at all (a card as tall as
+        // its grid row, its heading placed over its icons): there the box keeps its height, as the page's layout sets it
+        else if (col && H !== null && Math.abs(sum - H) <= 1) Object.assign(st, { height: "auto" });
+        else if (H === null || contentFills(e, H)) Object.assign(st, { height: "auto", "min-height": h });
+      }
     }
     e.style = st;
     for (const c of elKids(e)) visit(c, e);
@@ -1138,18 +1421,32 @@ export function reflowIr(
       (c.style.right === "0px" || c.style.width === "100%") &&
       (pxOf(c.style["min-height"]) ?? 0) >= H * 0.9,
   );
-  if (!layer) return;
+  if (!layer) {
+    // flow: the page's content already flows in it (no absolute layer to free): the page is as tall as its content
+    if (o.flow && elKids(root).some((c) => !isAbs(c.style) && c.style.position !== "fixed")) {
+      const { "min-height": _m, "max-height": _x, ...rest } = main.style;
+      main.style = { ...rest, height: "auto" };
+      root.style = { ...root.style, height: "auto" };
+    }
+    return;
+  }
   const ls: Record<string, string> = { ...layer.style, position: "relative", width: "auto" };
   delete ls.top;
   delete ls.left;
   delete ls.right;
   delete ls.bottom;
   layer.style = ls;
-  main.style = {
-    ...main.style,
-    height: "auto",
-    "min-height": main.style.height!,
-    "max-height": `calc(${main.style.height!} + 1000 * ${off})`,
-  };
+  main.style = o.flow
+    ? (() => {
+        // the page is as tall as its flowing content
+        const { "min-height": _m, "max-height": _x, ...rest } = main.style;
+        return { ...rest, height: "auto" };
+      })()
+    : {
+        ...main.style,
+        height: "auto",
+        "min-height": main.style.height!,
+        "max-height": `calc(${main.style.height!} + 1000 * ${off})`,
+      };
   root.style = { ...root.style, height: "auto" };
 }

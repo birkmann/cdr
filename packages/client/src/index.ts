@@ -494,6 +494,9 @@ export interface RecreateRunView {
     pixel?: number;
     /** the band on the live page per captured width (kept from the first event that carried it) */
     bands?: { width: number; y: number; h: number }[];
+    reason?: "pixel" | "responsive" | "flow";
+    /** a repair of it was undone */
+    reverted?: boolean;
   }>;
   /** screenshots of the live page taken so far (peeks first, then full-page shots), newest last */
   shots: Array<{ kind: "peek" | "live"; width: number; height: number; path: string; seq: number }>;
@@ -1054,6 +1057,8 @@ export function reduceRecreate(
         status: e.status,
         pixel: e.pixel,
         bands: e.bands ?? r.sections.find((x) => x.id === e.id)?.bands,
+        ...(e.reason ? { reason: e.reason } : {}),
+        ...(e.reverted ? { reverted: true } : {}),
       };
       r.sections = [...r.sections.filter((x) => x.id !== e.id), row].sort((a, b) => a.index - b.index);
       break;

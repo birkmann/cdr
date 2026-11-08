@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { basename, relativeTime, useApp, useKnownProjects } from "../app-state";
+import { basename, isAutomated, relativeTime, useApp, useKnownProjects } from "../app-state";
 import { IconCode, IconFile, IconFolder, IconPlus, IconSearch, IconChevronRight } from "./icons";
 import { ProjectPicker } from "./Pickers";
 import { CopyButton } from "./History";
@@ -12,7 +12,12 @@ import {
 } from "./Projects";
 
 export function Library({ kind }: { kind: "projects" | "chats" | "artifacts" }) {
-  const { client, sessions, navigate, rememberProject } = useApp();
+  const { client, sessions: allSessions, navigate, rememberProject, settings, updateSettings } = useApp();
+  const automated = useMemo(() => allSessions.filter(isAutomated).length, [allSessions]);
+  const sessions = useMemo(
+    () => (settings.showAutomated ? allSessions : allSessions.filter((s) => !isAutomated(s))),
+    [allSessions, settings.showAutomated],
+  );
   const projects = useKnownProjects();
   const [query, setQuery] = useState("");
   const projectSummaries = useProjectSummaries(kind === "projects" ? projects : []);
@@ -144,6 +149,17 @@ export function Library({ kind }: { kind: "projects" | "chats" | "artifacts" }) 
           <code title={sessionsDir}>{sessionsDir}</code>
           <CopyButton text={sessionsDir} label="Copy folder path" />
         </div>
+      )}
+      {kind !== "projects" && automated > 0 && (
+        <label className="automated-filter muted small">
+          <input
+            type="checkbox"
+            checked={settings.showAutomated}
+            onChange={(e) => updateSettings({ showAutomated: e.target.checked })}
+          />{" "}
+          Include {automated} automated {automated === 1 ? "run" : "runs"} (goal runs and software-factory
+          agents)
+        </label>
       )}
       {error && (
         <p role="alert" className="error">

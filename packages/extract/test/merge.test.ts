@@ -15,11 +15,16 @@ const recorded = (w: number) =>
   );
 
 function extracted(): { ds: SceneDesignSystem; screens: SceneScreen[] } {
-  const ps = pageScreens([
-    { width: 390, minWidth: 0, snap: recorded(390) },
-    { width: 768, minWidth: 768, snap: recorded(768) },
-    { width: 1440, minWidth: 1024, snap: recorded(1440) },
-  ]);
+  // the fitted geometry: its copies of one card differ in their numbers (twins to merge); in flow they come out alike
+  const ps = pageScreens(
+    [
+      { width: 390, minWidth: 0, snap: recorded(390) },
+      { width: 768, minWidth: 768, snap: recorded(768) },
+      { width: 1440, minWidth: 1024, snap: recorded(1440) },
+    ],
+    true,
+    { flow: false },
+  );
   let ds: SceneDesignSystem = { version: 1, name: "acme", tokens: DEFAULT_TOKENS, componentSets: [] };
   let screens = ps.screens;
   let n = 0;

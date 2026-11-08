@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, readdirSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { dirname, join, relative, sep } from "node:path";
 import { isWorkspaceContainer, listProjectFiles, resolveInProject, type Session } from "@harness/core";
 
@@ -109,6 +109,55 @@ export function sessionFileScope(s: Session) {
         .slice(0, 20_000);
     },
   };
+}
+
+/** Folders the harness keeps its own state in (logs, config, memory, credentials…); never served as a preview. */
+const HARNESS_OWNED = new Set([
+  "attachments",
+  "config",
+  "config.json",
+  "goals",
+  "goals-index",
+  "history",
+  "memory",
+  "node_modules",
+  "plans",
+  "recreate",
+  "reports",
+  "sandboxes",
+  "server-token",
+  "sessions",
+  "skills",
+  "worktrees",
+]);
+
+/**
+ * Folders under the hidden `.harness/` scratch space that hold a page this session published with `set_preview`
+ * (an agent may build a game in `.harness/chess-game/`). Only the published page's own folder is opened, and only
+ * when it sits below a folder the harness does not own: logs, config and memory stay private.
+ */
+export function publishedHarnessFolders(s: Session): string[] {
+  const folders = new Set<string>();
+  let root: string;
+  try {
+    root = realpathSync(s.projectRoot); // resolveInProject returns real paths
+  } catch {
+    return [];
+  }
+  for (const event of s.events) {
+    if (event.type !== "preview.ready") continue;
+    let abs: string;
+    try {
+      abs = resolveInProject(root, event.path);
+    } catch {
+      continue;
+    }
+    const parts = relative(root, abs).split(sep);
+    if (parts[0] !== ".harness" || parts.length < 3 || HARNESS_OWNED.has(parts[1])) continue;
+    if (parts.some((p) => p === ".git" || p === "..")) continue;
+    folders.add(dirname(abs));
+  }
+  return [...folders];
 }
 
 /** Every file under `dir` (no symlinks followed), at most `limit`. */

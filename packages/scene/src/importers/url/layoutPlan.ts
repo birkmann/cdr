@@ -162,9 +162,17 @@ function spread(a: number, b: number): number[] {
   return Array.from({ length: n + 1 }, (_, i) => Math.round(a + ((b - a) * i) / n));
 }
 
+/**
+ * Each range is measured once more this far inside both ends: a value that turns near the end of a range (type reaching
+ * its clamp() bound, a column reaching its max-width just before a breakpoint) then has two measured widths past the
+ * turn, and the export finds where it turns instead of guessing between two far-apart measurements
+ */
+export const ALT_EDGE = 24;
+
 /** Widths a capture at `w` is measured at besides its own, from `lo` to `end`: ALT_STEP apart and the device widths. */
 function measuredWidths(lo: number, w: number, end: number): number[] {
-  const alt = [...spread(lo, w), ...spread(w, end)].filter((x) => Math.abs(x - w) >= ALT_MIN_GAP);
+  const edges = end - lo > 4 * ALT_EDGE ? [lo + ALT_EDGE, end - ALT_EDGE] : [];
+  const alt = [...spread(lo, w), ...spread(w, end), ...edges].filter((x) => Math.abs(x - w) >= ALT_MIN_GAP);
   // (a device a few px off the capture width still is one: text wraps differently there)
   for (const d of DEVICE_WIDTHS)
     if (d >= lo && d <= end && Math.abs(d - w) >= 2 && alt.every((x) => Math.abs(x - d) >= deviceGap(d)))

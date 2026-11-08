@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Acme Outdoor – Gear for every trail</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="bar">
+        <a class="logo" href="/" aria-label="Acme Outdoor home">
+          <svg width="32" height="32" viewBox="0 0 32 32" aria-hidden="true"><path d="M4 26 16 6l12 20z" fill="#0f5132" /><circle cx="22" cy="10" r="3" fill="#f2a900" /></svg>
+          <span>Acme Outdoor</span>
+        </a>
+        <nav class="desktop-nav" aria-label="Main">
+          <a href="#products">Products</a>
+          <a href="#stories">Stories</a>
+          <a href="#stores">Stores</a>
+          <a href="#help">Help</a>
+        </nav>
+        <button class="nav-toggle" type="button" aria-label="Menu" aria-expanded="false" aria-controls="menu">
+          <span></span><span></span><span></span>
+        </button>
+      </div>
+    </header>
+
+    <div id="menu" class="menu-panel" hidden>
+      <div class="menu-level" data-level="root">
+        <div class="menu-head"><strong>Menu</strong><button class="menu-close" type="button" aria-label="Close menu">×</button></div>
+        <ul>
+          <li><button class="menu-entry" type="button" aria-expanded="false" data-sub="products">Products</button></li>
+          <li><a href="#stories">Stories</a></li>
+          <li><a href="#stores">Stores</a></li>
+          <li><a href="#help">Help</a></li>
+        </ul>
+      </div>
+      <div class="menu-level" data-level="products" hidden>
+        <div class="menu-head"><button class="menu-back" type="button" aria-label="Back">‹ Back</button><button class="menu-close" type="button" aria-label="Close menu">×</button></div>
+        <ul>
+          <li><a href="#tents">Tents</a></li>
+          <li><a href="#packs">Backpacks</a></li>
+          <li><a href="#boots">Boots</a></li>
+        </ul>
+      </div>
+    </div>
+
+    <main>
+      <section class="hero">
+        <picture>
+          <source media="(max-width: 600px)" srcset="img/hero-tall.png" />
+          <img src="img/hero-wide.png" alt="A trail through a green valley" width="1200" height="500" />
+        </picture>
+        <div class="hero-copy">
+          <h1>Gear for every trail</h1>
+          <p>Light, durable equipment tested in the Alps since 1987.</p>
+          <a class="button primary" href="#products">Shop the collection</a>
+        </div>
+      </section>
+
+      <section class="cards" id="products">
+        <h2>Featured products</h2>
+        <div class="card-grid">
+          <article class="card">
+            <img src="img/card-1.png" alt="Summit tent" width="400" height="260" />
+            <h3>Summit tent</h3>
+            <p>Two-person, 1.9 kg, four seasons.</p>
+            <a class="more" href="#tents">Learn more</a>
+          </article>
+          <article class="card">
+            <img src="img/card-2.png" alt="Ridge backpack" width="400" height="260" />
+            <h3>Ridge backpack</h3>
+            <p>38 litres with a ventilated back.</p>
+            <a class="more" href="#packs">Learn more</a>
+          </article>
+          <article class="card">
+            <img src="img/card-3.png" alt="Scree boots" width="400" height="260" />
+            <h3>Scree boots</h3>
+            <p>Waterproof leather, Vibram soles.</p>
+            <a class="more" href="#boots">Learn more</a>
+          </article>
+        </div>
+      </section>
+
+      <section class="stories" id="stories">
+        <h2>Stories from the trail</h2>
+        <div class="carousel">
+          <button class="carousel-prev" type="button" aria-label="Previous slide">‹</button>
+          <div class="carousel-track">
+            <figure class="slide"><img src="img/card-4.png" alt="Sunrise camp" loading="lazy" width="400" height="260" /><figcaption>Sunrise at 3,000 m</figcaption></figure>
+            <figure class="slide"><img src="img/card-5.png" alt="River crossing" loading="lazy" width="400" height="260" /><figcaption>Crossing the Inn</figcaption></figure>
+            <figure class="slide"><img src="img/card-1.png" alt="Night sky" loading="lazy" width="400" height="260" /><figcaption>Nights under stars</figcaption></figure>
+            <figure class="slide"><img src="img/card-2.png" alt="Ridge walk" loading="lazy" width="400" height="260" /><figcaption>The long ridge</figcaption></figure>
+          </div>
+          <button class="carousel-next" type="button" aria-label="Next slide">›</button>
+        </div>
+      </section>
+
+      <section class="perks" id="help">
+        <ul>
+          <li class="perk ship">Free shipping over €50</li>
+          <li class="perk return">60-day returns</li>
+          <li class="perk repair">Lifetime repairs</li>
+        </ul>
+        <acme-badge>Since 1987</acme-badge>
+      </section>
+    </main>
+
+    <footer class="site-footer" id="stores">
+      <div class="cols">
+        <div><h4>Shop</h4><a href="#tents">Tents</a><a href="#packs">Backpacks</a><a href="#boots">Boots</a></div>
+        <div><h4>Company</h4><a href="#about">About</a><a href="#jobs">Jobs</a><a href="#press">Press</a></div>
+        <div><h4>Support</h4><a href="#help">Help centre</a><a href="#stores">Stores</a><a href="#contact">Contact</a></div>
+      </div>
+      <p class="legal">© 2026 Acme Outdoor GmbH. Fixture site for CDR tests.</p>
+    </footer>
+
+    <div class="consent" role="dialog" aria-label="Cookies">
+      <p>We use cookies to improve your visit.</p>
+      <button type="button" class="consent-accept">Accept all</button>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>

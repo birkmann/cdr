@@ -23,6 +23,8 @@ import { isReadOnlyCommand } from "../permissions.js";
 import { searchUnsplashTool, useUnsplashPhotoTool } from "./unsplash.js";
 import { loadSkillTool } from "./skill.js";
 import { setLaunchTool } from "./launch.js";
+import { checkAppTool } from "./check-app.js";
+import { designSystemTool } from "./design-system.js";
 import { runAppTool, stopAppTool } from "./app.js";
 import { VIEWPORTS, formatPageReport, probePage } from "./browser.js";
 import { findChrome, sharedChromeEndpoint } from "@harness/capture";
@@ -779,9 +781,11 @@ export function builtinTools(): Tool[] {
     loadSkillTool,
     setPreviewTool,
     setLaunchTool,
+    checkAppTool,
     runAppTool,
     stopAppTool,
     checkPreviewTool,
+    designSystemTool,
     searchUnsplashTool,
     useUnsplashPhotoTool,
   ];
@@ -789,6 +793,18 @@ export function builtinTools(): Tool[] {
 
 export { ToolError, truncateMiddle };
 export { setLaunchTool, detectFramework } from "./launch.js";
+export { designSystemTool } from "./design-system.js";
+export {
+  checkAppTool,
+  setWindowBackend,
+  windowBackend,
+  lastAppCheck,
+  launchBlocker,
+  newestSourceChange,
+  type WindowBackend,
+  type AppWindow,
+  type AppCheckRecord,
+} from "./check-app.js";
 export {
   runAppTool,
   stopAppTool,

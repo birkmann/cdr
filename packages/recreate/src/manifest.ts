@@ -1,6 +1,6 @@
 // The run folder and its manifest. Every stage reads and writes files under
 // `.harness/recreate/<run-id>/`, so a run is resumable and a later stage can be re-run alone (`--from components`).
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type {
   RecreateConsent,
@@ -45,11 +45,21 @@ export interface RunManifest {
   finalUrl?: string;
   consent?: RecreateConsent;
   /** variants: capture width, the width the variant applies from, the session it was walked in */
-  variants?: { width: number; minWidth: number; session: number }[];
+  variants?: {
+    width: number;
+    minWidth: number;
+    session: number;
+    /** the widths of its own layout range it is measured at (a session walks the union of its variants') */
+    alt?: number[];
+  }[];
   /** capture sessions (device classes): the loaded width and the other widths walked */
   sessions?: { width: number; alt: number[]; menus: number[] }[];
-  /** widths between and beyond the captures the output is checked at (the responsive gate) */
+  /** widths between and beyond the captures the live page was screenshotted at (pixels compared there) */
   sweep?: number[];
+  /** widths the live page's layout facts were taken at without a screenshot (the responsive gate's grid) */
+  probe?: number[];
+  /** measurements of the static output so far (seeds the sweep's rotating widths) */
+  measures?: number;
   stages: Partial<Record<RecreateStage, StageRecord>>;
   /** output folders relative to the run folder */
   outputs: { target: RecreateTarget; path: string }[];
@@ -98,6 +108,11 @@ export class RunDir {
 
   exists(...parts: string[]): boolean {
     return existsSync(this.path(...parts));
+  }
+
+  /** Remove a file of the run (nothing when it is not there). */
+  remove(rel: string): void {
+    rmSync(this.path(rel), { force: true });
   }
 
   write(rel: string, data: string | Uint8Array): void {

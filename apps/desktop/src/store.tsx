@@ -8,9 +8,13 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { chatFileOps, type ChatFiles } from "./file-refs";
 import { app, fs, git, on, type FsChange, type GitStatus, type Workspace } from "./ipc";
 
-export type SideView = "files" | "search" | "git" | "agents" | "goals";
+export type SideView = "files" | "search" | "git";
+/** Chat view: conversations, the conversation, its project. Code view: files, editors, the conversation. */
+export type ShellMode = "chat" | "code";
+export type RailSection = "project" | "repo" | "agents" | "changes" | "goals" | "preview";
 export type BottomView = "terminal" | "problems" | "output";
 export type DockSide = "left" | "right";
 /** Editor groups are numbered from 0 (leftmost); splitting adds a group. */
@@ -82,7 +86,8 @@ export interface Toast {
 
 interface Store {
   workspace: Workspace | null;
-  openWorkspace(path: string): Promise<void>;
+  /** Open a folder. The conversation shown is cleared unless `keepSession` is set. */
+  openWorkspace(path: string, opts?: { keepSession?: boolean }): Promise<void>;
   closeWorkspace(): void;
   /** All open tabs; their order is the order within each group. */
   tabs: Tab[];
@@ -117,6 +122,43 @@ interface Store {
   isRepo: boolean;
   refreshGit(): Promise<void>;
   fsVersion: number;
+  /** A folder or file the explorer should expand to and select (the nonce repeats a request). */
+  reveal: { path: string; nonce: number } | null;
+  revealInExplorer(path: string): void;
+  mode: ShellMode;
+  setMode(m: ShellMode): void;
+  /** Whether the chat view shows files beside the conversation, in place of the project column. */
+  filePane: boolean;
+  setFilePane(v: boolean): void;
+  /** The conversation whose preview the chat view has open beside it, and whether it is in front of the files. */
+  chatPreview: { sessionId: string; front: boolean } | null;
+  /** Show a conversation's preview beside it, in the chat view. */
+  openChatPreview(sessionId: string): void;
+  closeChatPreview(): void;
+  /** Close everything beside the conversation, which brings the project column back. */
+  closeChatPane(): void;
+  /** The file tabs of the chat view, by project. */
+  chatFiles: ChatFiles;
+  openChatFile(root: string, path: string, line?: number): void;
+  closeChatFile(root: string, path: string): void;
+  activateChatFile(root: string, path: string): void;
+  /** Whether the file pane shows its folder tree. */
+  fileTree: boolean;
+  setFileTree(v: boolean): void;
+  /** Whether the chat view shows the project column. */
+  rail: boolean;
+  setRail(v: boolean): void;
+  railCollapsed: Partial<Record<RailSection, boolean>>;
+  toggleRailSection(id: RailSection): void;
+  /** Show the chat view with a section of the project column open and in sight. */
+  revealRailSection(id: RailSection): void;
+  railFocus: { id: RailSection; nonce: number } | null;
+  /** The conversation list's project filter (a folder or `SANDBOX_PROJECT`), or null for all. */
+  projectFilter: string | null;
+  setProjectFilter(v: string | null): void;
+  /** Where the next conversation works: null for a new sandbox, undefined before it was chosen. */
+  draftFolder: string | null | undefined;
+  setDraftFolder(v: string | null): void;
   side: SideView | null;
   setSide(v: SideView | null): void;
   bottom: BottomView | null;
@@ -142,17 +184,49 @@ interface Store {
 const Ctx = createContext<Store | null>(null);
 const LAYOUT_KEY = "cdr.studio.layout.v1";
 
-interface Layout {
+export interface Layout {
   side: SideView | null;
   bottom: BottomView | null;
   agentPanel: boolean;
   agentDock: DockSide;
+  mode: ShellMode;
+  rail: boolean;
+  railCollapsed: Partial<Record<RailSection, boolean>>;
+  fileTree: boolean;
 }
-const DEFAULT_LAYOUT: Layout = { side: "files", bottom: null, agentPanel: true, agentDock: "right" };
+export const DEFAULT_LAYOUT: Layout = {
+  side: "files",
+  bottom: null,
+  agentPanel: true,
+  agentDock: "right",
+  mode: "chat",
+  rail: true,
+  railCollapsed: {},
+  fileTree: true,
+};
+
+const SIDE_VIEWS: readonly (SideView | null)[] = ["files", "search", "git", null];
+
+/** Reads a saved layout; older ones can name the Agents and Goals side panels, which no longer exist. */
+export function parseLayout(raw: string | null): Layout {
+  try {
+    const saved = JSON.parse(raw ?? "{}") as Partial<Layout>;
+    const layout = { ...DEFAULT_LAYOUT, ...saved };
+    return {
+      ...layout,
+      side: SIDE_VIEWS.includes(layout.side) ? layout.side : "files",
+      mode: layout.mode === "code" ? "code" : "chat",
+      railCollapsed:
+        layout.railCollapsed && typeof layout.railCollapsed === "object" ? layout.railCollapsed : {},
+    };
+  } catch {
+    return DEFAULT_LAYOUT;
+  }
+}
 
 function readLayout(): Layout {
   try {
-    return { ...DEFAULT_LAYOUT, ...JSON.parse(localStorage.getItem(LAYOUT_KEY) ?? "{}") };
+    return parseLayout(localStorage.getItem(LAYOUT_KEY));
   } catch {
     return DEFAULT_LAYOUT;
   }
@@ -278,6 +352,15 @@ export const tabOps = {
     return normalize({ ...s, tabs, groups, activeIn });
   },
   /**
+   * Keep only the tabs that do not depend on the open folder (conversations and their previews), for a
+   * folder switch: file, diff and history tabs belong to the folder being left.
+   */
+  keepConversations(s: Tabs): Tabs {
+    const keep = (t: Tab) => t.kind === "chat" || t.kind === "preview";
+    if (!s.tabs.some(keep)) return INITIAL_TABS;
+    return normalize({ ...s, tabs: s.tabs.filter(keep) });
+  },
+  /**
    * Make previews follow the current conversation: each group showing another conversation's preview
    * opens this conversation's preview right after it (the old one stays open beside it).
    */
@@ -351,7 +434,22 @@ export function StudioProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<GitStatus | null>(null);
   const [isRepo, setIsRepo] = useState(false);
   const [fsVersion, setFsVersion] = useState(0);
+  const [reveal, setReveal] = useState<Store["reveal"]>(null);
+  const revealInExplorer = useCallback((path: string) => {
+    setSide("files");
+    setReveal({ path, nonce: Date.now() });
+  }, []);
   const layout = useMemo(readLayout, []);
+  const [mode, setMode] = useState<ShellMode>(layout.mode);
+  const [filePane, setFilePaneOpen] = useState(false);
+  const [chatPreview, setChatPreview] = useState<Store["chatPreview"]>(null);
+  const [chatFiles, setChatFiles] = useState<ChatFiles>({});
+  const [fileTree, setFileTree] = useState(layout.fileTree);
+  const [rail, setRail] = useState(layout.rail);
+  const [railCollapsed, setRailCollapsed] = useState(layout.railCollapsed);
+  const [railFocus, setRailFocus] = useState<Store["railFocus"]>(null);
+  const [projectFilter, setProjectFilter] = useState<string | null>(null);
+  const [draftFolder, setDraftFolder] = useState<string | null | undefined>(undefined);
   const [side, setSide] = useState<SideView | null>(layout.side);
   const [bottom, setBottom] = useState<BottomView | null>(layout.bottom);
   const [agentPanel, setAgentPanel] = useState(layout.agentPanel);
@@ -369,11 +467,12 @@ export function StudioProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     try {
-      localStorage.setItem(LAYOUT_KEY, JSON.stringify({ side, bottom, agentPanel, agentDock }));
+      const saved: Layout = { side, bottom, agentPanel, agentDock, mode, rail, railCollapsed, fileTree };
+      localStorage.setItem(LAYOUT_KEY, JSON.stringify(saved));
     } catch {
       /* storage unavailable */
     }
-  }, [side, bottom, agentPanel, agentDock]);
+  }, [side, bottom, agentPanel, agentDock, mode, rail, railCollapsed, fileTree]);
 
   const toastTimers = useRef(new Map<number, { timer?: ReturnType<typeof setTimeout>; ms: number }>());
   // Kept in sync synchronously so two toasts raised in one tick still dedupe.
@@ -461,14 +560,15 @@ export function StudioProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const openWorkspace = useCallback(
-    async (path: string) => {
+    async (path: string, opts?: { keepSession?: boolean }) => {
       const ws = await app.openWorkspace(path);
       const prev = wsRef.current;
       if (prev && prev.root !== ws.root) void fs.unwatch(prev.root).catch(() => {});
       buffers.clear();
       setBufferVersion((v) => v + 1);
-      setTabState(INITIAL_TABS);
-      setSessionId(null);
+      setTabState(tabOps.keepConversations);
+      setReveal(null);
+      if (!opts?.keepSession) setSessionId(null);
       wsRef.current = ws;
       setWorkspace(ws);
       setSide((s) => s ?? "files");
@@ -486,7 +586,8 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     setStatus(null);
     setIsRepo(false);
     buffers.clear();
-    setTabState(INITIAL_TABS);
+    setTabState(tabOps.keepConversations);
+    setReveal(null);
     setSessionId(null);
   }, [buffers]);
 
@@ -523,10 +624,58 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     return () => clearInterval(t);
   }, [refreshGit]);
 
-  const openTab = useCallback(
-    (t: TabInput, opts?: { group?: Group }) => setTabState((s) => tabOps.open(s, t, opts?.group)),
+  // Tabs, side panels and the bottom panel live in the code view, so asking for one goes there.
+  const openTab = useCallback((t: TabInput, opts?: { group?: Group }) => {
+    setMode("code");
+    setTabState((s) => tabOps.open(s, t, opts?.group));
+  }, []);
+  const showSide = useCallback((v: SideView | null) => {
+    if (v) setMode("code");
+    setSide(v);
+  }, []);
+  const showBottom = useCallback((v: BottomView | null) => {
+    if (v) setMode("code");
+    setBottom(v);
+  }, []);
+  const setFilePane = useCallback((open: boolean) => {
+    setFilePaneOpen(open);
+    if (open) setChatPreview((p) => p && { ...p, front: false });
+  }, []);
+  const openChatPreview = useCallback(
+    (previewSession: string) => setChatPreview({ sessionId: previewSession, front: true }),
     [],
   );
+  const closeChatPreview = useCallback(() => setChatPreview(null), []);
+  const closeChatPane = useCallback(() => {
+    setFilePaneOpen(false);
+    setChatPreview(null);
+  }, []);
+  const openChatFile = useCallback(
+    (root: string, path: string, line?: number) => {
+      setFilePane(true);
+      setChatFiles((f) => chatFileOps.open(f, root, path, line));
+    },
+    [setFilePane],
+  );
+  const closeChatFile = useCallback((root: string, path: string) => {
+    setChatFiles((f) => chatFileOps.close(f, root, path));
+  }, []);
+  const activateChatFile = useCallback((root: string, path: string) => {
+    setChatPreview((p) => p && { ...p, front: false });
+    setChatFiles((f) => chatFileOps.activate(f, root, path));
+  }, []);
+  const toggleRailSection = useCallback(
+    (id: RailSection) => setRailCollapsed((c) => ({ ...c, [id]: !c[id] })),
+    [],
+  );
+  const revealRailSection = useCallback((id: RailSection) => {
+    setMode("chat");
+    setFilePaneOpen(false);
+    setChatPreview(null);
+    setRail(true);
+    setRailCollapsed((c) => ({ ...c, [id]: false }));
+    setRailFocus({ id, nonce: Date.now() });
+  }, []);
   const closeTab = useCallback((key: string) => setTabState((s) => tabOps.close(s, key)), []);
   const setActive = useCallback((key: string) => setTabState((s) => tabOps.activate(s, key)), []);
   const moveTab = useCallback(
@@ -632,10 +781,36 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     isRepo,
     refreshGit,
     fsVersion,
+    reveal,
+    revealInExplorer,
+    mode,
+    setMode,
+    filePane,
+    setFilePane,
+    chatPreview,
+    openChatPreview,
+    closeChatPreview,
+    closeChatPane,
+    chatFiles,
+    openChatFile,
+    closeChatFile,
+    activateChatFile,
+    fileTree,
+    setFileTree,
+    rail,
+    setRail,
+    railCollapsed,
+    toggleRailSection,
+    revealRailSection,
+    railFocus,
+    projectFilter,
+    setProjectFilter,
+    draftFolder,
+    setDraftFolder,
     side,
-    setSide,
+    setSide: showSide,
     bottom,
-    setBottom,
+    setBottom: showBottom,
     agentPanel,
     setAgentPanel,
     agentDock,

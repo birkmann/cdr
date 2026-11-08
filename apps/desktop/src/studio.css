@@ -76,7 +76,7 @@ kbd {
   height: var(--st-title-h);
   flex: none;
   display: grid;
-  grid-template-columns: 1fr minmax(240px, 520px) 1fr;
+  grid-template-columns: minmax(max-content, 1fr) minmax(200px, 520px) minmax(0, 1fr);
   align-items: center;
   gap: 12px;
   padding: 0 10px;
@@ -218,7 +218,6 @@ button.st-title-btn { background: none; border: 0; cursor: pointer; }
 }
 .st-tree-row:hover { background: var(--hover); color: var(--text); }
 .st-tree-row.on { background: var(--accent-soft); color: var(--text); }
-.st-tree-row.ignored { opacity: 0.55; }
 .st-tree-row svg { flex: none; color: var(--muted); }
 .st-tree-row.modified { color: var(--st-modified); }
 .st-tree-row.added, .st-tree-row.untracked { color: var(--st-untracked); }
@@ -522,8 +521,10 @@ body.st-dragging iframe, body.st-dragging .cm-editor { pointer-events: none; }
 .st-bottom-inner { display: flex; flex-direction: column; height: 100%; }
 .st-bottom-bar { height: 32px; flex: none; display: flex; align-items: center; gap: 2px; padding: 0 6px 0 4px; }
 .st-ptab {
+  flex: none;
   height: 100%;
   display: flex;
+  white-space: nowrap;
   align-items: center;
   gap: 6px;
   padding: 0 10px;
@@ -536,7 +537,22 @@ body.st-dragging iframe, body.st-dragging .cm-editor { pointer-events: none; }
   cursor: pointer;
 }
 .st-ptab.on { color: var(--text); box-shadow: inset 0 -2px 0 var(--accent); }
-.st-term-tab { display: inline-flex; align-items: center; border-radius: 6px; }
+.st-term-tabs {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.st-term-tabs::-webkit-scrollbar { display: none; }
+.st-term-tab { flex: 0 1 auto; min-width: 72px; max-width: 200px; display: inline-flex; align-items: center; border-radius: 6px; }
+.st-term-tab > button { flex: none; }
+.st-term-tab > .st-term-tab-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st-bottom-bar > .ghost.icon { flex: none; }
 .st-term-tab.on { background: var(--hover); }
 .st-term-tab.exited { opacity: 0.6; }
 .st-bottom-body { flex: 1; min-height: 0; position: relative; overflow: hidden; }
@@ -596,7 +612,14 @@ body.st-dragging iframe, body.st-dragging .cm-editor { pointer-events: none; }
   min-width: 0;
 }
 .st-convo-files .st-menu-label { padding: 2px 0; }
-.st-convo-files-name { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 13px; }
+.st-convo-files-title { font-size: 13px; font-weight: 600; }
+/* The conversation's folder: a quiet link that reveals it in the tree below. */
+.st-convo-files-name {
+  display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 12px;
+  padding: 2px 0; background: none; border: 0; color: var(--muted); text-align: left; cursor: pointer;
+}
+.st-convo-files-name:hover { color: var(--text); text-decoration: underline; }
+.st-convo-files p { margin: 4px 0 0; }
 .st-convo-files-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
 .st-sw-empty { padding: 12px 10px; font-size: 12px; color: var(--muted); }
 .st-agent-body { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; container-type: inline-size; }
@@ -1016,3 +1039,124 @@ button.st-sb:hover { background: var(--hover); color: var(--text); }
 .st-md-preview hr { border: 0; border-top: 1px solid var(--border); margin: 1.5em 0; }
 .st-md-preview table { display: table; }
 .st-md-img-missing { color: var(--muted); font-style: italic; }
+
+/* ---------------------------------------------------------------- chat view */
+.st-view-toggle { flex: none; margin: 0 4px; }
+.st-view-toggle button { padding: 2px 12px; }
+.st-view-toggle button.on { color: var(--text); font-weight: 600; }
+
+/* One arrangement of the same panels: the editors stay mounted, hidden, so terminals and undo history survive. */
+.st-body.mode-chat .st-activity,
+.st-body.mode-chat .st-side,
+.st-body.mode-chat .st-center { display: none; }
+.st-body.mode-chat .st-agent { flex: 1; min-width: 320px; border: 0; }
+.st-body.mode-chat .st-new-chat { width: 100%; max-width: 860px; margin: 0 auto; }
+
+.st-conversations, .st-rail { flex: none; min-width: 0; display: flex; flex-direction: column; background: var(--st-panel); }
+.st-conversations { border-right: 1px solid var(--divider); }
+.st-rail { border-left: 1px solid var(--divider); }
+
+/* The header reads as a breadcrumb: project / conversation. */
+.st-body.mode-chat .st-agent-body .chat-folder { order: -1; }
+.st-body.mode-chat .st-agent-body .chat-folder::after { content: "/"; margin-left: 10px; color: var(--muted); }
+.st-body.mode-chat .st-agent-body .chat-head .st-agent-head-actions { border-left: 0; }
+
+.st-conv-list { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.st-conv-head { flex: none; display: flex; flex-direction: column; gap: 6px; padding: 8px; border-bottom: 1px solid var(--divider); }
+.st-conv-search-row { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px; border: 1px solid var(--border); border-radius: 7px; background: var(--bg); color: var(--muted); }
+.st-conv-search-row:focus-within { border-color: var(--border-strong); }
+.st-conv-search { flex: 1; min-width: 0; border: 0; outline: 0; padding: 0; background: none; color: var(--text); font-size: 12px; box-shadow: none; }
+.st-conv-tools { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.st-conv-filter { min-width: 0; }
+.st-conv-filter .pill { max-width: 170px; overflow: hidden; font-size: 12px; padding: 3px 8px; }
+.st-conv-filter .popover { top: calc(100% + 4px); bottom: auto; }
+.st-conv-filter .popover .st-menu { min-width: 220px; }
+.st-app button.st-conv-new { display: inline-flex; align-items: center; gap: 4px; flex: none; padding: 3px 10px; min-height: 0; font-size: 12px; border-radius: 7px; }
+.st-conv-scroll { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 8px; }
+.st-conv-group { display: flex; align-items: center; justify-content: space-between; min-height: 26px; padding: 8px 10px 2px; font-size: 12px; font-weight: 600; color: var(--text-2); }
+.st-count.waiting { color: var(--warn); }
+.st-conv { position: relative; display: flex; align-items: flex-start; margin: 0 4px; border-radius: 7px; }
+.st-conv:hover { background: var(--hover); }
+.st-conv.on { background: var(--accent-soft); }
+.st-app button.st-conv-main { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 2px; padding: 6px 8px; min-height: 0; border: 0; border-radius: 7px; background: none; color: var(--text); font-size: 13px; font-weight: 400; text-align: left; cursor: pointer; }
+.st-app button.st-conv-main:disabled { cursor: default; opacity: 0.7; }
+.st-conv-top { display: flex; align-items: center; gap: 6px; min-width: 0; padding-right: 18px; font-size: 11px; color: var(--muted); }
+.st-conv-chip { flex: none; display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 15px; padding: 0 3px; border-radius: 4px; font-size: 9px; font-weight: 700; letter-spacing: 0.02em; }
+.st-conv-project { flex: 0 1 auto; }
+.st-conv-when { margin-left: auto; flex: none; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.st-conv-title { display: flex; align-items: center; gap: 7px; min-width: 0; line-height: 18px; }
+.st-conv-meta { display: flex; align-items: center; gap: 8px; min-width: 0; padding-left: 15px; font-size: 11px; color: var(--muted); }
+.st-conv-action { position: absolute; top: 4px; right: 4px; visibility: hidden; }
+.st-conv:hover .st-conv-action, .st-conv-action:focus-visible, .st-conv-action.visible { visibility: visible; }
+.st-conv-approvals { margin: 2px 8px 6px; border: 1px solid var(--warn); border-radius: 8px; background: color-mix(in srgb, var(--warn) 6%, transparent); }
+.st-conv-foot { flex: none; display: flex; padding: 4px 6px; border-top: 1px solid var(--divider); }
+
+.st-rail-inner { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 12px; }
+.st-rail-empty { padding: 24px 16px; color: var(--muted); font-size: 12px; line-height: 1.5; text-align: center; }
+.st-rail-section { border-bottom: 1px solid var(--divider); padding: 2px 0 6px; }
+.st-rail-head { display: flex; align-items: center; justify-content: space-between; padding-right: 8px; min-height: 28px; }
+.st-app button.st-rail-title { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; min-height: 0; border: 0; background: none; color: var(--text-2); font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; cursor: pointer; }
+.st-rail-count { color: var(--muted); font-weight: 400; letter-spacing: 0; text-transform: none; }
+.st-rail-body { padding: 0 10px; font-size: 12px; }
+.st-rail-note { margin: 2px 0 4px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.st-rail-project { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.st-rail-name { font-size: 13px; font-weight: 600; }
+.st-rail-path { margin: 2px 0 8px; color: var(--muted); font-size: 11px; direction: rtl; text-align: left; }
+.st-rail-actions { display: flex; align-items: center; gap: 4px; }
+.st-rail-branch { display: flex; align-items: center; justify-content: space-between; gap: 4px; min-width: 0; }
+.st-rail-branch .popover-wrap { min-width: 0; }
+.st-rail-branch .popover { top: calc(100% + 4px); bottom: auto; }
+.st-rail-branch .pill { padding: 0; border: 0; background: none; max-width: 100%; overflow: hidden; }
+.st-rail-branch .st-menu.wide { width: 280px; min-width: 0; }
+.st-rail-branch-static { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 4px 0; color: var(--text-2); }
+.st-rail-sync { display: inline-flex; align-items: center; flex: none; color: var(--muted); font-size: 11px; }
+.st-rail-commit { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 26px; }
+.st-rail-stats { font-variant-numeric: tabular-nums; color: var(--muted); }
+.st-app button.st-rail-row { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 24px; padding: 2px 4px; border: 0; border-radius: 5px; background: none; color: var(--text); font-size: 12px; font-weight: 400; text-align: left; cursor: pointer; }
+.st-app button.st-rail-row:hover { background: var(--hover); }
+.st-rail-file { flex: 1; direction: rtl; text-align: left; }
+.st-rail-letter { flex: none; color: var(--muted); font-size: 11px; }
+.st-rail-agent { display: flex; align-items: center; gap: 2px; border-radius: 5px; }
+.st-rail-agent:hover { background: var(--hover); }
+.st-rail-agent.on { background: var(--accent-soft); }
+.st-app button.st-rail-agent-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 7px; min-height: 26px; padding: 3px 4px; border: 0; background: none; color: var(--text); font-size: 12px; font-weight: 400; text-align: left; cursor: pointer; }
+.st-rail-agent-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.st-rail-agent-meta { font-size: 11px; color: var(--muted); }
+
+/* Files beside the conversation: tabs and a path on top, then the file and a narrow folder tree. */
+.st-file-pane { flex: none; min-width: 360px; display: flex; flex-direction: column; background: var(--bg); border-left: 1px solid var(--divider); container-type: inline-size; }
+.st-fp { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.st-fp-tabs { flex: none; display: flex; align-items: center; gap: 2px; height: 36px; padding: 0 6px; border-bottom: 1px solid var(--divider); }
+.st-fp-tablist { flex: 1; min-width: 0; display: flex; align-items: center; gap: 2px; overflow-x: auto; scrollbar-width: none; }
+.st-fp-tab { flex: none; display: flex; align-items: center; max-width: 200px; border-radius: 6px; color: var(--text-2); font-size: 12px; }
+.st-fp-tab:hover { background: var(--hover); }
+.st-fp-tab.on { background: var(--hover); color: var(--text); }
+.st-app button.st-fp-tab-main { display: flex; align-items: center; gap: 5px; min-width: 0; min-height: 0; padding: 4px 2px 4px 8px; border: 0; background: none; color: inherit; font-size: 12px; font-weight: 400; cursor: pointer; }
+.st-fp-tab .ghost.icon.tiny { opacity: 0; margin-right: 2px; }
+.st-fp-tab.on .ghost.icon.tiny, .st-fp-tab:hover .ghost.icon.tiny, .st-fp-tab .ghost.icon.tiny:focus-visible { opacity: 1; }
+.st-fp-bar { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 8px; height: 32px; padding: 0 6px 0 12px; border-bottom: 1px solid var(--divider); }
+.st-fp-crumbs { display: flex; align-items: center; gap: 5px; min-width: 0; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; }
+.st-fp-crumbs strong { font-weight: 500; color: var(--text); }
+.st-fp-tools { flex: none; display: flex; align-items: center; gap: 2px; }
+.st-fp-body { flex: 1; min-height: 0; display: flex; }
+.st-fp-file { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.st-fp-file .st-code, .st-fp-file .st-scroll-page { flex: 1; min-height: 0; }
+.st-fp-preview { flex: 1; min-width: 0; min-height: 0; }
+.st-fp-preview[hidden] { display: none; }
+.st-fp-image { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; overflow: auto; padding: 16px; }
+.st-fp-image img { max-width: 100%; max-height: 100%; }
+.st-file-tree { flex: none; width: 220px; display: flex; flex-direction: column; min-height: 0; border-left: 1px solid var(--divider); background: var(--st-panel); }
+.st-file-tree-search { flex: none; padding: 6px; }
+.st-file-tree-search input { width: 100%; height: 26px; padding: 0 8px; font-size: 12px; }
+.st-file-tree .st-tree-row { font-size: 12px; }
+.st-file-tree .st-tree-row.st-tree-result { padding-left: 8px; }
+@container (max-width: 560px) {
+  .st-file-tree, .st-fp-tree-toggle { display: none; }
+}
+
+/* A narrow window keeps the conversation readable: the project column gives way first. */
+@media (max-width: 1040px) {
+  .st-body.mode-chat.files-open > .st-conversations, .st-body.mode-chat.files-open > .st-conversations + .st-splitter { display: none; }
+  .st-body.mode-chat > .st-rail, .st-body.mode-chat > .st-splitter:has(+ .st-rail) { display: none; }
+  .st-titlebar .st-rail-toggle { display: none; }
+}

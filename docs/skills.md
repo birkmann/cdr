@@ -92,9 +92,29 @@ The spec and ticket flows (`to-spec`, `to-tickets`, `triage`, `wayfinder`, `impl
 
 `recreate-url` (`auto: never`) is never injected by triggers. The agent loads it only when the user explicitly asks for an exact copy of a URL. It covers the `recreate_*` stages, the repair rules (two attempts per section, edits only between the section markers, copy and photos untouched) and what the summary must say, including the rights notice. See [recreate.md](recreate.md).
 
+## Built-in: design-system
+
+`design-system` (`auto: sandbox`) loads when a request asks for a design system, a component library or kit, design tokens, or something "like Carbon / Material / Spectrum". It takes precedence over `web-app`.
+
+1. It calls `design_system` with the URL or the attached images.
+2. It corrects the brand reading through `overrides`.
+3. It builds and tests the generated workspace with npm.
+4. It checks the docs with `check_preview` in the light and dark themes.
+
+See [design-system.md](design-system.md).
+
 ## Checking the result
 
 `check_preview` loads the page in headless Chrome at phone and desktop widths, or at the widths you list (`small` 320, `phone` 390, `tablet` 768, `desktop` 1280). It reports JavaScript errors, failed requests, horizontal overflow and the elements that cause it, broken images, and controls without an accessible name. It also clicks every visible button and reloads the page, which catches broken event handlers and corrupt saved state.
+
+`check_app` play-tests native programs with a window, such as a Rust, Go, Python or Swift game or desktop app. It starts the program and waits for its window, which includes the build. It presses the `keys` the agent gives to get past a start screen and captures a few frames of the window. A vision model then compares those frames with the agent's `expect`, for example "pairs of pipes with a gap between them". The tool reports what each frame shows and every visible defect, then closes the program. `set_launch` adds the Launch button only after a check of the current files has passed. Editing a source file afterwards means checking again. After three failed checks in a row the button is added anyway, and the agent has to tell the user what is still wrong.
+
+- **Review model.** The frames are judged by the executor model, or by `appCheck.model` in `cdr.config.json` (for example `"appCheck": { "model": "anthropic/claude-sonnet-5-5" }`). The model must accept images. If it cannot, the frames go to the agent itself.
+- **macOS.** Capturing the window needs Screen Recording permission, and pressing keys needs Accessibility permission. Both are granted to the app that runs cdr (CDR Studio, Terminal, iTerm or VS Code) in System Settings → Privacy & Security. Keys go only to the program's window and only while it is frontmost.
+- **Linux.** Needs an X server, `xdotool` and ImageMagick's `import`.
+- **Elsewhere, or without permission.** The check reports that nothing was looked at, `set_launch` is not blocked, and the agent tells the user the appearance is unchecked.
+- **Programs that wait for a key.** The program runs with `CDR_APP_CHECK=1`. When keys cannot be pressed, the agent can make the program start play by itself under that variable.
+- **`CDR_WINDOW_CAPTURE=off`** turns window capture off. The tests set it.
 
 ## Measuring a skill
 

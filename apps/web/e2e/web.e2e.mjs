@@ -11,6 +11,10 @@ import assert from "node:assert/strict";
 process.env.HARNESS_HOME = mkdtempSync(join(tmpdir(), "e2e-home-"));
 const { Harness, MockProvider } = await import("@harness/core");
 const { startServer } = await import("@harness/server");
+// the compare page as the pipeline writes it (built package: this script runs after `pnpm build`)
+const { comparePage } = await import(
+  new URL("../../../packages/measure/dist/index.js", import.meta.url).href
+);
 
 const here = dirname(fileURLToPath(import.meta.url));
 const shots = process.env.E2E_SHOTS ?? join(tmpdir(), "harness-web-e2e");
@@ -23,7 +27,8 @@ spawnSync("git", ["-c", "user.email=e@e", "-c", "user.name=e", "add", "-A"], { c
 spawnSync("git", ["-c", "user.email=e@e", "-c", "user.name=e", "commit", "-qm", "init"], { cwd: project });
 
 let sawImage = false;
-let recoveryAttempt = 0, recoveryPlans = 0;
+let recoveryAttempt = 0,
+  recoveryPlans = 0;
 const mock = new MockProvider({
   handler: (req) => {
     const sys = req.messages[0].content;
@@ -31,11 +36,22 @@ const mock = new MockProvider({
     if (req.messages.some((m) => m.role === "user" && m.images?.length)) sawImage = true;
     const firstUser = req.messages.find((m) => m.role === "user")?.content ?? "";
     if (req.messages.some((m) => m.role === "user" && m.content.includes("Recover the timer job"))) {
-      if (sys.startsWith("You are the PLANNER")) { recoveryPlans++; return { text: "# Timer plan\n## Steps\n1. Save initial progress\n2. Finish the timer" }; }
+      if (sys.startsWith("You are the PLANNER")) {
+        recoveryPlans++;
+        return { text: "# Timer plan\n## Steps\n1. Save initial progress\n2. Finish the timer" };
+      }
       if (sys.includes("code REVIEWER")) return { text: '{"summary":"ok","findings":[]}' };
-      if (last.role === "user" && !last.content.includes("Continue the interrupted job")) return { toolCalls: [{ name: "write_file", args: { path: "progress.txt", content: "already completed" } }] };
+      if (last.role === "user" && !last.content.includes("Continue the interrupted job"))
+        return {
+          toolCalls: [{ name: "write_file", args: { path: "progress.txt", content: "already completed" } }],
+        };
       if (last.role === "tool" && recoveryAttempt++ === 0) throw new Error("Temporary connection failure");
-      if (last.role === "user") return { toolCalls: [{ name: "write_file", args: { path: "finished.txt", content: "remaining work completed" } }] };
+      if (last.role === "user")
+        return {
+          toolCalls: [
+            { name: "write_file", args: { path: "finished.txt", content: "remaining work completed" } },
+          ],
+        };
       return { text: "The timer job has been completed from saved progress." };
     }
 
@@ -44,52 +60,131 @@ const mock = new MockProvider({
         return {
           text: "Building it.",
           toolCalls: [
-            { name: "write_file", args: { path: "index.html", content: '<!doctype html><body><h1 id="t">loading</h1><script src="game.js"></script></body>' } },
-            { name: "write_file", args: { path: "game.js", content: "document.getElementById('t').textContent = 'SNAKE READY';" } },
+            {
+              name: "write_file",
+              args: {
+                path: "index.html",
+                content: '<!doctype html><body><h1 id="t">loading</h1><script src="game.js"></script></body>',
+              },
+            },
+            {
+              name: "write_file",
+              args: { path: "game.js", content: "document.getElementById('t').textContent = 'SNAKE READY';" },
+            },
             { name: "set_preview", args: { path: "index.html", title: "Snake" } },
           ],
         };
       return { text: "Your snake game is ready in the preview." };
     }
-    if (sys.startsWith("You are the PLANNER")) return { text: "# Plan: greet\n## Steps\n1. change `world` to `harness` in greet.txt" };
-    if (sys.includes("code REVIEWER")) return { text: '```json\n{"summary":"ok","findings":[{"severity":"nit","file":"greet.txt","issue":"could add punctuation"}]}\n```' };
-    if (last.role === "user" && /explain/i.test(last.content)) return { text: "This project has a **README** and a greeting file.\n\n```js\nconsole.log('hi')\n```" };
-    if (last.role === "user") return { text: "Patching.", toolCalls: [{ name: "patch_file", args: { path: "greet.txt", search: "world", replace: "harness" } }] };
+    if (sys.startsWith("You are the PLANNER"))
+      return { text: "# Plan: greet\n## Steps\n1. change `world` to `harness` in greet.txt" };
+    if (sys.includes("code REVIEWER"))
+      return {
+        text: '```json\n{"summary":"ok","findings":[{"severity":"nit","file":"greet.txt","issue":"could add punctuation"}]}\n```',
+      };
+    if (last.role === "user" && /explain/i.test(last.content))
+      return { text: "This project has a **README** and a greeting file.\n\n```js\nconsole.log('hi')\n```" };
+    if (last.role === "user")
+      return {
+        text: "Patching.",
+        toolCalls: [{ name: "patch_file", args: { path: "greet.txt", search: "world", replace: "harness" } }],
+      };
     return { text: "Changed `greet.txt`." };
   },
 });
-mock.capabilities = () => ({ tools: true, json: true, contextWindow: 100000, reasoningEfforts: ["none", "low", "high", "max"] });
+mock.capabilities = () => ({
+  tools: true,
+  json: true,
+  contextWindow: 100000,
+  reasoningEfforts: ["none", "low", "high", "max"],
+});
 // Controlled reasoning stream: the browser decides when new thoughts and the answer arrive.
 let nextThought, finishThought, nextPlan, finishPlan, nextCompact, finishCompact;
 let compactRound = 0;
 let compactReadyResolve;
-const compactReady = new Promise((resolve) => { compactReadyResolve = resolve; });
+const compactReady = new Promise((resolve) => {
+  compactReadyResolve = resolve;
+});
 const originalStream = mock.stream.bind(mock);
 mock.stream = async function* (req) {
   if (req.messages.some((m) => m.role === "user" && m.content === "Follow compact updates")) {
     const round = compactRound++;
-    if (round === 7) await new Promise((resolve) => { nextCompact = resolve; compactReadyResolve(); });
-    if (round === 8) await new Promise((resolve) => { finishCompact = resolve; });
+    if (round === 7)
+      await new Promise((resolve) => {
+        nextCompact = resolve;
+        compactReadyResolve();
+      });
+    if (round === 8)
+      await new Promise((resolve) => {
+        finishCompact = resolve;
+      });
     yield { type: "text", text: `Compact update ${round}: checking the next file.` };
-    if (round < 8) yield { type: "tool_call", call: { id: `compact-${round}`, name: "todo", arguments: JSON.stringify({ items: [{ text: `Step ${round}`, status: "done" }] }) } };
+    if (round < 8)
+      yield {
+        type: "tool_call",
+        call: {
+          id: `compact-${round}`,
+          name: "todo",
+          arguments: JSON.stringify({ items: [{ text: `Step ${round}`, status: "done" }] }),
+        },
+      };
     yield { type: "done", finishReason: round < 8 ? "tool_calls" : "stop" };
     return;
   }
-  if (req.messages[0].content.startsWith("You are the PLANNER") && req.messages.some((m) => m.role === "user" && m.content.includes("Read a long plan"))) {
-    const next = new Promise((resolve) => { nextPlan = resolve; });
-    const finish = new Promise((resolve) => { finishPlan = resolve; });
-    yield { type: "text", text: "# A plan you can read from the beginning\n\nStart here: understand the requirements before implementation.\n\n## Steps\n\n" + Array.from({ length: 25 }, (_, i) => `${i + 1}. Inspect requirement ${i + 1}, document the behavior, and verify the result.\n\n`).join("") };
+  if (
+    req.messages[0].content.startsWith("You are the PLANNER") &&
+    req.messages.some((m) => m.role === "user" && m.content.includes("Read a long plan"))
+  ) {
+    const next = new Promise((resolve) => {
+      nextPlan = resolve;
+    });
+    const finish = new Promise((resolve) => {
+      finishPlan = resolve;
+    });
+    yield {
+      type: "text",
+      text:
+        "# A plan you can read from the beginning\n\nStart here: understand the requirements before implementation.\n\n## Steps\n\n" +
+        Array.from(
+          { length: 25 },
+          (_, i) =>
+            `${i + 1}. Inspect requirement ${i + 1}, document the behavior, and verify the result.\n\n`,
+        ).join(""),
+    };
     await next;
-    yield { type: "text", text: "\n## Verification\n\n" + "Check the behavior with a deterministic test and inspect the output.\n\n".repeat(20) };
+    yield {
+      type: "text",
+      text:
+        "\n## Verification\n\n" +
+        "Check the behavior with a deterministic test and inspect the output.\n\n".repeat(20),
+    };
     await finish;
-    yield { type: "text", text: "\n## Risks\n\nRead the entire plan before approving.\n\n" + "Preserve existing user work while applying the changes.\n\n".repeat(15) };
+    yield {
+      type: "text",
+      text:
+        "\n## Risks\n\nRead the entire plan before approving.\n\n" +
+        "Preserve existing user work while applying the changes.\n\n".repeat(15),
+    };
     yield { type: "done", finishReason: "stop" };
     return;
   }
   if (req.messages.at(-1)?.content === "Explore thinking UI") {
-    const next = new Promise((resolve) => { nextThought = resolve; });
-    const finish = new Promise((resolve) => { finishThought = resolve; });
-    yield { type: "reasoning", text: "## A considered approach\n\n" + Array.from({ length: 24 }, (_, i) => `Step ${i + 1}: inspect the workspace, compare options, and check the result.\n\n`).join("") + "```js\nconst ready = true;\n```\n" };
+    const next = new Promise((resolve) => {
+      nextThought = resolve;
+    });
+    const finish = new Promise((resolve) => {
+      finishThought = resolve;
+    });
+    yield {
+      type: "reasoning",
+      text:
+        "## A considered approach\n\n" +
+        Array.from(
+          { length: 24 },
+          (_, i) => `Step ${i + 1}: inspect the workspace, compare options, and check the result.\n\n`,
+        ).join("") +
+        "```js\nconst ready = true;\n```\n",
+    };
     await next;
     yield { type: "reasoning", text: "\nThe implementation is ready for verification.\n" };
     await finish;
@@ -103,9 +198,18 @@ const harness = new Harness({
   providers: { mock },
   skipGlobalConfig: true,
   loadEnv: false,
-  configOverrides: { providers: { mock: { type: "mock" } }, models: { executor: "mock/m", planner: "mock/m", reviewer: "mock/m", summarizer: "mock/m" } },
+  configOverrides: {
+    providers: { mock: { type: "mock" } },
+    models: { executor: "mock/m", planner: "mock/m", reviewer: "mock/m", summarizer: "mock/m" },
+  },
 });
-const server = await startServer({ harness, port: 0, token: "e2e-token", staticDir: join(here, "..", "dist"), allowedRoots: [tmpdir()] });
+const server = await startServer({
+  harness,
+  port: 0,
+  token: "e2e-token",
+  staticDir: join(here, "..", "dist"),
+  allowedRoots: [tmpdir()],
+});
 
 const exe = ["/usr/bin/google-chrome-stable", "/usr/bin/chromium"].find(existsSync);
 const browser = await chromium.launch({ executablePath: exe, headless: true });
@@ -148,7 +252,9 @@ try {
   assert.equal(await page.title(), "CDR — Code. Build. Ship.");
   assert.equal(await page.locator("html").getAttribute("data-theme"), "dark");
   await page.locator(".suggestions .chip").first().click();
-  await page.waitForFunction(() => document.querySelector(".composer.large textarea")?.value.includes("snake"));
+  await page.waitForFunction(() =>
+    document.querySelector(".composer.large textarea")?.value.includes("snake"),
+  );
   await page.keyboard.press("Control+k");
   await page.getByRole("dialog", { name: "Search and commands" }).waitFor();
   await page.getByRole("combobox").fill("settings");
@@ -161,7 +267,13 @@ try {
   await page.getByRole("radio", { name: /Graphite/ }).check();
   await page.getByRole("button", { name: "Save", exact: true }).click();
   // Every palette is readable on all main surfaces and survives a reload.
-  const palettes = { dark: "Graphite", light: "Paper light", midnight: "Midnight", forest: "Forest", contrast: "High contrast" };
+  const palettes = {
+    dark: "Graphite",
+    light: "Paper light",
+    midnight: "Midnight",
+    forest: "Forest",
+    contrast: "High contrast",
+  };
   for (const [id, name] of Object.entries(palettes)) {
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     await page.getByRole("radio", { name: new RegExp(name) }).check();
@@ -169,16 +281,27 @@ try {
     const ratios = await page.evaluate(() => {
       const css = getComputedStyle(document.documentElement);
       const luminance = (hex) => {
-        const rgb = hex.trim().slice(1).match(/../g).map((n) => parseInt(n, 16) / 255).map((n) => n <= .04045 ? n / 12.92 : ((n + .055) / 1.055) ** 2.4);
-        return rgb[0] * .2126 + rgb[1] * .7152 + rgb[2] * .0722;
+        const rgb = hex
+          .trim()
+          .slice(1)
+          .match(/../g)
+          .map((n) => parseInt(n, 16) / 255)
+          .map((n) => (n <= 0.04045 ? n / 12.92 : ((n + 0.055) / 1.055) ** 2.4));
+        return rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722;
       };
       const ratio = (fg, bg) => {
-        const a = luminance(css.getPropertyValue(fg)), b = luminance(css.getPropertyValue(bg));
-        return (Math.max(a, b) + .05) / (Math.min(a, b) + .05);
+        const a = luminance(css.getPropertyValue(fg)),
+          b = luminance(css.getPropertyValue(bg));
+        return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
       };
-      return ["--text", "--text-2", "--muted", "--accent"].flatMap((fg) => ["--bg", "--bg-elev", "--sidebar", "--user-bubble"].map((bg) => ({ fg, bg, ratio: ratio(fg, bg) }))).concat([{ fg: "--hl-com", bg: "--code-bg", ratio: ratio("--hl-com", "--code-bg") }]);
+      return ["--text", "--text-2", "--muted", "--accent"]
+        .flatMap((fg) =>
+          ["--bg", "--bg-elev", "--sidebar", "--user-bubble"].map((bg) => ({ fg, bg, ratio: ratio(fg, bg) })),
+        )
+        .concat([{ fg: "--hl-com", bg: "--code-bg", ratio: ratio("--hl-com", "--code-bg") }]);
     });
-    for (const check of ratios) assert.ok(check.ratio >= 4.5, `${id} ${check.fg} on ${check.bg}: ${check.ratio.toFixed(2)}`);
+    for (const check of ratios)
+      assert.ok(check.ratio >= 4.5, `${id} ${check.fg} on ${check.bg}: ${check.ratio.toFixed(2)}`);
     await page.screenshot({ path: join(shots, `theme-${id}.png`) });
     await page.getByRole("button", { name: "Close", exact: true }).click();
     await page.reload();
@@ -205,7 +328,10 @@ try {
   assert.match(await page.getByTitle("Thinking effort", { exact: true }).innerText(), /Max/);
 
   // 2. no project chosen → a sandbox is created; the agent builds a page and the preview shows it
-  assert.match(await page.locator(".composer.large .pill", { hasText: "New sandbox" }).innerText(), /New sandbox/);
+  assert.match(
+    await page.locator(".composer.large .pill", { hasText: "New sandbox" }).innerText(),
+    /New sandbox/,
+  );
   await page.locator(".composer.large textarea").fill("Create a snake game");
   await page.locator(".composer.large textarea").press("Enter");
   await page.waitForURL(/\/c\//);
@@ -223,7 +349,9 @@ try {
   assert.equal(mock.calls.at(-1).reasoningEffort, "max");
   await page.getByTitle("Thinking effort", { exact: true }).click();
   await page.locator(".popover .option", { hasText: "Respond without extended thinking" }).click();
-  await page.waitForFunction(() => document.querySelector('[title="Thinking effort"]')?.textContent.includes("Off"));
+  await page.waitForFunction(() =>
+    document.querySelector('[title="Thinking effort"]')?.textContent.includes("Off"),
+  );
   assert.equal(previewSession.config.reasoningEffort, "none");
   await page.reload();
   await page.getByTitle("Thinking effort", { exact: true }).filter({ hasText: "Off" }).waitFor();
@@ -232,12 +360,18 @@ try {
   await page.getByTitle("Thinking effort", { exact: true }).filter({ hasText: "Default" }).waitFor();
   await page.screenshot({ path: join(shots, "thinking-effort.png") });
   const previewText = page.frameLocator("iframe.preview-frame").locator("#t");
-  writeFileSync(join(previewSession.projectRoot, "game.js"), "document.getElementById('t').textContent = 'BLUE SNAKE';");
+  writeFileSync(
+    join(previewSession.projectRoot, "game.js"),
+    "document.getElementById('t').textContent = 'BLUE SNAKE';",
+  );
   previewSession.emit({ type: "preview.ready", path: "index.html", title: "Snake" });
   await previewText.filter({ hasText: "BLUE SNAKE" }).waitFor();
   await page.getByText("Preview refreshed — showing the latest version.", { exact: true }).waitFor();
   await page.getByRole("checkbox", { name: "Auto-refresh" }).uncheck();
-  writeFileSync(join(previewSession.projectRoot, "game.js"), "document.getElementById('t').textContent = 'PURPLE SNAKE';");
+  writeFileSync(
+    join(previewSession.projectRoot, "game.js"),
+    "document.getElementById('t').textContent = 'PURPLE SNAKE';",
+  );
   previewSession.emit({ type: "preview.ready", path: "index.html", title: "Snake" });
   await page.getByText("A newer version is ready. Refresh to see the changes.", { exact: true }).waitFor();
   assert.equal(await previewText.innerText(), "BLUE SNAKE", "paused preview preserves the running app");
@@ -246,9 +380,23 @@ try {
   await previewText.filter({ hasText: "PURPLE SNAKE" }).waitFor();
   await page.getByRole("checkbox", { name: "Auto-refresh" }).check();
   previewSession.emit({ type: "status", status: "running" });
-  writeFileSync(join(previewSession.projectRoot, "game.js"), "document.getElementById('t').textContent = 'SNAKE READY';");
-  previewSession.emit({ type: "tool.call", id: "preview-shell-build", name: "bash", args: { command: "node build.js" } });
-  previewSession.emit({ type: "tool.result", id: "preview-shell-build", name: "bash", ok: true, output: "Built" });
+  writeFileSync(
+    join(previewSession.projectRoot, "game.js"),
+    "document.getElementById('t').textContent = 'SNAKE READY';",
+  );
+  previewSession.emit({
+    type: "tool.call",
+    id: "preview-shell-build",
+    name: "bash",
+    args: { command: "node build.js" },
+  });
+  previewSession.emit({
+    type: "tool.result",
+    id: "preview-shell-build",
+    name: "bash",
+    ok: true,
+    output: "Built",
+  });
   await page.getByText("Changes in progress — preview will refresh in a moment.", { exact: true }).waitFor();
   assert.equal(await previewText.innerText(), "PURPLE SNAKE", "waits for the agent's writes to settle");
   // reloads mid-turn once the writes have settled, like a preview opened in a browser tab
@@ -281,10 +429,16 @@ try {
   await page.setViewportSize({ width: 700, height: 900 });
   assert.equal(await chatResize.isVisible(), false, "no column divider in stacked mobile layout");
   assert.equal(await sidebarResize.isVisible(), false, "no divider on the mobile drawer");
-  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "no mobile overflow");
+  assert.ok(
+    await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+    "no mobile overflow",
+  );
   await page.setViewportSize({ width: 1440, height: 900 });
   await chatResize.waitFor();
-  await page.waitForFunction((width) => Number(document.querySelector('.chat-resize')?.getAttribute('aria-valuenow')) === width, originalChatWidth);
+  await page.waitForFunction(
+    (width) => Number(document.querySelector(".chat-resize")?.getAttribute("aria-valuenow")) === width,
+    originalChatWidth,
+  );
   assert.equal(Number(await chatResize.getAttribute("aria-valuenow")), originalChatWidth);
   await page.getByRole("button", { name: "New chat" }).click();
   await page.locator(".composer.large").waitFor();
@@ -304,7 +458,10 @@ try {
   await page.getByRole("button", { name: "New chat", exact: true }).click();
 
   // 3. pick the project via the folder browser
-  await page.getByRole("button", { name: /New sandbox/ }).first().click();
+  await page
+    .getByRole("button", { name: /New sandbox/ })
+    .first()
+    .click();
   await page.getByRole("button", { name: /Browse folders/ }).click();
   await page.getByRole("dialog", { name: "Choose a project folder" }).waitFor();
   await page.locator(".dir", { hasText: project.split("/").pop() }).click();
@@ -313,7 +470,8 @@ try {
   await page.getByRole("button", { name: new RegExp(project.split("/").pop()) }).waitFor();
 
   // 4. chat with a pasted image + a text file
-  const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+  const png =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
   await page.locator('input[type="file"]').setInputFiles([
     { name: "shot.png", mimeType: "image/png", buffer: Buffer.from(png, "base64") },
     { name: "notes.md", mimeType: "text/markdown", buffer: Buffer.from("# notes\nhello") },
@@ -327,7 +485,9 @@ try {
   assert.equal(await page.locator(".msg.user .msg-attachments img").count(), 1, "image thumbnail in history");
   assert.match(await page.locator(".msg.user .file-chip").innerText(), /notes\.md/);
   assert.ok(sawImage, "model received the image");
-  const imgOk = await page.locator(".msg.user .msg-attachments img").evaluate((img) => img.complete && img.naturalWidth > 0);
+  const imgOk = await page
+    .locator(".msg.user .msg-attachments img")
+    .evaluate((img) => img.complete && img.naturalWidth > 0);
   assert.ok(imgOk, "attachment image loads from /raw");
   assert.match(await page.locator(".history-title").first().innerText(), /Explain the project/);
 
@@ -342,7 +502,11 @@ try {
   await page.getByRole("region", { name: "Permission request" }).waitFor({ timeout: 10000 });
   await page.screenshot({ path: join(shots, "3-permission.png") });
   await page.getByRole("button", { name: "Allow", exact: true }).click();
-  await page.waitForFunction(() => document.querySelector('.status-pill')?.textContent?.trim() === 'done' || document.querySelector('.status-pill')?.textContent?.trim() === 'idle');
+  await page.waitForFunction(
+    () =>
+      document.querySelector(".status-pill")?.textContent?.trim() === "done" ||
+      document.querySelector(".status-pill")?.textContent?.trim() === "idle",
+  );
   await page.getByRole("button", { name: "Show all steps", exact: true }).last().click();
   await page.locator(".done-row.success").waitFor({ timeout: 15000 });
   assert.equal(readFileSync(join(project, "greet.txt"), "utf8"), "hello harness\n");
@@ -377,7 +541,10 @@ try {
   await page.getByRole("heading", { name: "Greeting workshop", exact: true }).waitFor();
   await page.getByRole("button", { name: "Projects", exact: true }).click();
   await page.locator(".library-card", { hasText: project.split("/").pop() }).click();
-  assert.match(await page.locator(".composer .pill").first().innerText(), new RegExp(project.split("/").pop()));
+  assert.match(
+    await page.locator(".composer .pill").first().innerText(),
+    new RegExp(project.split("/").pop()),
+  );
   await page.keyboard.press("Control+k");
   await page.getByRole("combobox").fill("Greeting workshop");
   await page.getByRole("option", { name: /Greeting workshop/ }).waitFor();
@@ -423,19 +590,34 @@ try {
   await page.locator(".thinking-body .hljs").waitFor();
   const thoughtBody = page.locator(".thinking-body");
   assert.equal(await thoughtBody.evaluate((el) => el.scrollTop), 0, "thought details open at the beginning");
-  await thoughtBody.evaluate((el) => { el.scrollTop = 0; el.dispatchEvent(new Event("scroll", { bubbles: true })); });
-  await page.locator(".thinking").getByRole("button", { name: /Jump to latest/ }).waitFor();
+  await thoughtBody.evaluate((el) => {
+    el.scrollTop = 0;
+    el.dispatchEvent(new Event("scroll", { bubbles: true }));
+  });
+  await page
+    .locator(".thinking")
+    .getByRole("button", { name: /Jump to latest/ })
+    .waitFor();
   nextThought();
   await page.locator(".thinking-body", { hasText: "ready for verification" }).waitFor();
   assert.equal(await thoughtBody.evaluate((el) => el.scrollTop), 0, "stream does not move manual scroll");
-  await page.locator(".thinking").getByRole("button", { name: /Jump to latest/ }).click();
-  await page.waitForFunction(() => { const el = document.querySelector(".thinking-body"); return el.scrollHeight - el.scrollTop - el.clientHeight < 32; });
+  await page
+    .locator(".thinking")
+    .getByRole("button", { name: /Jump to latest/ })
+    .click();
+  await page.waitForFunction(() => {
+    const el = document.querySelector(".thinking-body");
+    return el.scrollHeight - el.scrollTop - el.clientHeight < 32;
+  });
   await page.screenshot({ path: join(shots, "thinking-expanded.png") });
   await page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   await page.locator(".sidebar").waitFor({ state: "hidden" });
   await page.getByRole("button", { name: "Toggle code panel" }).click();
-  await page.waitForFunction(() => { const el = document.querySelector(".thinking-body"); return el.scrollHeight - el.scrollTop - el.clientHeight < 32; });
+  await page.waitForFunction(() => {
+    const el = document.querySelector(".thinking-body");
+    return el.scrollHeight - el.scrollTop - el.clientHeight < 32;
+  });
   await page.screenshot({ path: join(shots, "thinking-mobile.png") });
   finishThought();
   await page.getByText("The workspace is ready. Here is the verified result.", { exact: true }).waitFor();
@@ -452,29 +634,50 @@ try {
   await page.getByRole("button", { name: "Show all steps", exact: true }).waitFor();
   assert.equal(await page.locator(".tool-group").count(), 0, "tools are collapsed by default");
   assert.equal(await page.locator(".msg.assistant").count(), 0, "intermediate narration is collapsed");
-  assert.equal(await page.locator(".turn-activity.active .dots").count(), 1, "single animated activity indicator");
+  assert.equal(
+    await page.locator(".turn-activity.active .dots").count(),
+    1,
+    "single animated activity indicator",
+  );
   await page.screenshot({ path: join(shots, "activity-collapsed.png") });
-  assert.equal(await page.locator(".jump-latest.visible").count(), 0, "no jump button while following short updates");
+  assert.equal(
+    await page.locator(".jump-latest.visible").count(),
+    0,
+    "no jump button while following short updates",
+  );
   await page.setViewportSize({ width: 1440, height: 600 });
   await page.getByRole("button", { name: "Show all steps", exact: true }).click();
   await page.getByText("Compact update 6: checking the next file.", { exact: true }).waitFor();
-  await page.locator(".messages").evaluate((el) => { el.scrollTop = 0; el.dispatchEvent(new Event("scroll")); });
+  await page.locator(".messages").evaluate((el) => {
+    el.scrollTop = 0;
+    el.dispatchEvent(new Event("scroll"));
+  });
   await page.locator(".jump-latest.visible").waitFor();
   const compactPosition = await page.locator(".messages").evaluate((el) => el.scrollTop);
   nextCompact();
   await page.getByText("Compact update 7: checking the next file.", { exact: true }).waitFor();
-  assert.equal(await page.locator(".messages").evaluate((el) => el.scrollTop), compactPosition, "manual reading pauses short updates too");
+  assert.equal(
+    await page.locator(".messages").evaluate((el) => el.scrollTop),
+    compactPosition,
+    "manual reading pauses short updates too",
+  );
   const readBox = await page.locator(".messages").boundingBox();
   const jumpsBox = await page.locator(".conversation-jumps").boundingBox();
   const composerBox = await page.locator(".chat-bottom").boundingBox();
   const readBottom = readBox.y + readBox.height;
-  assert.ok(jumpsBox.y + jumpsBox.height <= readBottom && jumpsBox.y >= readBottom - 64, "jump button floats at the bottom edge of the reading area");
+  assert.ok(
+    jumpsBox.y + jumpsBox.height <= readBottom && jumpsBox.y >= readBottom - 64,
+    "jump button floats at the bottom edge of the reading area",
+  );
   assert.ok(jumpsBox.y + jumpsBox.height <= composerBox.y + 1, "jump row stays above the composer");
   await page.screenshot({ path: join(shots, "reading-controls.png") });
   await page.getByRole("button", { name: "Hide all steps", exact: true }).click();
   finishCompact();
   await page.getByText("Compact update 8: checking the next file.", { exact: true }).waitFor();
-  await page.waitForFunction(() => { const el = document.querySelector(".messages"); return el.scrollHeight - el.scrollTop - el.clientHeight < 2; });
+  await page.waitForFunction(() => {
+    const el = document.querySelector(".messages");
+    return el.scrollHeight - el.scrollTop - el.clientHeight < 2;
+  });
   await page.waitForFunction(() => !document.querySelector(".jump-latest.visible"));
 
   // Long streaming plans preserve the reading position, including after an explicit jump.
@@ -487,19 +690,36 @@ try {
   await page.getByRole("button", { name: "Show all steps", exact: true }).click();
   await page.getByRole("heading", { name: "A plan you can read from the beginning", exact: true }).waitFor();
   const conversation = page.getByRole("region", { name: "Conversation", exact: true });
-  assert.equal(await conversation.evaluate((el) => el.scrollTop), 0, "first streamed block does not hide the start");
+  assert.equal(
+    await conversation.evaluate((el) => el.scrollTop),
+    0,
+    "first streamed block does not hide the start",
+  );
   await page.screenshot({ path: join(shots, "reading-plan-start.png") });
-  await conversation.evaluate((el) => { el.scrollTop = 220; });
+  await conversation.evaluate((el) => {
+    el.scrollTop = 220;
+  });
   const readingPosition = await conversation.evaluate((el) => el.scrollTop);
   nextPlan();
   await page.getByRole("heading", { name: "Verification", exact: true }).waitFor();
-  assert.equal(await conversation.evaluate((el) => el.scrollTop), readingPosition, "streaming keeps the reader's place");
-  await page.locator(".conversation-jumps").getByRole("button", { name: /Jump to latest/ }).click();
+  assert.equal(
+    await conversation.evaluate((el) => el.scrollTop),
+    readingPosition,
+    "streaming keeps the reader's place",
+  );
+  await page
+    .locator(".conversation-jumps")
+    .getByRole("button", { name: /Jump to latest/ })
+    .click();
   const bottomPosition = await conversation.evaluate((el) => el.scrollTop);
   assert.ok(await conversation.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight < 2));
   finishPlan();
   await page.getByRole("region", { name: "Plan approval" }).waitFor();
-  assert.equal(await conversation.evaluate((el) => el.scrollTop), bottomPosition, "approval and later tokens do not restart automatic following");
+  assert.equal(
+    await conversation.evaluate((el) => el.scrollTop),
+    bottomPosition,
+    "approval and later tokens do not restart automatic following",
+  );
   await page.getByRole("button", { name: /Review plan/ }).click();
   const planTop = await page.getByRole("region", { name: "Plan approval" }).evaluate((el) => {
     const viewport = document.querySelector(".messages").getBoundingClientRect();
@@ -510,7 +730,9 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.locator(".sidebar").waitFor({ state: "hidden" });
   await page.getByRole("button", { name: "Toggle code panel" }).click();
-  await conversation.evaluate((el) => { el.scrollTop = 0; });
+  await conversation.evaluate((el) => {
+    el.scrollTop = 0;
+  });
   await page.screenshot({ path: join(shots, "reading-plan-mobile.png") });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   await page.getByRole("button", { name: "Reject", exact: true }).click();
@@ -538,21 +760,33 @@ try {
   assert.equal(page.url(), recoveryUrl);
   assert.equal(recoveryPlans, 1, "approved plan was reused");
   assert.equal(readFileSync(join(recoverySession.projectRoot, "progress.txt"), "utf8"), originalProgress);
-  assert.equal(readFileSync(join(recoverySession.projectRoot, "finished.txt"), "utf8"), "remaining work completed");
+  assert.equal(
+    readFileSync(join(recoverySession.projectRoot, "finished.txt"), "utf8"),
+    "remaining work completed",
+  );
   assert.equal(await page.getByRole("region", { name: "Job recovery" }).count(), 0);
   // History hydrates atomically, then live SSE starts at its watermark.
-  const historySession = harness.createSession({ sandbox: { name: "snapshot" }, title: "Snapshot loading test" });
+  const historySession = harness.createSession({
+    sandbox: { name: "snapshot" },
+    title: "Snapshot loading test",
+  });
   for (let i = 0; i < 40; i++) {
     historySession.emit({ type: "message.start", id: `history-${i}`, role: "assistant" });
-    for (let j = 0; j < 20; j++) historySession.emit({ type: "message.delta", id: `history-${i}`, text: `Part ${j}. ` });
-    historySession.emit({ type: "message.end", id: `history-${i}`, text: `Saved response ${i}. ` + "Readable completed content. ".repeat(8) });
+    for (let j = 0; j < 20; j++)
+      historySession.emit({ type: "message.delta", id: `history-${i}`, text: `Part ${j}. ` });
+    historySession.emit({
+      type: "message.end",
+      id: `history-${i}`,
+      text: `Saved response ${i}. ` + "Readable completed content. ".repeat(8),
+    });
     historySession.emit({ type: "usage", inputTokens: 1000, outputTokens: 100 });
   }
   const watermark = historySession.events.at(-1).seq;
   const eventCursors = [];
   page.on("request", (request) => {
     const url = new URL(request.url());
-    if (url.pathname === `/sessions/${historySession.id}/events`) eventCursors.push(Number(url.searchParams.get("after")));
+    if (url.pathname === `/sessions/${historySession.id}/events`)
+      eventCursors.push(Number(url.searchParams.get("after")));
   });
   await page.addInitScript(() => {
     window.tokenPaints = [];
@@ -564,14 +798,23 @@ try {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(`${server.url}/c/${historySession.id}`);
   await page.getByText(/Saved response 39\./).waitFor();
-  assert.deepEqual(await page.evaluate(() => window.tokenPaints), ["40k / 4000"], "cold history never counts tokens up from zero");
+  assert.deepEqual(
+    await page.evaluate(() => window.tokenPaints),
+    ["40k / 4000"],
+    "cold history never counts tokens up from zero",
+  );
   assert.equal(eventCursors.at(-1), watermark, "SSE skips saved history");
   await page.getByRole("button", { name: "Show all steps", exact: true }).click();
-  await page.locator(".messages").evaluate((el) => { el.scrollTop = 320; el.dispatchEvent(new Event("scroll")); });
+  await page.locator(".messages").evaluate((el) => {
+    el.scrollTop = 320;
+    el.dispatchEvent(new Event("scroll"));
+  });
   await page.getByRole("button", { name: "Toggle code panel" }).click();
   await page.locator(".code-panel .tabs button", { hasText: "Tasks" }).click();
   let releaseSnapshot;
-  const gateSnapshot = new Promise(resolve => { releaseSnapshot = resolve; });
+  const gateSnapshot = new Promise((resolve) => {
+    releaseSnapshot = resolve;
+  });
   await page.route(`**/sessions/${historySession.id}?*`, async (route) => {
     if (new URL(route.request().url()).searchParams.get("internal") === "false") await gateSnapshot;
     await route.continue();
@@ -579,8 +822,16 @@ try {
   await page.getByRole("button", { name: "New chat", exact: true }).click();
   await page.locator(".history-item", { hasText: "Snapshot loading test" }).click();
   await page.getByText(/Saved response 39\./).waitFor({ timeout: 3000 });
-  assert.equal(await page.locator(".tokens").innerText(), "40k / 4000", "cached thread renders while refresh is blocked");
-  assert.equal(await page.locator(".messages").evaluate(el => el.scrollTop), 320, "thread switch restores reading position");
+  assert.equal(
+    await page.locator(".tokens").innerText(),
+    "40k / 4000",
+    "cached thread renders while refresh is blocked",
+  );
+  assert.equal(
+    await page.locator(".messages").evaluate((el) => el.scrollTop),
+    320,
+    "thread switch restores reading position",
+  );
   assert.equal(await page.locator(".code-panel .tabs button.active").innerText(), "Tasks");
   historySession.emit({ type: "usage", inputTokens: 2000, outputTokens: 200 });
   releaseSnapshot();
@@ -589,7 +840,11 @@ try {
   await page.reload();
   await page.getByText(/Saved response 39\./).waitFor();
   assert.deepEqual(await page.evaluate(() => window.tokenPaints), ["42k / 4200"]);
-  assert.equal(await page.locator(".messages").evaluate(el => el.scrollTop), 320, "reload restores reading position");
+  assert.equal(
+    await page.locator(".messages").evaluate((el) => el.scrollTop),
+    320,
+    "reload restores reading position",
+  );
   await page.screenshot({ path: join(shots, "thread-snapshot.png") });
 
   // The History tab shows where the conversation is stored and its raw records.
@@ -606,7 +861,10 @@ try {
   await page.goto(`${server.url}/chats`);
   await page.locator(".storage-note code").waitFor();
   await page.screenshot({ path: join(shots, "chats-storage.png") });
-  await page.locator(".conversation-row", { hasText: "Snapshot loading test" }).getByRole("button", { name: /Inspect/ }).click();
+  await page
+    .locator(".conversation-row", { hasText: "Snapshot loading test" })
+    .getByRole("button", { name: /Inspect/ })
+    .click();
   await page.locator(".code-panel .tabs button.active", { hasText: "History" }).waitFor();
   await page.goto(`${server.url}/c/${historySession.id}`);
 
@@ -614,10 +872,20 @@ try {
   // including after a reload, and load all assets once the agent publishes it.
   const staged = harness.createSession({ sandbox: { name: "staged-preview" }, title: "Staged page build" });
   staged.status = "running";
-  writeFileSync(join(staged.projectRoot, "index.html"), '<!doctype html><link rel="stylesheet" href="styles.css"><h1 id="staged">Unstyled draft</h1><script src="app.js"></script>');
+  writeFileSync(
+    join(staged.projectRoot, "index.html"),
+    '<!doctype html><link rel="stylesheet" href="styles.css"><h1 id="staged">Unstyled draft</h1><script src="app.js"></script>',
+  );
   staged.emit({ type: "status", status: "running" });
   staged.emit({ type: "tool.call", id: "staged-html", name: "write_file", args: { path: "index.html" } });
-  staged.emit({ type: "tool.result", id: "staged-html", name: "write_file", ok: true, output: "Written", diff: "+draft" });
+  staged.emit({
+    type: "tool.result",
+    id: "staged-html",
+    name: "write_file",
+    ok: true,
+    output: "Written",
+    diff: "+draft",
+  });
   await page.goto(`${server.url}/c/${staged.id}`);
   await page.getByRole("button", { name: "Toggle code panel" }).click();
   await page.locator(".code-panel .tabs button", { hasText: "Preview" }).click();
@@ -627,18 +895,31 @@ try {
   await page.getByText("Building your preview", { exact: true }).waitFor();
   assert.equal(await page.locator("iframe.preview-frame").count(), 0, "reload still waits for assets");
   await page.screenshot({ path: join(shots, "preview-building.png") });
-  writeFileSync(join(staged.projectRoot, "styles.css"), "#staged { color: rgb(20, 80, 160); font-size: 24px; }");
-  writeFileSync(join(staged.projectRoot, "app.js"), "document.getElementById('staged').textContent = 'Styled page ready';");
+  writeFileSync(
+    join(staged.projectRoot, "styles.css"),
+    "#staged { color: rgb(20, 80, 160); font-size: 24px; }",
+  );
+  writeFileSync(
+    join(staged.projectRoot, "app.js"),
+    "document.getElementById('staged').textContent = 'Styled page ready';",
+  );
   staged.emit({ type: "preview.ready", path: "index.html" });
   const stagedHeading = page.frameLocator("iframe.preview-frame").locator("#staged");
   await stagedHeading.filter({ hasText: "Styled page ready" }).waitFor();
-  assert.equal(await stagedHeading.evaluate(el => getComputedStyle(el).color), "rgb(20, 80, 160)", "published preview loads its relative stylesheet");
+  assert.equal(
+    await stagedHeading.evaluate((el) => getComputedStyle(el).color),
+    "rgb(20, 80, 160)",
+    "published preview loads its relative stylesheet",
+  );
   staged.status = "idle";
   staged.emit({ type: "status", status: "idle" });
   await page.screenshot({ path: join(shots, "preview-styled.png") });
 
   // Storage-dependent scripts must run in the opaque-origin iframe, just as in a new tab.
-  const storagePage = harness.createSession({ sandbox: { name: "storage-preview" }, title: "Storage preview" });
+  const storagePage = harness.createSession({
+    sandbox: { name: "storage-preview" },
+    title: "Storage preview",
+  });
   const storageHtml = `<!-- generated page --><!doctype html><html><head>
     <style>.reveal { opacity: 0 } .reveal.visible { opacity: 1 }</style>
     <script>
@@ -653,39 +934,83 @@ try {
   writeFileSync(join(storagePage.projectRoot, "index.html"), storageHtml);
   storagePage.emit({ type: "preview.ready", path: "index.html" });
   const storageErrors = [];
-  const captureStorageError = error => storageErrors.push(error.message);
+  const captureStorageError = (error) => storageErrors.push(error.message);
   page.on("pageerror", captureStorageError);
   await page.goto(`${server.url}/c/${storagePage.id}`);
   const storageHeading = page.frameLocator("iframe.preview-frame").locator("h1");
   await page.frameLocator("iframe.preview-frame").locator("h1.visible").waitFor();
-  assert.equal(await storageHeading.evaluate(el => getComputedStyle(el).opacity), "1");
+  assert.equal(await storageHeading.evaluate((el) => getComputedStyle(el).opacity), "1");
   assert.deepEqual(storageErrors, [], "sandbox storage no longer aborts page scripts");
-  assert.deepEqual(await storageHeading.evaluate(() => {
-    const s = sessionStorage;
-    s.setItem('number', 42);
-    s.named = 'property';
-    const keys = Object.keys(s).sort();
-    const result = [localStorage.getItem('visits'), s.getItem('currency'), s.number, s.getItem('named'), s.length, keys, document.compatMode];
-    delete s.named;
-    s.removeItem('number');
-    result.push(s.key(0), s.key(99), s.getItem('missing'));
-    s.clear();
-    result.push(s.length);
-    try { void parent.document; result.push('parent accessible'); } catch { result.push('parent isolated'); }
-    return result;
-  }), ["1", "EUR", "42", "property", 3, ["currency", "named", "number"], "CSS1Compat", "currency", null, null, 0, "parent isolated"]);
+  assert.deepEqual(
+    await storageHeading.evaluate(() => {
+      const s = sessionStorage;
+      s.setItem("number", 42);
+      s.named = "property";
+      const keys = Object.keys(s).sort();
+      const result = [
+        localStorage.getItem("visits"),
+        s.getItem("currency"),
+        s.number,
+        s.getItem("named"),
+        s.length,
+        keys,
+        document.compatMode,
+      ];
+      delete s.named;
+      s.removeItem("number");
+      result.push(s.key(0), s.key(99), s.getItem("missing"));
+      s.clear();
+      result.push(s.length);
+      try {
+        void parent.document;
+        result.push("parent accessible");
+      } catch {
+        result.push("parent isolated");
+      }
+      return result;
+    }),
+    [
+      "1",
+      "EUR",
+      "42",
+      "property",
+      3,
+      ["currency", "named", "number"],
+      "CSS1Compat",
+      "currency",
+      null,
+      null,
+      0,
+      "parent isolated",
+    ],
+  );
   const standaloneUrl = await page.locator("iframe.preview-frame").getAttribute("src");
   const standalone = await browser.newPage();
   await standalone.goto(new URL(standaloneUrl, server.url).href);
-  assert.equal(await standalone.evaluate(() => localStorage instanceof Storage), true, "new tabs retain native storage");
+  assert.equal(
+    await standalone.evaluate(() => localStorage instanceof Storage),
+    true,
+    "new tabs retain native storage",
+  );
   await standalone.reload();
-  assert.equal(await standalone.evaluate(() => localStorage.getItem('visits')), "2", "native storage persists across reloads");
+  assert.equal(
+    await standalone.evaluate(() => localStorage.getItem("visits")),
+    "2",
+    "native storage persists across reloads",
+  );
   await standalone.close();
-  assert.equal(readFileSync(join(storagePage.projectRoot, "index.html"), "utf8"), storageHtml, "source files are unchanged");
+  assert.equal(
+    readFileSync(join(storagePage.projectRoot, "index.html"), "utf8"),
+    storageHtml,
+    "source files are unchanged",
+  );
   page.off("pageerror", captureStorageError);
 
   // Existing projects can also discover a page when the turn finishes without set_preview.
-  const discovered = harness.createSession({ sandbox: { name: "discovered-preview" }, title: "Discovered page" });
+  const discovered = harness.createSession({
+    sandbox: { name: "discovered-preview" },
+    title: "Discovered page",
+  });
   discovered.status = "running";
   writeFileSync(join(discovered.projectRoot, "index.html"), "<!doctype html><h1>Completed page</h1>");
   discovered.emit({ type: "status", status: "running" });
@@ -725,14 +1050,17 @@ try {
     process.send({ id: session.id });
   `;
   terminalChild = spawn(process.execPath, ["--input-type=module", "-e", terminalCode], {
-    env: { ...process.env, CDR_TEST_CORE: new URL("../../../packages/core/dist/index.js", import.meta.url).href },
+    env: {
+      ...process.env,
+      CDR_TEST_CORE: new URL("../../../packages/core/dist/index.js", import.meta.url).href,
+    },
     stdio: ["ignore", "ignore", "pipe", "ipc"],
   });
-  const terminalExit = new Promise(resolve => terminalChild.once("exit", resolve));
+  const terminalExit = new Promise((resolve) => terminalChild.once("exit", resolve));
   const terminalInfo = await new Promise((resolve, reject) => {
     terminalChild.once("message", resolve);
     terminalChild.once("error", reject);
-    terminalChild.once("exit", code => reject(new Error(`Terminal fixture exited early: ${code}`)));
+    terminalChild.once("exit", (code) => reject(new Error(`Terminal fixture exited early: ${code}`)));
   });
   await page.goto(`${server.url}/c/${terminalInfo.id}`);
   await page.locator(".chat-title", { hasText: "Live terminal creation" }).waitFor();
@@ -741,11 +1069,17 @@ try {
   assert.equal(await page.locator(".composer textarea").isDisabled(), true);
   terminalChild.send("release");
   await page.getByText("Your terminal creation is ready in the web preview.", { exact: true }).waitFor();
-  await page.frameLocator("iframe.preview-frame").getByRole("heading", { name: "Built from terminal" }).waitFor();
+  await page
+    .frameLocator("iframe.preview-frame")
+    .getByRole("heading", { name: "Built from terminal" })
+    .waitFor();
   assert.equal(await terminalExit, 0);
   await page.screenshot({ path: join(shots, "terminal-web-connected.png") });
   await page.reload();
-  await page.frameLocator("iframe.preview-frame").getByRole("heading", { name: "Built from terminal" }).waitFor();
+  await page
+    .frameLocator("iframe.preview-frame")
+    .getByRole("heading", { name: "Built from terminal" })
+    .waitFor();
   assert.equal(await page.locator(".composer textarea").isDisabled(), false);
 
   // A successful plan isn't a built app: show its result without implying missing preview output.
@@ -765,7 +1099,10 @@ try {
   await urlComposer.fill("Look at this: https://example.invalid/pricing.");
   const recreateButton = page.getByRole("button", { name: "Recreate 1:1" });
   await recreateButton.waitFor();
-  assert.equal(await page.locator(".composer-url-action .mono").textContent(), "https://example.invalid/pricing");
+  assert.equal(
+    await page.locator(".composer-url-action .mono").textContent(),
+    "https://example.invalid/pricing",
+  );
   await urlComposer.fill("no link here");
   assert.equal(await recreateButton.count(), 0, "no Recreate button without a URL");
   await urlComposer.fill("/recreate");
@@ -776,9 +1113,16 @@ try {
   const consent = page.getByRole("region", { name: "Permission request" });
   await consent.getByText("recreate_capture").waitFor();
   await consent.getByText(/You are responsible for how you use the result/).waitFor();
-  assert.equal(await consent.getByRole("button", { name: /Always allow/ }).count(), 0, "no always for consent");
+  assert.equal(
+    await consent.getByRole("button", { name: /Always allow/ }).count(),
+    0,
+    "no always for consent",
+  );
   assert.equal(await urlComposer.inputValue(), "", "composer cleared after starting the run");
-  await page.getByRole("region", { name: "Recreation progress" }).getByText("example.invalid/pricing").waitFor();
+  await page
+    .getByRole("region", { name: "Recreation progress" })
+    .getByText("example.invalid/pricing")
+    .waitFor();
   await consent.getByRole("button", { name: "Deny" }).click();
   await page.locator(".recreate-card .status-pill", { hasText: /failed|stopped/i }).waitFor();
   await page.locator(".recreate-stage.failed", { hasText: "Consent" }).waitFor();
@@ -791,7 +1135,37 @@ try {
   const runDir = join(fed.projectRoot, ".harness", "recreate", runId);
   mkdirSync(join(runDir, "compare"), { recursive: true });
   mkdirSync(join(runDir, "out", "static"), { recursive: true });
-  writeFileSync(join(runDir, "compare", "index.html"), "<!doctype html><h1>Live vs recreated</h1>");
+  // a measurement with the responsive sweep: one width fails between the captures
+  const sweepCell = (width, issues) => ({
+    width,
+    pass: !issues.length,
+    issues,
+    notes: [],
+    overlaps: { out: issues.length, live: 0, samples: [] },
+    offscreen: { out: 0, live: 0, samples: [] },
+    hscroll: 0,
+  });
+  writeFileSync(
+    join(runDir, "compare", "index.html"),
+    comparePage(
+      [
+        {
+          target: "static",
+          at: new Date().toISOString(),
+          widths: [],
+          gates: [{ name: "responsive", pass: false, detail: "488px 1 overlapping pair" }],
+          pass: false,
+          sweep: [
+            sweepCell(464, []),
+            sweepCell(488, ['1 overlapping pair the live page does not have: "Summit tent" × "Learn more"']),
+            sweepCell(512, []),
+          ],
+          sweepPlan: { grid: [464, 488, 512], boundaries: [], rotating: [] },
+        },
+      ],
+      { title: "Live vs recreated" },
+    ),
+  );
   writeFileSync(
     join(runDir, "out", "static", "index.html"),
     `<!doctype html><body style="margin:0;font:40px sans-serif"><h1 style="margin:0;height:400px;background:#cfe">Recreated output</h1><div style="height:1000px;background:#efc">Hero</div><div style="height:600px;background:#fce">Footer</div></body>`,
@@ -813,14 +1187,33 @@ try {
     consent: { by: "user", at: new Date().toISOString(), mode: "ask" },
     dir: `.harness/recreate/${runId}`,
   });
-  fed.emit({ type: "recreate.consent", runId, url: "https://example.invalid/", consent: { by: "user", at: new Date().toISOString(), mode: "ask" } });
+  fed.emit({
+    type: "recreate.consent",
+    runId,
+    url: "https://example.invalid/",
+    consent: { by: "user", at: new Date().toISOString(), mode: "ask" },
+  });
   fed.emit({ type: "recreate.stage", runId, stage: "consent", status: "done", ms: 1200 });
-  fed.emit({ type: "recreate.stage", runId, stage: "capture", status: "done", ms: 8400, skipped: ["menu:Products"] });
+  fed.emit({
+    type: "recreate.stage",
+    runId,
+    stage: "capture",
+    status: "done",
+    ms: 8400,
+    skipped: ["menu:Products"],
+  });
   writeFileSync(
     join(runDir, "capture", "live", "peek.svg"),
     `<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1000"><rect width="1440" height="1000" fill="#c9d"/><text x="40" y="120" font-size="80">First screen</text></svg>`,
   );
-  fed.emit({ type: "recreate.shot", runId, kind: "peek", width: 1440, height: 1000, path: `.harness/recreate/${runId}/capture/live/peek.svg` });
+  fed.emit({
+    type: "recreate.shot",
+    runId,
+    kind: "peek",
+    width: 1440,
+    height: 1000,
+    path: `.harness/recreate/${runId}/capture/live/peek.svg`,
+  });
   // while capturing: the first screen, and a placeholder for the rest down to the bottom of the pane
   await page.getByRole("button", { name: "Toggle code panel" }).click();
   await page.locator(".code-panel .tabs button", { hasText: "Preview" }).click();
@@ -831,7 +1224,14 @@ try {
     assert.ok(pageBox.height >= scrollBox.height - 30, "the screenshot box fills the pane's height");
   }
   await page.screenshot({ path: join(shots, "recreate-peek.png") });
-  fed.emit({ type: "recreate.shot", runId, kind: "live", width: 1440, height: 2000, path: `.harness/recreate/${runId}/capture/live/1440.svg` });
+  fed.emit({
+    type: "recreate.shot",
+    runId,
+    kind: "live",
+    width: 1440,
+    height: 2000,
+    path: `.harness/recreate/${runId}/capture/live/1440.svg`,
+  });
   // before the build: the live page's screenshot fills the Preview tab
   await page.locator(".recreate-live img[alt^='Screenshot of the live page']").waitFor();
   fed.emit({ type: "recreate.stage", runId, stage: "build", status: "running" });
@@ -872,9 +1272,19 @@ try {
     target: "static",
     widths: [
       { width: 390, pixel: 0.0042, textReal: 0, textDrift: 1, height: { live: 4200, out: 4210 }, hscroll: 0 },
-      { width: 1440, pixel: 0.0123, textReal: 0, textDrift: 0, height: { live: 3100, out: 3100 }, hscroll: 0 },
+      {
+        width: 1440,
+        pixel: 0.0123,
+        textReal: 0,
+        textDrift: 0,
+        height: { live: 3100, out: 3100 },
+        hscroll: 0,
+      },
     ],
-    gates: [{ name: "pixel", pass: false, detail: "1.23 % at 1440" }, { name: "text", pass: true }],
+    gates: [
+      { name: "pixel", pass: false, detail: "1.23 % at 1440" },
+      { name: "text", pass: true },
+    ],
     comparePath: `.harness/recreate/${runId}/compare/index.html`,
   });
   fed.emit({
@@ -898,15 +1308,32 @@ try {
   await card.getByText(`.harness/recreate/${runId}/out/static`).waitFor();
   await card.getByRole("button", { name: "Compare with live page" }).click();
   await page.locator(".code-panel .tabs button.active", { hasText: "Compare" }).waitFor();
-  await page.frameLocator("iframe[title='Compare with live page']").getByRole("heading", { name: "Live vs recreated" }).waitFor();
+  const compare = page.frameLocator("iframe[title='Compare with live page']");
+  await compare.getByRole("heading", { name: "Live vs recreated" }).waitFor();
+  // the sweep strip: one cell per width, the failing one marked; a cell or the slider sets the output's width
+  await compare.locator(".sweep .cell.bad", { hasText: "488" }).waitFor();
+  assert.equal(await compare.locator(".sweep .cell.ok").count(), 2);
+  await compare.locator(".sweep .cell.bad").click();
+  await compare.locator(".sweep iframe[width='488']").waitFor();
+  await compare.locator(".sweep input[type=range]").evaluate((el) => {
+    el.value = "700";
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await compare.locator(".sweep iframe[width='700']").waitFor();
+  await compare.locator(".sweep output", { hasText: "700" }).waitFor();
   // the Preview tab follows the recreated page
   await page.locator(".code-panel .tabs button", { hasText: "Preview" }).click();
-  await page.frameLocator("iframe.preview-frame").getByRole("heading", { name: "Recreated output" }).waitFor();
+  await page
+    .frameLocator("iframe.preview-frame")
+    .getByRole("heading", { name: "Recreated output" })
+    .waitFor();
   await page.screenshot({ path: join(shots, "recreate-card.png") });
 
   // Command palette: a URL in the search offers a 1:1 recreation.
   await page.keyboard.press("Control+k");
-  await page.getByRole("combobox", { name: "Search conversations and commands" }).fill("https://example.invalid/about");
+  await page
+    .getByRole("combobox", { name: "Search conversations and commands" })
+    .fill("https://example.invalid/about");
   await page.getByRole("option", { name: /Recreate https:\/\/example\.invalid\/about 1:1/ }).waitFor();
   await page.keyboard.press("Escape");
   assert.deepEqual(errors, []);

@@ -53,6 +53,7 @@ export class OpenAICompatibleProvider implements Provider {
       reasoningEfforts:
         info.reasoningEfforts ?? (this.isDeepSeek(model) ? ["none", "low", "high", "max"] : []),
       tools: info.tools ?? !this.noToolModels.has(model),
+      ...(info.vision !== undefined || this.noImageModels.has(model) ? { vision: info.vision ?? false } : {}),
       json: true,
       reasoning: info.reasoning ?? (this.isDeepSeek(model) || /reasoner|r1|thinking/i.test(model)),
       contextWindow: ctx,

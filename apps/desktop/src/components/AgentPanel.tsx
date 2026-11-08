@@ -11,15 +11,19 @@ import {
   type Mode,
 } from "@web/components/Pickers";
 import { ModelNotice } from "@web/components/ModelNotice";
+import { FileLinksContext, type FileLinks } from "@web/components/Markdown";
 import type { SessionInfo } from "@harness/client";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import { openFolder, openSessionFolder } from "../file-actions";
+import { openFileInCode, openFolder, openSessionFolder } from "../file-actions";
+import { resolveFileRef } from "../file-refs";
 import { app, git, lsp, type RecentRepo } from "../ipc";
 import { basename, PANEL_MIME, useStudio, type Tab } from "../store";
 import { startTabDrag } from "./dnd";
 import { runInTerminal } from "./BottomPanel";
 import { SessionSwitcher } from "./SessionSwitcher";
-import { inFolder } from "../sessions";
+import { projectKey, projectRoot } from "../sessions";
+import { FileIcon } from "./FileIcon";
+import { useFileIndex } from "./project-files";
 import { IExternal, IFolder, IPlus, ISplit } from "./icons";
 
 const ChatView = lazy(() => import("@web/components/ChatView").then((m) => ({ default: m.ChatView })));
@@ -31,26 +35,19 @@ function b64(text: string): string {
   return btoa(bin);
 }
 
-/** Sessions that belong to the open workspace, including agent worktrees inside it. */
-export function useWorkspaceSessions(): SessionInfo[] {
-  const { sessions } = useApp();
-  const st = useStudio();
-  const root = st.workspace?.root;
-  return useMemo(
-    () =>
-      sessions
-        .filter((s) => !s.projectMissing && (root ? inFolder(s, root) : s.sandbox))
-        .sort((a, b) => (b.updatedAt ?? b.createdAt).localeCompare(a.updatedAt ?? a.createdAt)),
-    [sessions, root],
-  );
-}
-
 /**
  * Remembers the folder of the last conversation shown, so "New conversation" from a conversation in
  * a folder starts in that folder again, even when it is not open in the editor.
  */
 function useLastFolder(current?: SessionInfo, initial?: string): string | undefined {
   const last = useRef<string | undefined>(initial);
+  const root = useStudio().workspace?.root;
+  const seenRoot = useRef(root);
+  // Opening a folder is a newer choice than the conversation left before it.
+  if (seenRoot.current !== root) {
+    seenRoot.current = root;
+    last.current = initial;
+  }
   if (current?.projectPath && !current.sandbox && !current.projectMissing) last.current = current.projectPath;
   return last.current;
 }
@@ -60,6 +57,7 @@ export function AgentPanel() {
   const { sessions } = useApp();
   const current = st.sessionId ? sessions.find((s) => s.id === st.sessionId) : undefined;
   const lastFolder = useLastFolder(current);
+  const chat = st.mode === "chat";
 
   // A draft from "Ask agent" opens a new conversation with the text prefilled.
   useEffect(() => {
@@ -84,6 +82,7 @@ export function AgentPanel() {
       newHint="Ctrl+I"
       onNew={() => st.setSessionId(null)}
       newTitle="New conversation (Ctrl+I)"
+      navigation={!chat}
       split={
         <button
           className="ghost icon tiny"
@@ -115,7 +114,7 @@ export function AgentPanel() {
 
   return (
     <div className="st-agent-inner">
-      {!st.sessionId && (
+      {!st.sessionId && !chat && (
         <div
           className="st-agent-head"
           draggable
@@ -133,7 +132,8 @@ export function AgentPanel() {
           draft={st.agentDraft}
           onMention={(text) => st.askAgent(text)}
           headActions={actions}
-          onHeadDragStart={dock}
+          onHeadDragStart={chat ? undefined : dock}
+          onTarget={st.setDraftFolder}
         />
       </div>
     </div>
@@ -153,6 +153,7 @@ function HeadActions({
   onNew,
   newTitle,
   split,
+  navigation = true,
 }: {
   current?: SessionInfo;
   value: string | null;
@@ -161,17 +162,21 @@ function HeadActions({
   onNew(): void;
   newTitle: string;
   split: React.ReactNode;
+  /** History and new-conversation buttons; the chat view has the conversation list for those. */
+  navigation?: boolean;
 }) {
   const switcher = (
     <SessionSwitcher current={current} value={value} onPick={onPick} newHint={newHint} compact={!!value} />
   );
   const buttons = (
     <span className="st-agent-head-actions">
-      {value && switcher}
+      {value && navigation && switcher}
       {split}
-      <button className="ghost icon tiny" title={newTitle} aria-label="New conversation" onClick={onNew}>
-        <IPlus size={15} />
-      </button>
+      {navigation && (
+        <button className="ghost icon tiny" title={newTitle} aria-label="New conversation" onClick={onNew}>
+          <IPlus size={15} />
+        </button>
+      )}
     </span>
   );
   return value ? (
@@ -249,6 +254,7 @@ function Conversation({
   onMention,
   headActions,
   onHeadDragStart,
+  onTarget,
 }: {
   sessionId: string | null;
   onSession(id: string | null): void;
@@ -261,51 +267,96 @@ function Conversation({
   /** Buttons at the end of the conversation header. */
   headActions?: React.ReactNode;
   onHeadDragStart?(e: React.DragEvent): void;
+  /** Told where a new conversation would work (null for a new sandbox). */
+  onTarget?(folder: string | null): void;
 }) {
   const st = useStudio();
+  const { sessions } = useApp();
+  const session = sessionId ? sessions.find((x) => x.id === sessionId) : undefined;
+  const root = session && !session.projectMissing ? projectRoot(session.projectPath) : undefined;
+  const index = useFileIndex(root, `${session?.status}:${st.fsVersion}`);
+  const stRef = useRef(st);
+  stRef.current = st;
+  const fileLinks = useMemo<FileLinks | null>(
+    () =>
+      root
+        ? {
+            resolve: (ref) => resolveFileRef(ref, index, root),
+            open: (path, line) =>
+              stRef.current.mode === "chat"
+                ? stRef.current.openChatFile(root, path, line)
+                : void openFileInCode(stRef.current, root, path, line),
+            icon: (path) => <FileIcon path={path} size={14} />,
+          }
+        : null,
+    [root, index],
+  );
   if (!sessionId)
-    return <NewConversation lastFolder={folder} draft={draft} onMention={onMention} onStarted={onSession} />;
+    return (
+      <NewConversation
+        lastFolder={folder}
+        draft={draft}
+        onMention={onMention}
+        onStarted={onSession}
+        onTarget={onTarget}
+      />
+    );
   return (
     <Suspense fallback={<div className="st-empty">Loading…</div>}>
-      <ChatView
-        key={sessionId}
-        id={sessionId}
-        onOpenSession={(id) => onSession(id)}
-        headActions={headActions}
-        onHeadDragStart={onHeadDragStart}
-        previewHost={{
-          open: () => st.openTab({ kind: "preview", sessionId }),
-          dragStart: (e) => startTabDrag(e, { open: { kind: "preview", sessionId } }),
-        }}
-        launchHost={{
-          run: (command, cwd, title) => {
-            const root = st.workspace?.root;
-            if (!root) return st.toast("Open a folder to launch programs in the terminal.");
-            const norm = (p: string) => p.replace(/\\/g, "/").replace(/\/+$/, "");
-            const inside = norm(cwd) === norm(root) || norm(cwd).startsWith(`${norm(root)}/`);
-            // Terminals start inside the open workspace; elsewhere (a sandbox) the shell changes folder first.
-            if (inside) runInTerminal(command, { cwd, title });
-            else runInTerminal(`cd "${cwd.replace(/"/g, '\\"')}" && ${command}`, { title });
-          },
-        }}
-        folderHost={{
-          open: (path) => void openSessionFolder(st, sessionId, path),
-          reveal: (path) => void st.attempt(() => revealItemInDir(path)),
-        }}
-      />
+      <FileLinksContext.Provider value={fileLinks}>
+        <ChatView
+          key={sessionId}
+          id={sessionId}
+          onOpenSession={(id) => onSession(id)}
+          headActions={headActions}
+          onHeadDragStart={onHeadDragStart}
+          previewHost={{
+            // The chat view shows previews beside the conversation; only the user leaves it for the code view.
+            open: (automatic, live) => {
+              if (st.mode === "code") st.openTab({ kind: "preview", sessionId });
+              // Selecting a conversation that published a page earlier leaves its project column in place.
+              else if (!automatic || (live && sessionId === st.sessionId)) st.openChatPreview(sessionId);
+            },
+            dragStart:
+              st.mode === "code"
+                ? (e) => startTabDrag(e, { open: { kind: "preview", sessionId } })
+                : undefined,
+          }}
+          launchHost={{
+            run: (command, cwd, title) => {
+              const root = st.workspace?.root;
+              if (!root) return st.toast("Open a folder to launch programs in the terminal.");
+              const norm = (p: string) => p.replace(/\\/g, "/").replace(/\/+$/, "");
+              const inside = norm(cwd) === norm(root) || norm(cwd).startsWith(`${norm(root)}/`);
+              // Terminals start inside the open workspace; elsewhere (a sandbox) the shell changes folder first.
+              if (inside) runInTerminal(command, { cwd, title });
+              else runInTerminal(`cd "${cwd.replace(/"/g, '\\"')}" && ${command}`, { title });
+            },
+          }}
+          folderHost={{
+            open: (path) => {
+              const s = sessions.find((x) => x.id === sessionId);
+              // In the chat view the project name narrows the list instead of leaving for the explorer.
+              if (st.mode === "chat" && s) st.setProjectFilter(projectKey(s));
+              else void openSessionFolder(st, path);
+            },
+            reveal: (path) => void st.attempt(() => revealItemInDir(path)),
+          }}
+        />
+      </FileLinksContext.Provider>
     </Suspense>
   );
 }
 
 let tipIndex = 0;
-const TIPS: ReactNode[] = [
+/** Tips that are about the editor, for the code view only. */
+const CODE_TIPS: ReactNode[] = [
   <>
     Press <kbd>Ctrl+\</kbd> to split the editor and run a conversation in each column.
   </>,
-  <>
-    Drag a conversation from the Agents view (<kbd>Ctrl+Shift+A</kbd>) into the editor to watch it beside your
-    code.
-  </>,
+];
+const TIPS: ReactNode[] = [
+  <>Ctrl+click a conversation in the list to open it in an editor tab and watch it beside your code.</>,
   <>Plan & build edits your files, runs your tests and reviews the change before it says it is done.</>,
   <>@ Context attaches the open file, the uncommitted diff or the Problems list.</>,
   <>Subagents work in their own Git worktrees, so parallel changes never collide.</>,
@@ -321,7 +372,10 @@ const SPLIT_TIP = (
 
 const SANDBOX_DIR = /[\\/]\.harness[\\/]sandboxes[\\/]/;
 
-/** Where a new conversation works: the open folder, the folder of the conversation just left, or a sandbox. */
+/**
+ * Where a new conversation works, or a sandbox. The code view is about the open folder; the chat view is
+ * about the conversation just left, which may be in another project.
+ */
 function useTarget(lastFolder?: string) {
   const st = useStudio();
   const open = st.workspace?.root;
@@ -335,7 +389,8 @@ function useTarget(lastFolder?: string) {
   }, [open]);
   // Opening another folder in the editor makes it the target again.
   useEffect(() => setChosen(undefined), [open]);
-  const target = chosen === undefined ? (open ?? lastFolder ?? null) : chosen;
+  const preferred = st.mode === "chat" ? (lastFolder ?? open) : (open ?? lastFolder);
+  const target = chosen === undefined ? (preferred ?? null) : chosen;
   const folders = [
     ...new Set([
       ...(open ? [open] : []),
@@ -406,11 +461,13 @@ function NewConversation({
   draft,
   onMention,
   onStarted,
+  onTarget,
 }: {
   lastFolder?: string;
   draft?: { text: string; nonce: number } | null;
   onMention(text: string): void;
   onStarted(id: string): void;
+  onTarget?(folder: string | null): void;
 }) {
   const st = useStudio();
   const { client, settings, updateSettings, refreshSessions } = useApp();
@@ -419,6 +476,7 @@ function NewConversation({
   const [extra, setExtra] = useState<PendingFile[]>([]);
   const { target, setTarget, folders, open } = useTarget(lastFolder);
   const root = target ?? undefined;
+  useEffect(() => onTarget?.(target), [target, onTarget]);
   // git diff / problems come from the folder open in the editor
   const editorRoot = open && open === target ? open : undefined;
   // The file shown in the focused editor group, else in any group (a chat tab may have the focus).
@@ -444,7 +502,10 @@ function NewConversation({
 
   const skills = useSkills(root ?? undefined);
   // Each new-conversation screen shows the next tip.
-  const [nextTip] = useState(() => TIPS[tipIndex++ % TIPS.length]);
+  const [nextTip] = useState(() => {
+    const tips = st.mode === "code" ? [...CODE_TIPS, ...TIPS] : TIPS;
+    return tips[tipIndex++ % tips.length];
+  });
   const tip = st.groupCount > 1 ? SPLIT_TIP : nextTip;
 
   const start = async (text: string, files: PendingFile[], skillNames: string[]) => {

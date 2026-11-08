@@ -1,0 +1,24 @@
+{
+  "id": "32-recreate-repair-honest",
+  "suite": "recreate",
+  "sandbox": true,
+  "serve": "../packages/capture/test/sites/acme-drift",
+  "config": {
+    "recreate": {
+      "allowLocal": true,
+      "respectRobots": false
+    }
+  },
+  "task": "Recreate {{url}} exactly 1:1, as it is, at 390, 768 and 1440 px and measure it. Then fix the sections the gates report, and measure again until every gate passes.",
+  "timeoutMs": 1500000,
+  "checks": [
+    {
+      "type": "recreateGate",
+      "gates": ["pixel", "text", "layout", "interactions", "responsive", "flow"]
+    },
+    {
+      "type": "command",
+      "command": "d=$(ls -d .harness/recreate/*/ | tail -n 1) && test -f \"$d/build/styles.base.css\" && ! cmp -s \"$d/build/styles.base.css\" \"$d/out/static/styles.css\""
+    }
+  ]
+}

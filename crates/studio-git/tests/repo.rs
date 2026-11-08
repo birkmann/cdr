@@ -1006,3 +1006,65 @@ fn waits_for_a_held_index_lock_and_status_does_not_take_it() {
     let st = status(r.p()).unwrap();
     assert_eq!(st.files[0].index, ChangeKind::Modified);
 }
+
+#[test]
+fn summary_reports_branch_changes_and_line_counts() {
+    let r = Repo::new();
+    std::fs::write(r.p().join("a.txt"), "one\ntwo\n").unwrap();
+    git(r.p(), &["add", "-A"]);
+    git(r.p(), &["commit", "-qm", "first"]);
+    std::fs::write(r.p().join("a.txt"), "one\nchanged\nthree\n").unwrap();
+    std::fs::write(r.p().join("new.txt"), "untracked\n").unwrap();
+
+    let s = summary(r.p()).unwrap();
+    assert!(s.is_repo);
+    let status = s.status.unwrap();
+    assert_eq!(status.branch.as_deref(), Some("main"));
+    assert_eq!(status.files.len(), 2);
+    assert_eq!((s.added, s.deleted), (2, 1));
+}
+
+#[test]
+fn summary_of_a_repository_without_commits_has_no_line_counts() {
+    let r = Repo::new();
+    std::fs::write(r.p().join("a.txt"), "one\n").unwrap();
+    let s = summary(r.p()).unwrap();
+    assert!(s.is_repo);
+    assert_eq!(s.status.unwrap().files.len(), 1);
+    assert_eq!((s.added, s.deleted), (0, 0));
+}
+
+#[test]
+fn summary_serializes_as_the_ui_reads_it() {
+    let r = Repo::new();
+    std::fs::write(r.p().join("a.txt"), "one\n").unwrap();
+    let json = serde_json::to_value(summary(r.p()).unwrap()).unwrap();
+    assert_eq!(json["isRepo"], true);
+    assert_eq!(json["status"]["branch"], "main");
+    assert_eq!(json["added"], 0);
+    assert_eq!(json["deleted"], 0);
+}
+
+#[test]
+fn summary_of_a_plain_folder_is_not_a_repository() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = summary(dir.path()).unwrap();
+    assert!(!s.is_repo);
+    assert!(s.status.is_none());
+}
+
+#[test]
+fn summary_does_not_run_commands_the_repository_configures() {
+    let r = Repo::new();
+    std::fs::write(r.p().join("a.txt"), "one\n").unwrap();
+    git(r.p(), &["add", "-A"]);
+    git(r.p(), &["commit", "-qm", "first"]);
+    std::fs::write(r.p().join("a.txt"), "two\n").unwrap();
+    let marker = r.p().join("ran");
+    let hook = format!("touch '{}'", marker.display());
+    git(r.p(), &["config", "core.fsmonitor", &hook]);
+    git(r.p(), &["config", "diff.external", &hook]);
+
+    summary(r.p()).unwrap();
+    assert!(!marker.exists(), "a configured command ran");
+}

@@ -78,7 +78,12 @@ fn create_modify_delete() {
 
     write(root, "existing.txt", "2");
     let b = c.until(|b| has_path(b, "existing.txt"));
-    assert!(has(&b, "existing.txt", ChangeKind::Modified), "{b:?}");
+    // FSEvents can still report a file written just before the watch began as created.
+    assert!(
+        has(&b, "existing.txt", ChangeKind::Modified)
+            || (cfg!(target_os = "macos") && has(&b, "existing.txt", ChangeKind::Created)),
+        "{b:?}"
+    );
     c.drain(200);
 
     std::fs::remove_file(root.join("existing.txt")).unwrap();

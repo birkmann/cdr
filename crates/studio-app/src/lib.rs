@@ -46,20 +46,26 @@ impl AppState {
     }
 
     pub fn allow(&self, path: &Path) -> Result<PathBuf, String> {
-        let p = path
-            .canonicalize()
-            .map_err(|e| format!("{}: {e}", path.display()))?;
-        if !p.is_dir() {
-            return Err(format!("Not a folder: {}", p.display()));
-        }
-        if p.parent().is_none() || Some(&p) == dirs::home_dir().as_ref() {
-            return Err(
-                "Open a project folder, not your home directory or the filesystem root.".into(),
-            );
-        }
+        let p = project_folder(path)?;
         self.workspaces.lock().unwrap().insert(p.clone());
         Ok(p)
     }
+}
+
+/// The canonical form of a folder that may be treated as a project.
+pub(crate) fn project_folder(path: &Path) -> Result<PathBuf, String> {
+    let p = path
+        .canonicalize()
+        .map_err(|e| format!("{}: {e}", path.display()))?;
+    if !p.is_dir() {
+        return Err(format!("Not a folder: {}", p.display()));
+    }
+    if p.parent().is_none() || Some(&p) == dirs::home_dir().as_ref() {
+        return Err(
+            "Open a project folder, not your home directory or the filesystem root.".into(),
+        );
+    }
+    Ok(p)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -107,4 +113,19 @@ pub fn run() {
             commands::shutdown(handle);
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_project_folder_is_neither_the_root_nor_home() {
+        assert!(project_folder(Path::new("/")).is_err());
+        if let Some(home) = dirs::home_dir() {
+            assert!(project_folder(&home).is_err());
+        }
+        assert!(project_folder(Path::new("/no/such/folder")).is_err());
+        assert!(project_folder(&std::env::temp_dir()).is_ok());
+    }
 }

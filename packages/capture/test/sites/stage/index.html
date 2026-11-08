@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Stage – a page sized by the viewport</title>
+    <style>
+      body { margin: 0; font: 16px/1.5 sans-serif; }
+      .stage { position: relative; height: 100vh; overflow: hidden; background: #111; color: #fff; }
+      .panel { position: absolute; left: 0; right: 0; bottom: 0; padding: 24px; background: #000; }
+      .half { min-height: 50vh; background: #eee; padding: 24px; }
+      .plain { padding: 24px; }
+    </style>
+  </head>
+  <body>
+    <!-- Fixture for the capture's viewport-height walk: a stage as tall as the viewport, a box at least half as tall. -->
+    <main class="wrap">
+      <section class="stage"><div class="panel"><h1>The new model</h1></div></section>
+      <section class="half"><p>Half the viewport at least.</p></section>
+      <section class="plain"><p>As tall as its text.</p></section>
+    </main>
+  </body>
+</html>

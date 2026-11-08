@@ -320,7 +320,7 @@ export class PermissionPolicy {
       return `bash:${words.slice(0, 2).join(" ")}`;
     }
     // "always" for an app start covers that command, not every program
-    if (tool === "run_app") return `run_app:${String(args?.command ?? "").trim()}`;
+    if (tool === "run_app" || tool === "check_app") return `${tool}:${String(args?.command ?? "").trim()}`;
     return tool;
   }
 

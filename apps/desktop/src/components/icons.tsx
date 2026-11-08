@@ -242,6 +242,11 @@ export const IEye = (p: P) => (
     <circle cx="12" cy="12" r="2.8" />
   </svg>
 );
+export const IWrap = (p: P) => (
+  <svg {...base(p)}>
+    <path d="M3.5 6h17M3.5 12h14a3 3 0 0 1 0 6H12m0 0 2.5-2.5M12 18l2.5 2.5M3.5 18H8" />
+  </svg>
+);
 export const ICode = (p: P) => (
   <svg {...base(p)}>
     <path d="m8.5 7-5 5 5 5M15.5 7l5 5-5 5" />

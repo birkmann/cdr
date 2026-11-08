@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { crc32, deflateSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 import {
   CaptureError,
@@ -12,6 +13,7 @@ import {
   dataUrl,
   decodePng,
   encodePng,
+  isBlankPng,
   drainChromePool,
   findChrome,
   leaseChrome,
@@ -179,6 +181,41 @@ describe("PNG codec", () => {
     expect([...back.data]).toEqual([...img.data]);
     expect(cropRows(img, 1, 2).data.length).toBe(18);
   });
+
+  it("tells a screenshot with no visible pixel (a transparent layer) from one that paints", () => {
+    // an RGBA PNG (colour type 6) of 2 × 2 pixels with the given alphas
+    const rgba = (alphas: number[]) => {
+      const chunk = (type: string, body: Buffer) => {
+        const head = Buffer.alloc(8);
+        head.writeUInt32BE(body.length, 0);
+        head.write(type, 4, "latin1");
+        const crc = Buffer.alloc(4);
+        crc.writeUInt32BE(crc32(Buffer.concat([head.subarray(4), body])) >>> 0, 0);
+        return Buffer.concat([head, body, crc]);
+      };
+      const ihdr = Buffer.alloc(13);
+      ihdr.writeUInt32BE(2, 0);
+      ihdr.writeUInt32BE(2, 4);
+      ihdr.set([8, 6, 0, 0, 0], 8);
+      const rows = [0, 1].map((y) =>
+        Buffer.from([0, ...[0, 1].flatMap((x) => [20, 40, 60, alphas[y * 2 + x]!])]),
+      );
+      return Buffer.concat([
+        Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+        chunk("IHDR", ihdr),
+        chunk("IDAT", deflateSync(Buffer.concat(rows))),
+        chunk("IEND", Buffer.alloc(0)),
+      ]);
+    };
+    expect(decodePng(rgba([0, 0, 0, 1])).maxAlpha).toBe(1);
+    expect(isBlankPng(rgba([0, 0, 0, 1]))).toBe(true);
+    expect(isBlankPng(rgba([0, 0, 0, 90]))).toBe(false);
+    // no alpha channel: every pixel paints
+    expect(isBlankPng(encodePng({ width: 1, height: 1, data: Uint8Array.from([255, 255, 255]) }))).toBe(
+      false,
+    );
+    expect(isBlankPng(Buffer.from("not a png"))).toBe(false);
+  });
 });
 
 const chrome = findChrome();
@@ -241,6 +278,32 @@ describe.skipIf(!chrome)("CDP capture driver (fixture site, headless Chrome)", (
         { guard: { allowLocal: true }, respectRobots: false, shotWidths: [] },
       );
       expect(JSON.stringify(r.snapshot.root)).toContain("rgb(18, 52, 86)");
+    } finally {
+      await site.close();
+    }
+  }, 120_000);
+
+  it("records which boxes grow with the viewport's height (a 100vh stage, a min-height: 50vh box)", async () => {
+    const site = await serveSite("stage");
+    try {
+      const r = await new CdpCaptureDriver().capture(
+        site.url,
+        { width: 390 },
+        { guard: { allowLocal: true }, respectRobots: false, shotWidths: [] },
+      );
+      expect(r.snapshot.viewportProbe).toBe(200);
+      const byClass = new Map<string, { vh?: number; rect: { h: number } }>();
+      const visit = (n: { attrs?: { class?: string }; children?: unknown[] }) => {
+        if (n.attrs?.class) byClass.set(n.attrs.class, n as never);
+        for (const c of n.children ?? []) visit(c as never);
+      };
+      visit(r.snapshot.root);
+      expect(byClass.get("stage")?.vh).toBe(200);
+      expect(byClass.get("half")?.vh).toBe(100);
+      // what holds them grows with them; the rest keeps its height
+      expect(byClass.get("wrap")?.vh).toBe(300);
+      expect(byClass.get("plain")?.vh).toBeUndefined();
+      expect(byClass.get("panel")?.vh).toBeUndefined();
     } finally {
       await site.close();
     }

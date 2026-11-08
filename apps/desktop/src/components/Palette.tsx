@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { openFile, openFolder, openSessionFolder } from "../file-actions";
+import { enterCodeView, openFile, openFolder, openSessionFolder } from "../file-actions";
 import { useApp } from "@web/app-state";
 import { THEMES } from "@web/themes";
 import { fs, git, harness } from "../ipc";
@@ -13,6 +13,7 @@ import { promptDialog } from "./dialogs";
 import { FileIcon } from "./FileIcon";
 import { isHtmlPath } from "../browser-preview";
 import { useOpenInBrowser } from "./open-in-browser";
+import { useFocusProject } from "./ConversationFolder";
 
 export type PaletteMode = "files" | "commands";
 
@@ -36,6 +37,7 @@ export function Palette({
   const st = useStudio();
   const { updateSettings, sessions } = useApp();
   const openInBrowser = useOpenInBrowser();
+  const focus = useFocusProject();
   const activeTab = st.tabs.find((t) => t.key === st.active);
   const activePath = activeTab?.kind === "file" ? activeTab.path : undefined;
   const sessionPath = st.sessionId ? sessions.find((x) => x.id === st.sessionId)?.projectPath : undefined;
@@ -99,18 +101,50 @@ export function Palette({
         run: () => st.splitTab(st.active!, st.focusedGroup + 1),
       },
       {
+        id: "viewchat",
+        label: "View: Chat view",
+        hint: "Ctrl+Shift+U",
+        when: st.mode === "code",
+        run: () => st.setMode("chat"),
+      },
+      {
+        id: "viewcode",
+        label: "View: Code view",
+        hint: "Ctrl+Shift+U",
+        when: st.mode === "chat",
+        run: () => enterCodeView(st, focus.path),
+      },
+      {
+        id: "rail",
+        label: "View: Toggle project column",
+        when: st.mode === "chat",
+        run: () => st.setRail(!st.rail),
+      },
+      {
+        id: "browsefiles",
+        label: "View: Browse project files beside the chat",
+        when: st.mode === "chat" && !!focus.path,
+        run: () => st.setFilePane(true),
+      },
+      {
         id: "agentpanel",
         label: "View: Toggle agent panel",
         hint: "Ctrl+L",
+        when: st.mode === "code",
         run: () => st.setAgentPanel(!st.agentPanel),
       },
-      { id: "agents", label: "View: Agents", hint: "Ctrl+Shift+A", run: () => st.setSide("agents") },
-      { id: "goals", label: "View: Goals", hint: "Ctrl+Shift+J", run: () => st.setSide("goals") },
+      {
+        id: "agents",
+        label: "View: Agents",
+        hint: "Ctrl+Shift+A",
+        run: () => st.revealRailSection("agents"),
+      },
+      { id: "goals", label: "View: Goals", hint: "Ctrl+Shift+J", run: () => st.revealRailSection("goals") },
       {
         id: "newgoal",
         label: "Goals: New goal…",
         when: repo,
-        run: () => (st.setSide("goals"), window.dispatchEvent(new Event("studio:new-goal"))),
+        run: () => st.openTab({ kind: "goal", id: "new" }),
       },
       { id: "explorer", label: "View: Explorer", hint: "Ctrl+Shift+E", run: () => st.setSide("files") },
       { id: "search", label: "View: Search in files", hint: "Ctrl+Shift+F", run: () => st.setSide("search") },
@@ -136,15 +170,18 @@ export function Palette({
       },
       {
         id: "preview",
-        label: "View: Open preview in editor",
+        label: st.mode === "chat" ? "View: Open preview beside the chat" : "View: Open preview in editor",
         when: !!st.sessionId,
-        run: () => st.openTab({ kind: "preview", sessionId: st.sessionId! }),
+        run: () =>
+          st.mode === "chat"
+            ? st.openChatPreview(st.sessionId!)
+            : st.openTab({ kind: "preview", sessionId: st.sessionId! }),
       },
       {
         id: "sessionfolder",
         label: "Agent: Open conversation folder",
         when: !!sessionPath && sessionPath !== root,
-        run: () => openSessionFolder(st, st.sessionId!, sessionPath!),
+        run: () => openSessionFolder(st, sessionPath!),
       },
       { id: "log", label: "View: Harness log", run: () => st.setBottom("output") },
       { id: "history", label: "Git: Show history", when: repo, run: () => st.openTab({ kind: "history" }) },

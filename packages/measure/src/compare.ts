@@ -35,6 +35,27 @@ export function comparePage(
           .join("")}</tr>`,
     )
     .join("");
+  // the responsive sweep: one cell per width (issues on hover), and the output in a frame of any width
+  const strips = reports
+    .filter((r) => r.sweep?.length)
+    .map((r) => {
+      const cells = r
+        .sweep!.map((c) => {
+          const tip = [...c.issues, ...c.notes].join("\n") || "ok";
+          const rot = r.sweepPlan?.rotating.includes(c.width) ? " rot" : "";
+          return `<button type="button" class="cell ${c.pass ? "ok" : "bad"}${rot}" data-w="${c.width}" title="${esc(`${c.width}px\n${tip}`)}">${c.width}</button>`;
+        })
+        .join("");
+      const max = Math.max(2560, ...r.sweep!.map((c) => c.width));
+      return `<section class="sweep" data-target="${esc(r.target)}">
+  <h2>${esc(r.target)}: every width</h2>
+  <p class="nums">${r.sweep!.filter((c) => !c.pass).length} of ${r.sweep!.length} widths fail. Click a width, or drag the slider, to see the recreation at that width.</p>
+  <div class="cells">${cells}</div>
+  <label class="scrub">Width <input type="range" min="320" max="${max}" step="1" value="390" aria-label="Output width"> <output>390</output>px</label>
+  <div class="frame"><div class="fit"><iframe title="recreation at any width" data-src="${page(r.target)}" width="390" height="900"></iframe></div><small class="scale" hidden></small></div>
+</section>`;
+    })
+    .join("\n");
   const panels = tabs
     .map(({ id, r, w }) => {
       const img = (k: "live" | "out" | "diff") => `${dir(r.target)}/${w.width}/${k}.png`;
@@ -88,6 +109,19 @@ figcaption { color: var(--muted); font-size: 12px; margin-bottom: 4px; }
 .view.overlay .b { opacity: 0.5; }
 .view.diff .a, .view.diff .b { display: none; } .view.diff .d { display: block; }
 .view.live .a, .view.live .b { display: none; } .view.live .f { display: block; border: 1px solid var(--line); }
+.sweep { padding: 8px 16px 16px; border-bottom: 1px solid var(--line); }
+.sweep h2 { font-size: 15px; margin: 0; }
+.cells { display: flex; flex-wrap: wrap; gap: 3px; margin: 8px 0; }
+.cell { font: 11px/1 ui-monospace, monospace; padding: 4px 5px; border-radius: 4px; border: 1px solid var(--line); background: none; color: inherit; cursor: pointer; }
+.cell.ok { border-color: color-mix(in srgb, var(--ok) 50%, transparent); }
+.cell.bad { background: var(--bad); border-color: var(--bad); color: #fff; }
+.cell.rot { border-style: dashed; }
+.scrub { display: flex; align-items: center; gap: 8px; }
+.scrub input { flex: 1; max-width: 640px; }
+.frame { margin-top: 8px; }
+.frame .fit { overflow: hidden; }
+.frame iframe { border: 1px solid var(--line); background: #fff; transform-origin: 0 0; display: block; }
+.frame .scale { color: var(--muted); }
 </style>
 </head>
 <body>
@@ -96,6 +130,7 @@ figcaption { color: var(--muted); font-size: 12px; margin-bottom: 4px; }
   ${o.sourceUrl ? `<div>Live page: <a href="${esc(o.sourceUrl)}" rel="noreferrer">${esc(o.sourceUrl)}</a></div>` : ""}
   <table>${gateRows}</table>
 </header>
+${strips}
 <nav>${tabs.map((t, i) => `<button data-tab="${t.id}"${i === 0 ? ' class="on"' : ""}>${esc(t.label)}</button>`).join("")}</nav>
 ${panels}
 <script>
@@ -111,6 +146,24 @@ document.querySelectorAll('.panel').forEach((p) => {
   }));
   const s = view.querySelector('.slider');
   s.addEventListener('input', () => view.style.setProperty('--cut', s.value + '%'));
+});
+document.querySelectorAll('.sweep').forEach((sw) => {
+  const f = sw.querySelector('iframe'), r = sw.querySelector('input[type=range]'), out = sw.querySelector('output');
+  const fit = sw.querySelector('.fit'), note = sw.querySelector('.scale');
+  // the page lays out at the chosen width; wider than the panel, it is shown scaled down to fit (not cut off)
+  const scale = () => {
+    const w = Number(f.width), room = sw.querySelector('.frame').clientWidth - 2;
+    const k = w > room ? room / w : 1;
+    f.style.transform = k < 1 ? 'scale(' + k + ')' : '';
+    fit.style.width = Math.ceil((w + 2) * k) + 'px';
+    fit.style.height = Math.ceil((Number(f.height) + 2) * k) + 'px';
+    note.hidden = k >= 1;
+    note.textContent = k < 1 ? 'shown at ' + Math.round(k * 100) + ' % to fit; laid out at ' + w + ' px' : '';
+  };
+  const set = (w) => { if (!f.src) f.src = f.dataset.src; f.width = String(w); r.value = String(w); out.textContent = String(w); scale(); };
+  addEventListener('resize', scale);
+  r.addEventListener('input', () => set(Number(r.value)));
+  sw.querySelectorAll('.cell').forEach((c) => c.addEventListener('click', () => set(Number(c.dataset.w))));
 });
 const first = document.querySelector('.panel'); if (first) show(first.id);
 </script>

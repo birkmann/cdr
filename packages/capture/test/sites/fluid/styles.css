@@ -1,0 +1,228 @@
+@font-face {
+  font-family: "Acme Sans";
+  src: url("fonts/acme-sans.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+}
+:root {
+  --ink: #1c2321;
+  --muted: #59625e;
+  --paper: #fbfaf6;
+  --accent: #23606e;
+  --gap: clamp(12px, 2.5vw, 28px);
+  --pad: clamp(16px, 5vw, 64px);
+}
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+}
+body {
+  font-family: "Acme Sans", system-ui, sans-serif;
+  color: var(--ink);
+  background: var(--paper);
+  line-height: 1.5;
+  font-size: clamp(15px, 0.6vw + 13px, 18px);
+}
+a {
+  color: inherit;
+}
+img {
+  display: block;
+  max-width: 100%;
+}
+
+/* a sticky header whose navigation wraps onto more lines as the width shrinks */
+.top {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: #fff;
+  border-bottom: 1px solid #e6e3da;
+}
+.top-bar {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 10px var(--pad);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 24px;
+}
+.brand {
+  font-weight: 800;
+  text-decoration: none;
+  font-size: 19px;
+}
+.nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+}
+.nav a {
+  text-decoration: none;
+  color: var(--muted);
+}
+
+/* clamp() type and spacing, a word that cannot break, text over a picture by design */
+.intro {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: var(--pad);
+  display: grid;
+  gap: var(--gap);
+}
+.kicker {
+  margin: 0 0 8px;
+  color: var(--accent);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 13px;
+}
+h1 {
+  margin: 0 0 16px;
+  font-size: clamp(28px, 4.2vw, 56px);
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+}
+.lead {
+  margin: 0 0 20px;
+  color: var(--muted);
+  max-width: 60ch;
+}
+.cta {
+  display: inline-block;
+  padding: 10px 18px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  text-decoration: none;
+  font-weight: 600;
+}
+.intro-media {
+  position: relative;
+  margin: 0;
+  border-radius: 14px;
+  overflow: hidden;
+}
+.intro-media img {
+  width: 100%;
+  aspect-ratio: 12 / 5;
+  object-fit: cover;
+}
+.over {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 13px;
+}
+@media (min-width: 900px) {
+  .intro {
+    grid-template-columns: 5fr 4fr;
+    align-items: center;
+  }
+}
+
+/* a grid whose column count follows the width, with no media query */
+.guides,
+.notes,
+.facts {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 var(--pad) var(--pad);
+}
+h2 {
+  font-size: clamp(22px, 2.4vw, 32px);
+  margin: 0 0 var(--gap);
+}
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--gap);
+}
+.tile {
+  background: #fff;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+.tile img {
+  width: 100%;
+  aspect-ratio: 400 / 260;
+  object-fit: cover;
+}
+.tile h3 {
+  margin: 14px 16px 4px;
+  font-size: 18px;
+}
+.tile p {
+  margin: 0 16px 16px;
+  color: var(--muted);
+}
+
+/* a container query: the cards sit side by side once their container is wide enough */
+.cards {
+  container-type: inline-size;
+  display: grid;
+  gap: var(--gap);
+}
+.card {
+  border: 1px solid #e0ddd3;
+  border-radius: 12px;
+  padding: clamp(14px, 2vw, 24px);
+  background: #fff;
+}
+.card h3 {
+  margin: 0 0 6px;
+  font-size: 18px;
+}
+.card p {
+  margin: 0;
+  color: var(--muted);
+}
+@container (min-width: 640px) {
+  .card {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    align-items: start;
+  }
+}
+
+/* chips that wrap */
+.chips {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.chips li {
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: #ece9df;
+  font-size: 14px;
+}
+
+.foot {
+  background: var(--ink);
+  color: #f1efe8;
+  padding: var(--pad);
+}
+.foot p {
+  max-width: 1280px;
+  margin: 0 auto 8px;
+}
+.foot .small {
+  font-size: 13px;
+  opacity: 0.8;
+}

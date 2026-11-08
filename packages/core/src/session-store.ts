@@ -237,6 +237,9 @@ export function summarize(id: string, events: HarnessEvent[], preserveRunning = 
   };
 }
 
+const INTERRUPTED_RESULT =
+  "[harness] This tool call was interrupted and returned no result. It may have partly run: check the current state before relying on it or retrying.";
+
 /** Rebuild an agent's conversation from context events. */
 export function rebuildMessages(events: HarnessEvent[], agent: string): ChatMessage[] {
   let messages: ChatMessage[] = [];
@@ -244,14 +247,32 @@ export function rebuildMessages(events: HarnessEvent[], agent: string): ChatMess
     if (e.type === "context.append" && e.agent === agent) messages.push(e.message);
     else if (e.type === "context.replace" && e.agent === agent) messages = [...e.messages];
   }
-  // Drop a trailing assistant tool-call turn whose results are incomplete (process died mid-call).
-  for (let i = messages.length - 1; i >= 0; i--) {
+  return repairToolTurns(messages);
+}
+
+/**
+ * Give every tool call a result right after its assistant turn, as providers require. A run stopped mid-call
+ * leaves that turn unanswered in the log for good, so later turns can't hide it: each rebuild checks them all.
+ */
+function repairToolTurns(messages: ChatMessage[]): ChatMessage[] {
+  const out: ChatMessage[] = [];
+  for (let i = 0; i < messages.length; i++) {
     const m = messages[i];
-    if (m.role === "assistant" && m.toolCalls?.length) {
-      const results = messages.slice(i + 1).filter((x) => x.role === "tool").length;
-      if (results < m.toolCalls.length) messages = messages.slice(0, i);
-      break;
-    }
+    if (m.role === "tool") continue; // its call is gone; answered results are taken with their turn below
+    out.push(m);
+    if (m.role !== "assistant" || !m.toolCalls?.length) continue;
+    const results = new Map<string, ChatMessage>();
+    for (let next = messages[i + 1]; next?.role === "tool"; next = messages[++i + 1])
+      results.set(next.toolCallId, next);
+    for (const call of m.toolCalls)
+      out.push(
+        results.get(call.id) ?? {
+          role: "tool",
+          toolCallId: call.id,
+          name: call.name,
+          content: INTERRUPTED_RESULT,
+        },
+      );
   }
-  return messages;
+  return out;
 }

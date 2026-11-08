@@ -1525,6 +1525,27 @@
     if (bw.some((p) => p)) out.borderWidth = bw
     if (cs.alignSelf !== 'auto') out.alignSelf = cs.alignSelf
     if (cs.flexGrow !== '0') out.grow = Number(cs.flexGrow)
+    // layout intent the box's rect cannot tell: what the page asked for, not only where the box ended up
+    const margin = [cs.marginTop, cs.marginRight, cs.marginBottom, cs.marginLeft].map(px)
+    if (margin.some((m) => m)) out.margin = margin
+    const len = (v) => (/^-?\d*\.?\d+px$/.test(v) ? parseFloat(v) : undefined)
+    const minW = len(cs.minWidth), maxW = len(cs.maxWidth), minH = len(cs.minHeight), maxH = len(cs.maxHeight)
+    if (minW) out.minW = minW
+    if (maxW !== undefined) out.maxW = maxW
+    if (minH) out.minH = minH
+    if (maxH !== undefined) out.maxH = maxH
+    if (cs.flexShrink !== '1') out.shrink = Number(cs.flexShrink)
+    if (cs.flexBasis && cs.flexBasis !== 'auto') out.basis = cs.flexBasis
+    const gc = `${cs.gridColumnStart} / ${cs.gridColumnEnd}`, gr = `${cs.gridRowStart} / ${cs.gridRowEnd}`
+    if (gc !== 'auto / auto') out.gridColumn = gc
+    if (gr !== 'auto / auto') out.gridRow = gr
+    if (cs.aspectRatio && cs.aspectRatio !== 'auto') out.aspect = cs.aspectRatio
+    if (cs.float && cs.float !== 'none') out.float = cs.float
+    if (cs.boxSizing === 'content-box') out.boxSizing = 'content-box'
+    if (cs.whiteSpace && cs.whiteSpace !== 'normal') out.whiteSpace = cs.whiteSpace
+    // CSS multi-column: its children flow down the columns (the column width / count the page asks for)
+    const cc = cs.columnCount !== 'auto' ? Number(cs.columnCount) : undefined, cw = len(cs.columnWidth)
+    if (cc || cw) out.columns = { ...(cc ? { count: cc } : {}), ...(cw ? { width: cw } : {}), gap: len(cs.columnGap) ?? 0 }
     return out
   }
 
@@ -1836,6 +1857,11 @@
       node.natural = { w: el.naturalWidth || 0, h: el.naturalHeight || 0 }
       node.objectFit = cs.objectFit; node.objectPosition = cs.objectPosition
       node.alt = el.getAttribute('alt') || ''
+      // art direction: the media conditions of the <picture>'s sources (where the page switches pictures)
+      if (el.parentElement && el.parentElement.localName === 'picture') {
+        const media = [...el.parentElement.querySelectorAll(':scope > source[media]')].map((x) => x.getAttribute('media')).filter(Boolean)
+        if (media.length) node.pictureMedia = media.slice(0, 8)
+      }
       if (!node.src || !el.naturalWidth) { if (node.style.bg || node.style.border || node.style.bgLayers) { node.kind = undefined; return node } return null }
       // a script-made `blob:` photo: pages revoke the URL once the img has loaded, so the driver cannot read it back
       // later; the decoded pixels are still here (at display size × 2, never upscaled)

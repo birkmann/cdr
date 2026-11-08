@@ -5,6 +5,7 @@ import { interactionChecks, type InteractionCheck, type LiveExpectations } from 
 import { bandMismatch, pixelDiff, type PixelReport } from "./pixel.js";
 import { textCompare, type TextReport } from "./text.js";
 import { layoutCheck, type LayoutCheck } from "./layout.js";
+import { ADDED_RULES, type FlowLintResult, type FlowRule, type FlowViolation } from "./flow.js";
 
 /** Gate thresholds (config `recreate.gates`). */
 export interface Gates {
@@ -16,12 +17,24 @@ export interface Gates {
   heightPct: number;
   /** pixel mismatch allowed at the sweep widths (no exact capture there) */
   responsivePixel: number;
+  /** page height within this many percent of the live page at every sweep width it was probed at */
+  sweepHeightPct: number;
+  /** sections the emitter may keep at their fitted geometry (they do not reflow) */
+  fittedSections: number;
 }
 
-export const DEFAULT_GATES: Gates = { pixel: 0.01, text: 0, heightPct: 3, responsivePixel: 0.05 };
+export const DEFAULT_GATES: Gates = {
+  pixel: 0.01,
+  text: 0,
+  heightPct: 3,
+  responsivePixel: 0.05,
+  sweepHeightPct: 5,
+  fittedSections: 0,
+};
 
 export interface GateResult {
-  name: "pixel" | "text" | "layout" | "interactions" | "responsive" | "components" | "build" | "a11y";
+  name:
+    "pixel" | "text" | "layout" | "interactions" | "responsive" | "flow" | "components" | "build" | "a11y";
   pass: boolean;
   detail: string;
 }
@@ -43,12 +56,32 @@ export interface WidthMeasurement {
   images?: { live: string; out: string; diff: string };
 }
 
+/** What the flow gate found: CSS that only holds where it was checked, and text the output takes out of the flow. */
+export interface FlowReport {
+  pass: boolean;
+  counts: Partial<Record<FlowRule, number>>;
+  /** the rules that fail the gate (the others are counted) */
+  gating: FlowRule[];
+  violations: FlowViolation[];
+  /** texts out of flow in the output and in flow on the live page: the most at any sweep width */
+  outOfFlow: { max: number; width?: number; samples: string[]; gating: boolean };
+  /** sections kept at their fitted geometry (do not reflow) */
+  fitted: string[];
+  rules: number;
+  added: number;
+}
+
 export interface MeasureReport {
   target: string;
   at: string;
   widths: WidthMeasurement[];
   gates: GateResult[];
   pass: boolean;
+  /** every width of the responsive sweep (output vs live page) */
+  sweep?: LayoutCheck[];
+  /** the widths the sweep used: the grid, the variant boundaries and the rotating widths of this measurement */
+  sweepPlan?: { grid: number[]; boundaries: number[]; rotating: number[] };
+  flow?: FlowReport;
   vision?: {
     width: number;
     verdict: string;
@@ -56,9 +89,13 @@ export interface MeasureReport {
   }[];
 }
 
+/** a width without its own live facts is judged against probed widths at most this far either side */
+export const NEIGHBOUR_PX = 64;
+
 export interface ShotInput {
   width: number;
-  png: Buffer;
+  /** empty or absent: facts only (no screenshot at this width) */
+  png?: Buffer;
   texts?: string[];
   overflowPx?: number;
   probe?: unknown;
@@ -85,7 +122,23 @@ export interface MeasureInput {
    * live page at the same width (probe: LAYOUT_CHECK_JS too). Every captured width's output is also layout-checked
    * when its probe carries the layout facts (`layout`).
    */
-  sweep?: { out: ShotInput[]; live: ShotInput[]; spans?: [number, number][] };
+  sweep?: {
+    out: ShotInput[];
+    /** the live page's facts (and shots where taken) at sweep widths */
+    live: ShotInput[];
+    spans?: [number, number][];
+    plan?: { grid: number[]; boundaries: number[]; rotating: number[] };
+  };
+  /** the output's stylesheet linted (flowLint) and what of it fails the flow gate */
+  flow?: {
+    lint: FlowLintResult;
+    /** rules that fail the gate besides CSS added after the build (ADDED_RULES always do) */
+    gating?: FlowRule[];
+    /** texts the output takes out of the flow while the live page keeps them in it fail the gate */
+    outOfFlow?: boolean;
+    /** sections kept at their fitted geometry */
+    fitted?: string[];
+  };
 }
 
 export interface MeasureOutput {
@@ -122,9 +175,11 @@ export function measure(input: MeasureInput): MeasureOutput {
   const images: MeasureOutput["images"] = [];
   for (const live of input.live) {
     const out = input.out.find((o) => o.width === live.width);
-    if (!out) continue;
-    const ref = maskRects(decodePng(live.png), input.mask?.[live.width]),
-      got = maskRects(decodePng(out.png), input.mask?.[live.width]);
+    if (!out || !live.png?.length || !out.png?.length) continue;
+    const livePng = live.png,
+      outPng = out.png;
+    const ref = maskRects(decodePng(livePng), input.mask?.[live.width]),
+      got = maskRects(decodePng(outPng), input.mask?.[live.width]);
     const { report, diff } = pixelDiff(ref, got, { exclude: input.exclude?.[live.width] });
     const text = textCompare(live.texts ?? [], out.texts ?? [], input.captured?.[live.width] ?? null);
     const real = text.real ?? { missing: text.missing, extra: text.extra };
@@ -150,7 +205,7 @@ export function measure(input: MeasureInput): MeasureOutput {
         diff: `${live.width}/diff.png`,
       },
     });
-    images.push({ width: live.width, live: live.png, out: out.png, diff: encodePng(diff) });
+    images.push({ width: live.width, live: livePng, out: outPng, diff: encodePng(diff) });
   }
   const list = (f: (w: WidthMeasurement) => string | null) => widths.map(f).filter(Boolean).join("; ");
   const fails = (f: (w: WidthMeasurement) => boolean) => widths.filter(f);
@@ -191,14 +246,22 @@ export function measure(input: MeasureInput): MeasureOutput {
   // responsive: no overlapping text, nothing pushed off-screen, no sideways scroll at any width, and close to the live
   // page where it was shot (beyond the widest capture the layout must hold, not be extrapolated)
   const sweep: LayoutCheck[] = [];
+  const liveFacts = (input.sweep?.live ?? []).filter((x) => x.probe).sort((a, b) => a.width - b.width);
   for (const o of input.sweep?.out ?? []) {
     const l = input.sweep?.live.find((x) => x.width === o.width) ?? null;
+    // a width the live page was not probed at (a rotating one): judged against its nearest probed widths either side
+    const neighbours = l?.probe
+      ? []
+      : [
+          liveFacts.filter((x) => x.width < o.width && o.width - x.width <= NEIGHBOUR_PX).pop(),
+          liveFacts.find((x) => x.width > o.width && x.width - o.width <= NEIGHBOUR_PX),
+        ].filter((x): x is ShotInput => !!x);
     let pixel: number | undefined;
-    if (l) {
+    if (l?.png?.length && o.png?.length) {
       try {
         // the live page's moving media at this width (its layout probe), painted out of both shots
         const media = (l.probe as { media?: MaskRect[] } | undefined)?.media;
-        pixel = pixelDiff(maskRects(decodePng(l.png), media), maskRects(decodePng(o.png), media)).report
+        pixel = pixelDiff(maskRects(decodePng(l.png), media), maskRects(decodePng(o.png!), media)).report
           .mismatch;
       } catch {
         pixel = undefined;
@@ -207,7 +270,12 @@ export function measure(input: MeasureInput): MeasureOutput {
     // pixels must match only where the output has measured geometry around this width (inside a variant's span)
     const spans = input.sweep?.spans;
     const inside = !spans || spans.some(([a, b]) => o.width >= a && o.width <= b);
-    sweep.push(layoutCheck(o.width, o, l, pixel, gates.responsivePixel, inside));
+    sweep.push(
+      layoutCheck(o.width, o, l?.probe ? l : null, pixel, gates.responsivePixel, inside, {
+        neighbours,
+        heightPct: gates.sweepHeightPct,
+      }),
+    );
   }
   if (input.sweep)
     result.push({
@@ -219,12 +287,69 @@ export function measure(input: MeasureInput): MeasureOutput {
             (c) =>
               `${c.width}px ${c.pass ? "ok" : c.issues.join(", ")}${c.pixel !== undefined && c.pass ? ` (${(c.pixel * 100).toFixed(1)} %)` : ""}`,
           )
-          .join("; ") || "no sweep widths",
+          .filter((x) => !x.endsWith(" ok") || sweep.length <= 12)
+          .join("; ") || (sweep.length ? `${sweep.length} widths ok` : "no sweep widths"),
     });
+  let flow: FlowReport | undefined;
+  if (input.flow) {
+    const gating = [...new Set([...ADDED_RULES, ...(input.flow.gating ?? [])])];
+    const failing = input.flow.lint.violations.filter(
+      (v) => gating.includes(v.rule) && (v.added || !ADDED_RULES.includes(v.rule)),
+    );
+    const worst = sweep.reduce<LayoutCheck | null>(
+      (a, c) => ((c.outOfFlow?.length ?? 0) > (a?.outOfFlow?.length ?? 0) ? c : a),
+      null,
+    );
+    const outOfFlow = {
+      max: worst?.outOfFlow?.length ?? 0,
+      ...(worst ? { width: worst.width } : {}),
+      samples: (worst?.outOfFlow ?? []).slice(0, 5).map((k) => k.slice(2)),
+      gating: input.flow.outOfFlow === true,
+    };
+    const fitted = input.flow.fitted ?? [];
+    const pass =
+      failing.length === 0 &&
+      (!outOfFlow.gating || outOfFlow.max === 0) &&
+      fitted.length <= gates.fittedSections;
+    flow = {
+      pass,
+      counts: input.flow.lint.counts,
+      gating,
+      violations: input.flow.lint.violations.slice(0, 80),
+      outOfFlow,
+      fitted,
+      rules: input.flow.lint.rules,
+      added: input.flow.lint.added,
+    };
+    const counted = Object.entries(input.flow.lint.counts)
+      .map(([k, n]) => `${k} ${n}`)
+      .join(", ");
+    result.push({
+      name: "flow",
+      pass,
+      detail: [
+        failing.length
+          ? `${failing.length} failing: ${failing
+              .slice(0, 3)
+              .map((v) => `${v.rule} (${v.selector ?? v.media ?? ""}${v.prop ? ` ${v.prop}` : ""})`)
+              .join(", ")}`
+          : "",
+        counted ? `found: ${counted}` : "no pinned or out-of-flow CSS",
+        outOfFlow.max
+          ? `${outOfFlow.max} texts out of flow the live page keeps in flow${outOfFlow.width ? ` (${outOfFlow.width}px)` : ""}`
+          : "",
+        fitted.length ? `${fitted.length} fitted section(s) (≤ ${gates.fittedSections})` : "",
+      ]
+        .filter(Boolean)
+        .join("; "),
+    });
+  }
   return {
     report: {
       target: input.target,
       ...(input.sweep ? { sweep } : {}),
+      ...(input.sweep?.plan ? { sweepPlan: input.sweep.plan } : {}),
+      ...(flow ? { flow } : {}),
       at: new Date().toISOString(),
       widths,
       gates: result,

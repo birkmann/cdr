@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
-import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import { useApp } from "@web/app-state";
-import { openFile, openFolder, openSessionFolder } from "../file-actions";
+import { openFile, openFolder } from "../file-actions";
+import { ConversationStrip } from "./ConversationFolder";
 import { CDRMark } from "@web/components/Brand";
 import { app, type RecentRepo } from "../ipc";
 import { basename, timeAgo, useStudio } from "../store";
@@ -22,7 +21,7 @@ export function Welcome({ compact = false, onClone }: { compact?: boolean; onClo
         <div className="st-panel-head">
           <span className="st-panel-title">Explorer</span>
         </div>
-        <ConversationFiles />
+        <ConversationStrip />
         <div className="st-empty st-empty-actions">
           <p>No folder is open.</p>
           <button onClick={() => void openFolder(st)}>Open folder</button>
@@ -86,16 +85,16 @@ export function Welcome({ compact = false, onClone }: { compact?: boolean; onClo
             <h3>Work with agents</h3>
             <ul className="st-tips">
               <li>
-                <strong>Chat or build</strong> in the agent panel on the right (<kbd>Ctrl L</kbd>). Modes:
+                <strong>Chat or build</strong> in the chat column on the right (<kbd>Ctrl L</kbd>). Modes:
                 Chat, Plan & build, Quick fix, Plan only, Review.
               </li>
               <li>
                 <strong>Subagents</strong>: agents can split work into parallel helpers in their own Git
-                worktrees. Watch them in the Agents view (<kbd>Ctrl Shift A</kbd>).
+                worktrees. Watch them in the chat view's project column (<kbd>Ctrl Shift A</kbd>).
               </li>
               <li>
                 <strong>Goals</strong> run unattended with acceptance criteria and a budget, then wait for
-                your review (<kbd>Ctrl Shift J</kbd>).
+                your review. They are listed in the project column (<kbd>Ctrl Shift J</kbd>).
               </li>
               <li>
                 <strong>Source control</strong>: stage hunks, commit, browse history, switch branches, push
@@ -104,40 +103,13 @@ export function Welcome({ compact = false, onClone }: { compact?: boolean; onClo
               <li>
                 <strong>Navigation</strong>: <kbd>Ctrl O</kbd> opens a file dialog, <kbd>Ctrl P</kbd> searches
                 project files (Quick Open), <kbd>Ctrl Shift P</kbd> opens the command palette, and{" "}
-                <kbd>Ctrl J</kbd> toggles the panel.
+                <kbd>Ctrl J</kbd> toggles the panel. <kbd>Ctrl Shift U</kbd> switches between the chat and
+                code views.
               </li>
             </ul>
           </section>
         </div>
       </div>
     </div>
-  );
-}
-
-/** With no folder open, point at the folder the selected conversation works in (usually its sandbox). */
-function ConversationFiles() {
-  const st = useStudio();
-  const { sessions } = useApp();
-  const session = st.sessionId ? sessions.find((s) => s.id === st.sessionId) : undefined;
-  if (!session || session.projectMissing) return null;
-  const path = session.projectPath;
-  return (
-    <section className="st-convo-files" aria-label="This conversation's files">
-      <div className="st-menu-label">This conversation's files</div>
-      <div className="st-convo-files-name">
-        <IFolder size={14} />
-        {session.sandbox && <span className="st-sw-badge">sandbox</span>}
-        <span className="st-ellipsis">{basename(path)}</span>
-      </div>
-      <div className="muted small st-ellipsis" title={path}>
-        {path}
-      </div>
-      <div className="st-convo-files-actions">
-        <button onClick={() => void openSessionFolder(st, session.id, path)}>Browse files</button>
-        <button className="ghost" onClick={() => void st.attempt(() => revealItemInDir(path))}>
-          Show in file manager
-        </button>
-      </div>
-    </section>
   );
 }

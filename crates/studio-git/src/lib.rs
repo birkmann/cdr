@@ -51,7 +51,9 @@ pub use remote::{
     add_remote, clone, fetch, github_repo_slug, parse_github_url, pull, push, remotes,
     remove_remote, CloneOptions, Remote,
 };
-pub use status::{init, is_repo, repo_root, status, ChangeKind, FileStatus, Status};
+pub use status::{
+    init, is_repo, repo_root, status, summary, ChangeKind, FileStatus, Status, Summary,
+};
 pub use worktree::{
     add_worktree, conflict_versions, remove_worktree, resolve_conflict, worktrees, ConflictFile,
     Worktree,

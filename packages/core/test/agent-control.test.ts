@@ -211,6 +211,34 @@ describe("stopping and unloading", () => {
     expect(activeRunCount()).toBe(0);
   });
 
+  it("cancels a run whose provider call has not answered yet", async () => {
+    const root = tempProject({ "a.txt": "x\n" });
+    let release!: () => void;
+    const stalled = new Promise<void>((r) => (release = r));
+    const mock = new MockProvider({
+      // A provider that ignores the abort signal and never answers until we let it.
+      handler: async () => {
+        await stalled;
+        return { text: "too late" };
+      },
+    });
+    const h = harnessWith(mock);
+    const s = h.createSession({ projectPath: root, permissionMode: "yolo" });
+    const run = s.chat("hold");
+    // Wait until the model call is in flight, so the run is stuck inside the provider, not earlier.
+    while (!mock.calls.length) await new Promise((r) => setTimeout(r, 10));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(s.status).toBe("running");
+    const started = Date.now();
+    s.cancel();
+    const r = await run;
+    expect(Date.now() - started).toBeLessThan(2_000);
+    expect(r.status).toBe("cancelled");
+    expect(s.status).toBe("cancelled");
+    release();
+    await new Promise((r) => setTimeout(r, 0));
+  });
+
   it("unloads idle conversations without listeners and reloads them on demand", async () => {
     const root = tempProject({ "a.txt": "x\n" });
     const h = harnessWith(new MockProvider({ handler: () => ({ text: "hi" }) }));

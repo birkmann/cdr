@@ -722,6 +722,45 @@ describe("server: sandboxes and preview", () => {
     await new Promise((r) => setTimeout(r, 350)); // past the version cache
     expect(await version()).not.toBe(before);
   });
+  it("serves a page the session published under .harness/, but none of the harness's own state", async () => {
+    const harness = new Harness({ skipGlobalConfig: true, loadEnv: false, configOverrides: MODELS });
+    const server = await startServer({ harness, port: 0, token: "harness-preview" });
+    try {
+      const c = createClient({ baseUrl: server.url, token: "harness-preview" });
+      const info = await c.createSession({ sandbox: { name: "scratch" } });
+      const root = info.projectPath;
+      mkdirSync(join(root, ".harness/chess-game"), { recursive: true });
+      mkdirSync(join(root, ".harness/memory"), { recursive: true });
+      mkdirSync(join(root, ".harness/other-game"), { recursive: true });
+      writeFileSync(join(root, ".harness/chess-game/index.html"), "<script src='board.js'></script>");
+      writeFileSync(join(root, ".harness/chess-game/board.js"), "console.log('board')");
+      writeFileSync(join(root, ".harness/config.json"), '{"apiKey":"secret"}');
+      writeFileSync(join(root, ".harness/memory/notes.md"), "private");
+      writeFileSync(join(root, ".harness/memory/index.html"), "private");
+      writeFileSync(join(root, ".harness/other-game/index.html"), "not published");
+      symlinkSync(join(root, ".harness/config.json"), join(root, ".harness/chess-game/leak.json"));
+      const { previewBase } = await c.getSession(info.id, { events: false });
+      const status = async (path: string) => (await fetch(c.previewUrl(previewBase, path))).status;
+      // nothing published yet: the scratch folder stays hidden
+      expect(await status(".harness/chess-game/index.html")).toBe(404);
+      const session = harness.getSession(info.id);
+      session.emit({ type: "preview.ready", path: ".harness/chess-game/index.html" });
+      // a page published in a harness-owned folder opens nothing
+      session.emit({ type: "preview.ready", path: ".harness/memory/index.html" });
+      expect(await status(".harness/chess-game/index.html")).toBe(200);
+      expect(await status(".harness/chess-game/board.js")).toBe(200);
+      expect(await status(".harness/chess-game/")).toBe(200); // directory → index.html
+      expect(await status(".harness/chess-game/.cdr-live")).toBe(200);
+      expect(await status(".harness/chess-game/leak.json")).toBe(404);
+      expect(await status(".harness/chess-game/../config.json")).toBe(404);
+      expect(await status(".harness/config.json")).toBe(404);
+      expect(await status(".harness/memory/notes.md")).toBe(404);
+      expect(await status(".harness/memory/index.html")).toBe(404);
+      expect(await status(".harness/other-game/index.html")).toBe(404);
+    } finally {
+      await server.close();
+    }
+  });
   it("confines legacy home sessions to their creations and keeps other sessions separate", async () => {
     const home = mkdtempSync(join(tmpdir(), "legacy-home-"));
     mkdirSync(join(home, "snake-game"));

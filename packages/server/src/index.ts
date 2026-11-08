@@ -18,7 +18,7 @@ import {
 import { dirname, extname, isAbsolute, join, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { bodyLimit } from "hono/body-limit";
-import { sessionFileScope, sessionReferencedFiles } from "./session-files.js";
+import { publishedHarnessFolders, sessionFileScope, sessionReferencedFiles } from "./session-files.js";
 import { LIVE_VERSION_FILE, preparePreviewHtml } from "./preview-document.js";
 import type {
   BrowseResponse,
@@ -332,6 +332,21 @@ export function createApp(opts: ServerOptions = {}): { app: Hono; harness: Harne
   const previewKey = (id: string) =>
     `${id}~${createHmac("sha256", token).update(`preview:${id}`).digest("hex").slice(0, 24)}`;
 
+  /**
+   * A preview path inside the session's files. `.git` is never served; `.harness/` (the harness's hidden state) only
+   * in the folder of a page the session published there with set_preview. Undefined for those hidden paths (served
+   * as "not found"); throws for paths outside the session's files (forbidden).
+   */
+  const resolvePreviewPath = (s: Session, relPath: string): string | undefined => {
+    const parts = relPath.split("/");
+    if (parts.includes(".git")) return undefined;
+    if (!parts.includes(".harness")) return sessionFileScope(s).resolve(relPath);
+    const abs = resolveInProject(s.projectRoot, relPath);
+    return publishedHarnessFolders(s).some((folder) => abs === folder || abs.startsWith(folder + sep))
+      ? abs
+      : undefined;
+  };
+
   // Live preview of project files (HTML/JS/CSS/images) – authorised by the signed path, not the bearer token.
   app.get("/preview/:key/*", (c) => {
     const key = c.req.param("key");
@@ -346,28 +361,28 @@ export function createApp(opts: ServerOptions = {}): { app: Hono; harness: Harne
     const prefix = `/preview/${key}/`;
     const relPath = decodeURIComponent(c.req.path.slice(prefix.length)) || "index.html";
     if (relPath === LIVE_VERSION_FILE || relPath.endsWith(`/${LIVE_VERSION_FILE}`)) {
-      let dir: string;
+      let dir: string | undefined;
       try {
-        dir = sessionFileScope(s).resolve(relPath.slice(0, -LIVE_VERSION_FILE.length) || ".");
+        dir = resolvePreviewPath(s, relPath.slice(0, -LIVE_VERSION_FILE.length) || ".");
       } catch {
         return c.text("forbidden", 403);
       }
+      if (!dir) return c.text("not found", 404);
       return c.json({ version: folderVersion(dir) }, 200, { "cache-control": "no-store" });
     }
     // 1:1 recreation run folders (.harness/recreate/<runId>/…): read-only, only runs of this session, confined to
     // the run folder, so the compare page and the growing output work in the preview iframe.
     const run = /^\.harness\/recreate\/([^/]+)(?:\/(.*))?$/.exec(relPath);
     if (run) return serveRunFile(c, s, run[1], run[2] ?? "");
-    let abs: string;
+    let abs: string | undefined;
     try {
-      const scope = sessionFileScope(s);
-      abs = scope.resolve(relPath);
-      if (existsSync(abs) && statSync(abs).isDirectory()) abs = scope.resolve(join(abs, "index.html"));
+      abs = resolvePreviewPath(s, relPath);
+      if (abs && existsSync(abs) && statSync(abs).isDirectory())
+        abs = resolvePreviewPath(s, join(relPath, "index.html"));
     } catch {
       return c.text("forbidden", 403);
     }
-    if (!existsSync(abs) || relPath.split("/").some((p) => p === ".git" || p === ".harness"))
-      return c.text("not found", 404);
+    if (!abs || !existsSync(abs) || statSync(abs).isDirectory()) return c.text("not found", 404);
     const extension = extname(abs).toLowerCase();
     const contents = readFileSync(abs);
     const body =
@@ -778,7 +793,8 @@ export function createApp(opts: ServerOptions = {}): { app: Hono; harness: Harne
     if (typeof req === "string") throw new HttpError(400, req);
     if (s.isRunning || recreating.has(s.id)) throw new HttpError(409, "session is already running");
     recreating.add(s.id);
-    recreateInSession(s, req)
+    // a run that only writes its own .harness/recreate folder may run beside an agent in the same project
+    recreateInSession(s, req, { shareCheckout: true })
       .catch((e) => {
         s.emit({ type: "error", message: (e as Error).message, recoverable: true });
         s.emit({ type: "status", status: "failed" });

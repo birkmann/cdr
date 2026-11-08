@@ -23,6 +23,9 @@
     },
     {
       "path": "../measure"
+    },
+    {
+      "path": "../design-system"
     }
   ]
 }

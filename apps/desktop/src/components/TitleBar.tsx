@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { openFile, openFolder } from "../file-actions";
+import { enterCodeView, openFile, openFolder } from "../file-actions";
 import { Popover } from "@web/components/Pickers";
 import { CDRMark } from "@web/components/Brand";
 import { app, git, type Branch, type RecentRepo } from "../ipc";
-import { useStudio } from "../store";
+import { basename, useStudio } from "../store";
+import { useFocusProject } from "./ConversationFolder";
 import { PublishDialog, useRemotes } from "./PublishDialog";
 import {
   IBranch,
@@ -22,19 +23,24 @@ export function TitleBar({
   onPalette,
   onClone,
   approvals,
+  onApprovals,
 }: {
   onPalette(): void;
   onClone(): void;
   approvals: number;
+  onApprovals(): void;
 }) {
   const st = useStudio();
+  const code = st.mode === "code";
+  const paneOpen = st.filePane || (!!st.sessionId && st.chatPreview?.sessionId === st.sessionId);
   return (
     <header className="st-titlebar">
       <div className="st-title-left">
         <CDRMark size={20} />
+        <ViewToggle />
         <RepoMenu onClone={onClone} />
-        {st.workspace && st.isRepo && <BranchMenu />}
-        {st.workspace && st.isRepo && <SyncButton />}
+        {code && st.workspace && st.isRepo && <BranchMenu />}
+        {code && st.workspace && st.isRepo && <SyncButton />}
       </div>
       <button
         className="st-title-search"
@@ -42,43 +48,85 @@ export function TitleBar({
         title="Quick Open: search project files (Ctrl+P). Type > for commands."
       >
         <ISearch size={14} />
-        <span>{st.workspace ? `Search ${st.workspace.name}` : "Quick Open"}</span>
+        <span>{code && st.workspace ? `Search ${st.workspace.name}` : "Quick Open"}</span>
         <kbd>Ctrl P</kbd>
       </button>
       <div className="st-title-right">
         {approvals > 0 && (
-          <button
-            className="st-pill warn"
-            onClick={() => st.setSide("agents")}
-            title="Agents waiting for you"
-          >
+          <button className="st-pill warn" onClick={onApprovals} title="Agents waiting for you">
             <IWarn size={14} /> {approvals} waiting
           </button>
         )}
-        <button
-          className={`ghost icon ${st.bottom ? "on" : ""}`}
-          onClick={() => st.setBottom(st.bottom ? null : "terminal")}
-          title="Toggle panel (Ctrl+J)"
-          aria-label="Toggle panel"
-        >
-          <IPanelBottom size={17} />
-        </button>
-        <button
-          className={`ghost icon ${st.agentPanel ? "on" : ""}`}
-          onClick={() => st.setAgentPanel(!st.agentPanel)}
-          title="Toggle agent (Ctrl+L)"
-          aria-label="Toggle agent panel"
-        >
-          <IPanelRight size={17} />
-        </button>
+        {code ? (
+          <>
+            <button
+              className={`ghost icon ${st.bottom ? "on" : ""}`}
+              onClick={() => st.setBottom(st.bottom ? null : "terminal")}
+              title="Toggle panel (Ctrl+J)"
+              aria-label="Toggle panel"
+            >
+              <IPanelBottom size={17} />
+            </button>
+            <button
+              className={`ghost icon ${st.agentPanel ? "on" : ""}`}
+              onClick={() => st.setAgentPanel(!st.agentPanel)}
+              title="Toggle agent (Ctrl+L)"
+              aria-label="Toggle agent panel"
+            >
+              <IPanelRight size={17} />
+            </button>
+          </>
+        ) : (
+          <button
+            className={`ghost icon st-rail-toggle ${st.rail || paneOpen ? "on" : ""}`}
+            onClick={() => (paneOpen ? st.closeChatPane() : st.setRail(!st.rail))}
+            title="Toggle project column"
+            aria-label="Toggle project column"
+          >
+            <IPanelRight size={17} />
+          </button>
+        )}
       </div>
     </header>
   );
 }
 
+/** Chat: conversations, the conversation, its project. Code: files, editors, the conversation. */
+function ViewToggle() {
+  const st = useStudio();
+  const focus = useFocusProject();
+  return (
+    <div className="st-seg st-view-toggle" role="group" aria-label="View">
+      <button
+        className={st.mode === "chat" ? "on" : ""}
+        aria-pressed={st.mode === "chat"}
+        title="Chat view (Ctrl+Shift+U)"
+        onClick={() => st.setMode("chat")}
+      >
+        Chat
+      </button>
+      <button
+        className={st.mode === "code" ? "on" : ""}
+        aria-pressed={st.mode === "code"}
+        title={
+          focus.path && st.mode === "chat"
+            ? `Code view of ${basename(focus.path)} (Ctrl+Shift+U)`
+            : "Code view (Ctrl+Shift+U)"
+        }
+        onClick={() => void (st.mode === "code" || enterCodeView(st, focus.path))}
+      >
+        Code
+      </button>
+    </div>
+  );
+}
+
 function RepoMenu({ onClone }: { onClone(): void }) {
   const st = useStudio();
+  const focus = useFocusProject();
   const [recent, setRecent] = useState<RecentRepo[]>([]);
+  // The chat view is about the conversation's project, which may not be the folder open in the editor.
+  const name = st.mode === "chat" && focus.path ? basename(focus.path) : (st.workspace?.name ?? "No folder");
   return (
     <Popover
       className="st-repo-menu"
@@ -92,7 +140,7 @@ function RepoMenu({ onClone }: { onClone(): void }) {
               .catch(() => {})
           }
         >
-          <strong>{st.workspace?.name ?? "No folder"}</strong>
+          <strong>{name}</strong>
         </span>
       }
       title="Switch repository"
@@ -121,7 +169,7 @@ function RepoMenu({ onClone }: { onClone(): void }) {
   );
 }
 
-function BranchMenu() {
+export function BranchMenu({ align }: { align?: "left" | "right" }) {
   const st = useStudio();
   const [branches, setBranches] = useState<Branch[]>([]);
   const [filter, setFilter] = useState("");
@@ -141,6 +189,7 @@ function BranchMenu() {
   return (
     <Popover
       className="st-branch-menu"
+      align={align}
       label={
         <span className="st-title-btn" onMouseDown={load} title="Switch branch">
           <IBranch size={14} />
@@ -202,7 +251,7 @@ function BranchMenu() {
   );
 }
 
-function SyncButton() {
+export function SyncButton() {
   const st = useStudio();
   const [busy, setBusy] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);

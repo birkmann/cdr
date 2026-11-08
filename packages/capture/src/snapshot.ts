@@ -132,6 +132,28 @@ export interface SnapLayout {
   borderWidth?: number[];
   alignSelf?: string;
   grow?: number;
+  /** computed margins (top, right, bottom, left) when any is set */
+  margin?: number[];
+  /** min / max sizes in px when set (max-* `none` and min-* `auto` / 0 are left out) */
+  minW?: number;
+  maxW?: number;
+  minH?: number;
+  maxH?: number;
+  /** flex-shrink when not 1, flex-basis when not auto */
+  shrink?: number;
+  basis?: string;
+  /** grid placement (`start / end`) when not auto */
+  gridColumn?: string;
+  gridRow?: string;
+  /** aspect-ratio when set */
+  aspect?: string;
+  float?: string;
+  /** box-sizing when content-box (border-box is the norm the capture assumes) */
+  boxSizing?: string;
+  /** white-space when not normal */
+  whiteSpace?: string;
+  /** CSS multi-column: column-count / column-width (px) when set, and the column gap */
+  columns?: { count?: number; width?: number; gap: number };
 }
 
 interface SnapBase {
@@ -175,6 +197,11 @@ export interface SnapElement extends SnapBase {
   /** display: contents */
   contents?: boolean;
   hidden?: boolean;
+  /**
+   * px the box grew by in a viewport `Snapshot.viewportProbe` px taller at the same width (boxes as tall as the
+   * viewport, or a share of it, and the boxes around them); absent when it kept its height
+   */
+  vh?: number;
   /** untransformed size (offsetWidth / offsetHeight) when the box has a transform */
   size?: { w: number; h: number };
   pointer?: boolean;
@@ -184,8 +211,12 @@ export interface SnapElement extends SnapBase {
   objectFit?: string;
   objectPosition?: string;
   alt?: string;
+  /** img in a <picture>: its sources' media conditions (where the page switches to another picture) */
+  pictureMedia?: string[];
   /** video poster */
   poster?: string;
+  /** raster: its screenshot had no visible pixel (a layer that paints nothing at rest), so it has no `src` */
+  blank?: boolean;
   /** video: player state when the page was walked (before the driver touched it) */
   video?: { paused: boolean; time: number; ended?: boolean };
   /** video: time (s) of the screenshotted frame when it was matched to a reference screenshot */
@@ -246,6 +277,8 @@ export interface Snapshot {
   lang?: string;
   capturedAt?: string;
   viewport: { width: number; height: number };
+  /** px taller the viewport was for the walk `SnapElement.vh` was read from (absent: no box followed the viewport) */
+  viewportProbe?: number;
   page: { width: number; height: number; background: string; color: string; font: string };
   root: SnapElement | null;
   fonts: { family: string; weight: number; style: string; stack: string }[];

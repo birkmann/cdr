@@ -152,3 +152,44 @@ describe("cdr recreate --run (resume)", () => {
     expect(existsSync(join(dir, first.dir, "out/tokens/tokens.json"))).toBe(true);
   });
 });
+
+describe("renderer: recreate sections", () => {
+  it("says why a section is below its threshold and that its repair was undone", async () => {
+    const { Renderer } = await import("../src/render.js");
+    const out = sink();
+    const r = new Renderer(out.w);
+    const base = {
+      v: 1 as const,
+      seq: 1,
+      ts: "",
+      sessionId: "s",
+      runId: "r",
+      total: 2,
+      kind: "hero",
+      label: "hero",
+    };
+    r.render({
+      ...base,
+      type: "recreate.section",
+      index: 0,
+      id: "header",
+      status: "ok",
+      pixel: 0.001,
+      reason: "pixel",
+    });
+    r.render({
+      ...base,
+      type: "recreate.section",
+      index: 1,
+      id: "hero",
+      status: "below-threshold",
+      pixel: 0.002,
+      reason: "responsive",
+      reverted: true,
+    });
+    const lines = out.text.split("\n");
+    expect(lines[0]).toContain("header");
+    expect(lines[0]).not.toContain("(pixel)");
+    expect(lines[1]).toMatch(/hero.*below-threshold 0\.2 %.*\(responsive\).*repair undone/);
+  });
+});

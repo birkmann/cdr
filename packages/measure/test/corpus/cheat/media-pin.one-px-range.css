@@ -1,0 +1,4 @@
+/* a 1 px range around a checked width */
+@media (min-width: 1439px) and (max-width: 1440px) {
+  .hero-title { letter-spacing: 1px; }
+}

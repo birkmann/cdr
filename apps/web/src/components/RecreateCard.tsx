@@ -41,6 +41,12 @@ const SECTION_LABEL: Record<RecreateRunView["sections"][number]["status"], strin
   repaired: "repaired",
 };
 
+const REASON_LABEL: Record<NonNullable<RecreateRunView["sections"][number]["reason"]>, string> = {
+  pixel: "pixels at the captured widths",
+  responsive: "layout between the captured widths",
+  flow: "CSS that does not flow",
+};
+
 export const pct = (n: number | undefined) => (n === undefined ? "" : `${(n * 100).toFixed(2)} %`);
 const secs = (ms: number | undefined) =>
   ms === undefined ? "" : ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`;
@@ -437,7 +443,11 @@ export function RecreateCard({ run, onCompare }: { run: RecreateRunView; onCompa
             </span>
             <span className="recreate-segments" aria-hidden="true">
               {run.sections.map((x) => (
-                <i key={x.id} className={x.status} title={`${x.label}: ${SECTION_LABEL[x.status]}`} />
+                <i
+                  key={x.id}
+                  className={x.status}
+                  title={`${x.label}: ${SECTION_LABEL[x.status]}${x.reason && x.status !== "ok" ? ` (${REASON_LABEL[x.reason]})` : ""}${x.reverted ? ", repair undone" : ""}`}
+                />
               ))}
             </span>
           </summary>
@@ -451,6 +461,10 @@ export function RecreateCard({ run, onCompare }: { run: RecreateRunView; onCompa
                   </td>
                   <td>
                     <span className={`recreate-chip ${x.status}`}>{SECTION_LABEL[x.status]}</span>
+                    {x.reason && x.status !== "ok" ? (
+                      <span className="small muted"> {REASON_LABEL[x.reason]}</span>
+                    ) : null}
+                    {x.reverted ? <span className="small muted"> · repair undone</span> : null}
                   </td>
                   <td className="mono small num">{pct(x.pixel)}</td>
                 </tr>

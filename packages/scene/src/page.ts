@@ -46,7 +46,14 @@ const message = (err: unknown) => (err instanceof Error ? err.message : String(e
  * `responsive: { group, minWidth }`. A capture with an opened menu adds the overlay screen `<Variant> · Menu`
  * (`root.meta.overlayOf` = the variant id), wired to the variant's menu button; its drill-down levels swap in place.
  */
-export function pageScreens(caps: PageCapture[], responsive = caps.length > 1): PageScreens {
+export function pageScreens(
+  caps: PageCapture[],
+  // (one capture walked at other widths is a responsive page of one variant: it follows its measured geometry)
+  responsive = caps.length > 1 || caps.some((c) => (c.snap.alt?.length ?? 0) > 0),
+  /** flow: false converts the fitted geometry (UrlImportOptions.flow) */
+  o: { flow?: boolean } = {},
+): PageScreens {
+  const flow = o.flow === false ? { flow: false } : {};
   const sorted = [...caps].sort((a, b) => a.width - b.width);
   const warnings: string[] = [];
   const conv = sorted.map((c) => {
@@ -55,7 +62,7 @@ export function pageScreens(caps: PageCapture[], responsive = caps.length > 1): 
       ...menus.flatMap((m) => (m.trigger !== undefined ? [m.trigger] : [])),
       ...regionKeepIds(c.snap),
     ];
-    const res = snapshotToScreen(c.snap, { keep, idPrefix: `w${c.width}-` });
+    const res = snapshotToScreen(c.snap, { keep, idPrefix: `w${c.width}-`, ...flow });
     // the page measured at the other widths of its layout range: its layers follow the site between them
     let measured: number[] = [];
     try {
@@ -63,7 +70,11 @@ export function pageScreens(caps: PageCapture[], responsive = caps.length > 1): 
         res,
         altSnapshots(c.snap).map((a) => ({
           ...a,
-          res: snapshotToScreen(a.snap, { keep: altKeep(a.snap, keep), idPrefix: `w${c.width}a${a.width}-` }),
+          res: snapshotToScreen(a.snap, {
+            keep: altKeep(a.snap, keep),
+            idPrefix: `w${c.width}a${a.width}-`,
+            ...flow,
+          }),
         })),
       );
     } catch (err) {
@@ -72,7 +83,7 @@ export function pageScreens(caps: PageCapture[], responsive = caps.length > 1): 
       );
     }
     // the page's widgets in their other states (filters, expanding cards, accordions) switch in place
-    const widgets = applyRegionStates(c.snap, res);
+    const widgets = applyRegionStates(c.snap, res, o.flow);
     return {
       c,
       menus,
@@ -116,7 +127,7 @@ export function pageScreens(caps: PageCapture[], responsive = caps.length > 1): 
           (s) =>
             s.kind === "submenu" && s.snapshot && s.parent === all.indexOf(state) && s.item !== undefined,
         );
-        const m = menuOverlayOf(c.snap, state, { keep: levels.map((l) => l.item!) });
+        const m = menuOverlayOf(c.snap, state, { keep: levels.map((l) => l.item!), ...flow });
         const menuId = `${id}-menu-${mi + 1}`;
         const trigger = state.trigger !== undefined ? res.idOf.get(state.trigger) : undefined;
         const button = trigger ? findElement(screen.root, trigger) : null;
@@ -142,7 +153,7 @@ export function pageScreens(caps: PageCapture[], responsive = caps.length > 1): 
             warnings.push(`${tag}menu entry ${level.label ?? ""} not found: its next level is not linked`);
             return;
           }
-          const sub = menuOverlayOf(c.snap, level);
+          const sub = menuOverlayOf(c.snap, level, flow);
           const subId = `${menuId}-level-${li + 1}`;
           entry.interaction = { ...menuInteraction(subId, sub, level.motion), onTap: "swap-overlay" };
           const back = sub.backId ? findElement(sub.screen.root, sub.backId) : null;

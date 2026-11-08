@@ -132,6 +132,87 @@ export function dslElementToIr(
   );
 }
 
+/** `meta.vhShare` / `meta.vhPx` (scene convert viewportShare) → height (min-height for a box hugging its content) in vh. */
+function viewportHeight(style: Record<string, string>, dsl: SceneElement): Record<string, string> {
+  const share = Number(dsl.meta!.vhShare),
+    px = Number(dsl.meta!.vhPx ?? 0) || 0;
+  const vh = `${Math.round(share * 100000) / 1000}vh`;
+  const css = px ? `calc(${vh} ${px < 0 ? "-" : "+"} ${Math.round(Math.abs(px) * 100) / 100}px)` : vh;
+  // (a box its content overflows on the page has its height set: `meta.vhFixed`)
+  const hugs =
+    dsl.meta!.vhFixed !== true &&
+    (dsl.layout?.height === "hug" || style.height === "auto" || style.height === "fit-content");
+  return hugs ? { ...style, "min-height": css } : { ...style, height: css };
+}
+
+const FLEX_KEYS = [
+  "flex-direction",
+  "gap",
+  "row-gap",
+  "column-gap",
+  "align-items",
+  "justify-content",
+  "flex-wrap",
+];
+const PLACE_KEYS = ["position", "left", "top", "right", "bottom"];
+/**
+ * `meta.inline`: the block's lines hold its children (a text, then small boxes after its last line), as on the page:
+ * the text is an inline run, the boxes inline-flex boxes on its last line, wherever it wraps.
+ */
+function inlineContent(out: IrElement, dsl: SceneElement): void {
+  // the page's line height (the measured pitch includes what the icon pushes apart, which it does here again)
+  const css = Number(dsl.children?.[0]?.meta?.cssLineHeight);
+  const st: Record<string, string> = { ...out.style, display: "block" };
+  for (const k of FLEX_KEYS) delete st[k];
+  out.style = st;
+  out.children.forEach((c, i) => {
+    if (c.kind !== "el") return;
+    const s = { ...c.style };
+    for (const k of PLACE_KEYS) delete s[k];
+    for (const k of ["flex", "flex-grow", "flex-shrink", "flex-basis", "align-self"]) delete s[k];
+    if (i === 0) {
+      for (const k of ["width", "height", "min-width", "max-width", "min-height", "max-height"]) delete s[k];
+      s.display = "inline";
+      if (css > 0) s["line-height"] = `${css}px`;
+      // the block's own line (its strut) is the text's, as on the page where the text inherits it: lines as tall
+      for (const k of ["font-family", "font-size", "line-height", "text-align"])
+        if (s[k]) out.style[k] = s[k]!;
+    } else {
+      s.display = "inline-flex";
+      s["vertical-align"] = "middle";
+      s.position = "relative";
+    }
+    c.style = s;
+  });
+}
+
+/** `meta.columnWidth` / `columnCount` / `columnGap`: a block with the page's columns, its children unbroken in them. */
+function multiColumn(out: IrElement, dsl: SceneElement): void {
+  const st: Record<string, string> = { ...out.style, display: "block" };
+  for (const k of FLEX_KEYS) delete st[k];
+  const w = dsl.meta!.columnWidth,
+    n = dsl.meta!.columnCount;
+  st.columns = [typeof w === "number" ? `${w}px` : "", typeof n === "number" ? String(n) : ""]
+    .join(" ")
+    .trim();
+  st["column-gap"] = `${Number(dsl.meta!.columnGap) || 0}px`;
+  out.style = st;
+  for (const c of out.children) {
+    if (c.kind !== "el" || c.style.position === "absolute") continue;
+    // (as the page's inline-block items: each in a line box of its own, which the columns balance as the page's)
+    const s: Record<string, string> = {
+      ...c.style,
+      "break-inside": "avoid",
+      width: "100%",
+      display: c.style.display === "flex" ? "inline-flex" : "inline-block",
+      "vertical-align": "top",
+    };
+    for (const k of ["flex", "flex-grow", "flex-shrink", "flex-basis", "align-self", "min-width"])
+      delete s[k];
+    c.style = s;
+  }
+}
+
 function renderElement(
   dsl: SceneElement,
   parentDir: Dir,
@@ -146,6 +227,25 @@ function renderElement(
   // a text narrowed to its longest line at the capture width: its width in the page (measuredFluid follows it elsewhere)
   if (out && typeof dsl.meta?.narrowedBy === "number" && dsl.layout?.fluid?.length)
     out.attrs = { ...out.attrs, "data-narrowed": String(dsl.meta.narrowedBy) };
+  // the page breaks this text inside words to fit its box (read by responsive.ts reflowIr, never exported)
+  if (out && dsl.meta?.breaksWords === true) out.attrs = { ...out.attrs, "data-breaks-words": "" };
+  // room below a column's flow (read by responsive.ts measuredFluid when the box follows its content, never exported)
+  if (out && typeof dsl.meta?.below === "number" && dsl.meta.below > 0)
+    out.attrs = { ...out.attrs, "data-below": String(dsl.meta.below) };
+  // a box as tall as the viewport, or a share of it (URL capture): sized by the viewport as on the page; one that
+  // grows with its content keeps that as its minimum
+  if (out && typeof dsl.meta?.vhShare === "number" && dsl.meta.vhShare > 0)
+    out.style = viewportHeight(out.style, dsl);
+  // a text and the small boxes after its last line (URL capture, scene convert inlineRun): inline content of one block
+  if (out && dsl.meta?.inline === true) inlineContent(out, dsl);
+  // its place in the page's CSS grid (URL capture, scene convert cssGrid)
+  if (out && typeof dsl.meta?.gridColumn === "string")
+    out.style = { ...out.style, "grid-column": dsl.meta.gridColumn };
+  if (out && typeof dsl.meta?.gridRow === "string")
+    out.style = { ...out.style, "grid-row": dsl.meta.gridRow };
+  // CSS columns (URL capture, scene convert multiColumn): the browser flows the children down the columns
+  if (out && (typeof dsl.meta?.columnWidth === "number" || typeof dsl.meta?.columnCount === "number"))
+    multiColumn(out, dsl);
   // a pinned box the page moves once it scrolls (URL capture): the interactions runtime moves it the same way
   if (out && typeof dsl.meta?.scrollShift === "number" && dsl.meta.scrollShift)
     out.attrs = {
@@ -776,10 +876,19 @@ function imageIr(dsl: SceneElement, style: StyleMap, base: Base, ctx: Ctx): IrEl
   if (src) {
     children.push(
       el("img", {
-        attrs: { src, alt: dsl.image?.alt ?? dsl.image?.query ?? "" },
+        attrs: {
+          src,
+          alt: dsl.image?.alt ?? dsl.image?.query ?? "",
+          // where the page's <picture> switches pictures (read by responsive.ts artDirection, never exported)
+          ...(typeof dsl.meta?.pictureSwitches === "string"
+            ? { "data-picture-switches": dsl.meta.pictureSwitches }
+            : {}),
+        },
         style: {
-          position: "absolute",
-          inset: "0",
+          // the picture fills its box: in its flow where the box has no padding (the same pixels), placed otherwise
+          ...(dsl.layout?.padding === undefined || dsl.layout.padding === 0
+            ? { position: "static" }
+            : { position: "absolute", inset: "0" }),
           width: "100%",
           height: "100%",
           "object-fit": dsl.style?.fit ?? "cover",
@@ -1134,8 +1243,16 @@ export function measuredScreen(screen: SceneScreen, at: number): SceneScreen {
       } else if (dw && out.layout) out = { ...out, layout: followParent(out.layout, dw) };
     } else if (dw && e.layout) out = { ...e, layout: followParent(e.layout, dw) };
     const w1 = typeof out.layout?.width === "number" ? out.layout.width : null;
-    // a layer filling its parent is as much wider as the parent
-    const childDw = w0 !== null && w1 !== null ? w1 - w0 : e.layout?.width === "fill" ? dw : 0;
+    // a layer filling its parent is as much wider as the parent (not wider than its cap: the import sets maxWidth on
+    // a box that sits at its cap)
+    const childDw =
+      w0 !== null && w1 !== null
+        ? w1 - w0
+        : e.layout?.width === "fill" || e.layout?.width === "100%"
+          ? e.layout.maxWidth !== undefined && dw > 0
+            ? 0
+            : dw
+          : 0;
     if (e.children) out = { ...out, children: e.children.map((c) => apply(c, childDw)) };
     return out;
   };

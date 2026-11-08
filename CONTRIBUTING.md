@@ -1,6 +1,6 @@
 # Contributing to CDR
 
-Thanks for your interest. Bug reports, ideas, and pull requests are welcome. Please follow the [Code of Conduct](CODE_OF_CONDUCT.md).
+Thanks for your interest. Bug reports, ideas, and pull requests are welcome.
 
 ## Setup
 
@@ -48,8 +48,8 @@ pnpm --filter desktop test:e2e
 The README images are generated from the real apps with a scripted demo model, so no API key is needed:
 
 ```bash
-pnpm build && cargo build -p studio-app --features tauri/custom-protocol
-pnpm screenshots            # or name targets: node scripts/screenshots/capture.mjs web terminal terminal-classic terminal-approval desktop desktop-agents
+pnpm build && pnpm --filter desktop build
+pnpm screenshots            # or name targets: node scripts/screenshots/capture.mjs web terminal terminal-classic terminal-approval desktop
 ```
 
 ## Releasing

@@ -36,6 +36,7 @@ import {
   SPRITE_JS,
   DISMISS_OVERLAYS_JS,
 } from "./inpage.js";
+import { isBlankPng } from "./png.js";
 import { checkRobots } from "./robots.js";
 import { fullPageShot, metricsOf, PAGE_FACTS_JS, SCROLL_THROUGH_JS, type Viewport } from "./shot.js";
 
@@ -69,6 +70,18 @@ async function factsAt(
 
 type Json = any;
 
+/** The page's scroll height (a facts-only width has no screenshot to read it from). */
+async function pageHeight(cdp: Cdp, s: string): Promise<number> {
+  const h: Json = await cdp
+    .eval(
+      s,
+      "Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0)",
+      5000,
+    )
+    .catch(() => 0);
+  return Number(h) || 0;
+}
+
 // ---------------------------------------------------------------------------------------------------- public types
 
 /** Time and size budgets of one capture (config `recreate.budgets`; the earlier project's constants are the defaults). */
@@ -87,6 +100,8 @@ export interface CaptureBudgets {
   altMs: number;
   /** raster boxes screenshotted at most */
   rasters: number;
+  /** layout facts of the live page at the probe widths (no screenshots) */
+  probeMs: number;
 }
 
 export const DEFAULT_BUDGETS: CaptureBudgets = {
@@ -97,6 +112,7 @@ export const DEFAULT_BUDGETS: CaptureBudgets = {
   regionMs: 70_000,
   altMs: 120_000,
   rasters: 80,
+  probeMs: 90_000,
 };
 
 /** One capture session: the page loaded at `width`, walked again at `alt` widths; `menus` ⊆ alt get their own menu. */
@@ -122,6 +138,13 @@ export interface CaptureOptions {
   shotWidths?: number[];
   /** in-page expression evaluated before every live shot (its JSON result lands in `Shot.probe`) */
   shotProbe?: string;
+  /**
+   * widths the live page's layout facts (`shotProbe`, texts, page height) are taken at without a screenshot: the page
+   * loaded once and resized in place, as a visitor resizes a window
+   */
+  probeWidths?: number[];
+  /** each probe width's facts as soon as they are taken (`png` empty; also in `CaptureResult.probes`) */
+  onProbe?: (facts: Shot) => void;
   /** Chrome binary (default findChrome()) */
   chrome?: string;
   signal?: AbortSignal;
@@ -160,6 +183,8 @@ export interface CaptureResult {
   /** parts the budgets dropped ("alt walk 1180px", "submenus", "rasters beyond 80" …): resumable, reported */
   skipped: string[];
   shots: Shot[];
+  /** the live page's facts at `probeWidths` (no screenshots: `png` is empty) */
+  probes?: Shot[];
   ms: number;
 }
 
@@ -208,6 +233,11 @@ export interface ShotOptions {
   signal?: AbortSignal;
   /** in-page expression evaluated at every width before the shot (its JSON result lands in `Shot.probe`) */
   probe?: string;
+  /**
+   * facts only: no screenshot (`png` empty, `height` the page's scroll height), the page loaded once and resized in
+   * place for every further width (a window being resized)
+   */
+  factsOnly?: boolean;
 }
 
 export interface CaptureDriver {
@@ -252,6 +282,8 @@ const MAX_CAPTURE_BYTES = 300 * 1024 * 1024;
 const MAX_ASSET_BYTES = 80 * 1024 * 1024;
 const SHRINK_MIN_BYTES = 60_000;
 const ALT_MENUS_EXTRA = 30_000;
+/** px the viewport-height walk adds to the viewport (Session.viewportWalk) */
+const VIEWPORT_PROBE = 200;
 const MAX_BRAND_SHEET = 3 * 1024 * 1024;
 const MAX_BRAND_CSS = 8 * 1024 * 1024;
 const FETCH_ALL = { patterns: [{ urlPattern: "*", requestStage: "Request" }] };
@@ -952,7 +984,12 @@ class Session {
   async rasters(snap: Json, maxY?: number) {
     const ids: number[] = [];
     visit(snap.root, (n) => {
-      if (n.kind === "raster" && !("src" in n) && (maxY === undefined || (Number(n.rect?.y) || 0) < maxY))
+      if (
+        n.kind === "raster" &&
+        !("src" in n) &&
+        !n.blank &&
+        (maxY === undefined || (Number(n.rect?.y) || 0) < maxY)
+      )
         ids.push(Number(n.id) || 0);
     });
     if (!ids.length) return;
@@ -964,6 +1001,8 @@ class Session {
       s,
     );
     const shots = new Map<number, string>();
+    // boxes that paint nothing at rest (a hover border's ::after layer, a mask over an empty box): no picture to keep
+    const blank = new Set<number>();
     for (const id of ids.slice(0, this.budgets.rasters)) {
       const b: Json = await this.cdp.eval(s, `${SOLO_JS}(${id})`, 8000).catch(() => null);
       if (b && b.w >= 1 && b.h >= 1 && b.w * b.h < 8_000_000) {
@@ -979,7 +1018,10 @@ class Session {
             s,
           )
           .catch(() => null);
-        if (shot?.data) shots.set(id, `data:image/png;base64,${shot.data}`);
+        if (shot?.data) {
+          if (isBlankPng(Buffer.from(shot.data, "base64"))) blank.add(id);
+          else shots.set(id, `data:image/png;base64,${shot.data}`);
+        }
       }
       await this.cdp.eval(s, "document.getElementById('__figcap_solo')?.remove()", 5000).catch(() => {});
     }
@@ -999,6 +1041,7 @@ class Session {
       if (webp && webp.length < png.length) shots.set(id, webp);
     }
     visit(snap.root, (n) => {
+      if (blank.has(Number(n.id))) n.blank = true;
       const src = shots.get(Number(n.id));
       if (src === undefined) return;
       shots.delete(Number(n.id));
@@ -1050,6 +1093,55 @@ class Session {
     await this.cdp.send("Emulation.setDeviceMetricsOverride", metrics, this.page).catch(() => {});
     await sleep(800);
     return out;
+  }
+
+  /**
+   * The page walked twice more at its own width: in its own viewport and in one `dh` px taller. Boxes whose height
+   * follows the viewport's (a `100vh` stage, a `min-height: 100svh` hero) grow with it; nothing else does. Two walks
+   * (not the main one against a taller one) so what changed since the main walk (lazy content, a slider) is not taken
+   * for it. → main-walk id → height change (px) of the boxes that changed, null when skipped.
+   */
+  async viewportWalk(metrics: Json, dh: number, until: number): Promise<Map<number, number> | null> {
+    const thaw = () => this.cdp.eval(this.page, captureExpression({ mode: "thaw" }), 8000).catch(() => null);
+    const heights = async (height: number): Promise<Map<number, number> | null> => {
+      if (Date.now() > until) return null;
+      await thaw();
+      const m = { ...metrics, height };
+      if ("screenHeight" in m) m.screenHeight = height;
+      const ok = await this.cdp.send("Emulation.setDeviceMetricsOverride", m, this.page).then(
+        () => true,
+        () => false,
+      );
+      if (!ok) return null;
+      await sleep(500);
+      const walk: Json = await this.cdp
+        .eval(this.page, captureExpression({ prepare: false, alt: true, viewportHeight: height }), 60_000)
+        .catch(() => null);
+      if (!walk?.root || typeof walk.root !== "object") return null;
+      const out = new Map<number, number>();
+      visit(walk.root, (n) => {
+        if (typeof n.base === "number" && n.rect && typeof n.rect.h === "number") out.set(n.base, n.rect.h);
+      });
+      return out;
+    };
+    try {
+      const a = await heights(metrics.height);
+      const b = a && (await heights(metrics.height + dh));
+      if (!a || !b) {
+        this.skipped.push("viewport-height walk");
+        return null;
+      }
+      const out = new Map<number, number>();
+      for (const [id, h] of b) {
+        const h0 = a.get(id);
+        if (h0 !== undefined && Math.abs(h - h0) >= 1) out.set(id, Math.round((h - h0) * 100) / 100);
+      }
+      return out;
+    } finally {
+      await thaw();
+      await this.cdp.send("Emulation.setDeviceMetricsOverride", metrics, this.page).catch(() => {});
+      await sleep(500);
+    }
   }
 
   /** The navigation menu of each variant width as it opens there, its trigger named by its main-walk id. */
@@ -1529,6 +1621,17 @@ export class CdpCaptureDriver implements CaptureDriver {
         : [];
       if (alt.length) log("alt walks");
       cancelled();
+      // boxes as tall as the viewport (or a share of it): the recreation sizes them by the viewport too
+      const grew = await sx.viewportWalk(metrics, VIEWPORT_PROBE, Math.min(until, t0 + budgets.altMs));
+      if (grew?.size) {
+        visit(snap.root, (n) => {
+          const d = typeof n.id === "number" ? grew.get(n.id) : undefined;
+          if (d !== undefined) n.vh = d;
+        });
+        snap.viewportProbe = VIEWPORT_PROBE;
+      }
+      log("viewport walk");
+      cancelled();
       // widgets that change in place (filters, tabs, expanding cards, accordions), before the menu opens
       const widgetStates: Json[] = [];
       if (Array.isArray(snap.controls) && snap.controls.length) {
@@ -1624,11 +1727,57 @@ export class CdpCaptureDriver implements CaptureDriver {
           sx.skipped.push(`live shots (${(e as Error).message})`);
         }
       }
+      // layout facts at the probe widths: one more tab, loaded once, resized in place (no screenshots)
+      const probes: Shot[] = [];
+      if (o.probeWidths?.length) {
+        const ws = o.probeWidths;
+        const stop = Date.now() + budgets.probeMs;
+        try {
+          const s = await opened.newPage();
+          const first: Viewport = {
+            width: ws[0]!,
+            height: deviceHeight(deviceOf(ws[0]!)),
+            mobile: ws[0]! < TABLET_MAX,
+          };
+          await cdp.send("Emulation.setDeviceMetricsOverride", metricsOf(first), s);
+          await load(cdp, proxy, s, opened.finalUrl, guard, () => {});
+          await cdp.eval(s, captureExpression({ mode: "consent" }), 10_000).catch(() => null);
+          await cdp.eval(s, `${SCROLL_THROUGH_JS}(${SHOT_SCROLL_PX})`, 60_000).catch(() => null);
+          await cdp.eval(s, DISMISS_OVERLAYS_JS, 10_000).catch(() => 0);
+          await cdp.eval(s, captureExpression({ mode: "freeze" }), 10_000).catch(() => null);
+          for (const [k, w] of ws.entries()) {
+            cancelled();
+            if (Date.now() > stop) {
+              sx.skipped.push(`layout facts at ${ws.length - k} probe width(s) from ${w}px (budget)`);
+              break;
+            }
+            const vp: Viewport = { width: w, height: deviceHeight(deviceOf(w)), mobile: w < TABLET_MAX };
+            try {
+              const facts = await factsAt(cdp, s, vp, o.shotProbe);
+              const p: Shot = { width: w, height: await pageHeight(cdp, s), png: Buffer.alloc(0), ...facts };
+              probes.push(p);
+              try {
+                o.onProbe?.(p);
+              } catch {
+                /* a listener never fails the capture */
+              }
+            } catch (e) {
+              if (e instanceof CaptureError && e.code === "cancelled") throw e;
+              sx.skipped.push(`layout facts ${w}px (${(e as Error).message})`);
+            }
+          }
+          log("layout facts");
+        } catch (e) {
+          if (e instanceof CaptureError && e.code === "cancelled") throw e;
+          sx.skipped.push(`layout facts (${(e as Error).message})`);
+        }
+      }
       return {
         snapshot: snap,
         finalUrl: typeof snap.url === "string" ? snap.url : opened.finalUrl,
         skipped: [...pre.skipped, ...sx.skipped],
         shots,
+        ...(probes.length ? { probes } : {}),
         ms: Date.now() - t0,
       };
     } finally {
@@ -1686,16 +1835,21 @@ export class CdpCaptureDriver implements CaptureDriver {
           height: o.height ?? deviceHeight(deviceOf(w)),
           mobile: w < mobileBelow,
         };
-        // every width on a freshly loaded page (a shot pins box sizes inline)
+        // every width on a freshly loaded page (a shot pins box sizes inline); facts only: resized in place
         await cdp.send("Emulation.setDeviceMetricsOverride", metricsOf(vp), page);
-        if (i > 0) {
+        if (i > 0 && !o.factsOnly) {
           const loaded = cdp.waitFor("Page.loadEventFired", page, LOAD_TIMEOUT);
           await cdp.send("Page.reload", { ignoreCache: false }, page);
           await loaded;
           await opened.proxy.networkIdle(IDLE_QUIET, 5_000);
         }
-        await cdp.eval(page, `${SCROLL_THROUGH_JS}(30000)`, 60_000).catch(() => null);
+        if (i === 0 || !o.factsOnly)
+          await cdp.eval(page, `${SCROLL_THROUGH_JS}(30000)`, 60_000).catch(() => null);
         const facts = await factsAt(cdp, page, vp, o.probe);
+        if (o.factsOnly) {
+          out.push({ width: w, height: await pageHeight(cdp, page), png: Buffer.alloc(0), ...facts });
+          continue;
+        }
         const png = await fullPageShot(cdp, page, vp);
         out.push({ width: w, height: png.readUInt32BE(20), png, ...facts });
       }

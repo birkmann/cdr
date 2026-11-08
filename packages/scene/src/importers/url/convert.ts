@@ -39,6 +39,7 @@ import type {
   SnapBgLayer,
   SnapElement,
   SnapFont,
+  SnapLayout,
   SnapLine,
   SnapMotion,
   SnapNode,
@@ -61,6 +62,12 @@ export interface UrlImportOptions {
   fluid?: boolean;
   /** snapshot element ids that stay their own element (never collapsed into the parent): controls that get an interaction */
   keep?: Iterable<number>;
+  /**
+   * flow first (default true): boxes the page lays out in flow stay in flow (side margins, wrapping flex rows taken from
+   * the page's CSS, single-line text that may wrap, boxes as tall as their content); false keeps the fitted geometry
+   * (every box where it was measured, only what lines up exactly in auto layout)
+   */
+  flow?: boolean;
 }
 
 export interface UrlImportStats {
@@ -116,6 +123,12 @@ interface Ctx {
   buttonBg: Map<string, number>;
   /** element → measured box size (auto-layout pass) */
   sizes: WeakMap<SceneElement, { w: number; h: number; rows?: number }>;
+  /** an element's place in its CSS grid (`grid-column` / `grid-row` as the page gives them) */
+  gridPlace?: WeakMap<SceneElement, { column?: string; row?: string }>;
+  /** a text's CSS line height where its lines are measured further apart (see paragraphItems) */
+  cssLine?: WeakMap<SceneElement, number>;
+  /** a text's last line, in its own box: where it ends (x1) and its row (y, h) */
+  lastLine?: WeakMap<SceneElement, { x1: number; y: number; h: number }>;
   /** layers that stay absolute inside auto layout (positioned in the page, background photos, list bullets) */
   outOfFlow: WeakSet<SceneElement>;
   keep: Set<number>;
@@ -134,6 +147,14 @@ interface Ctx {
   css: WeakMap<SceneElement, NonNullable<SnapElement["layout"]>>;
   /** frames that hug their content, with the height they had (restored where their parent does not flow them in a column) */
   hugFrom?: WeakMap<SceneElement, { height: number; padding: SceneLayout["padding"] }>;
+  /** flow first (UrlImportOptions.flow) */
+  flow: boolean;
+  /** a child's top in its parent before auto layout dropped it (equal lines of a row / grid) */
+  lineTop?: WeakMap<SceneElement, number>;
+  /** the margins of an element's source box (and of the wrappers collapsed into it), top right bottom left */
+  marginOf: WeakMap<SceneElement, number[]>;
+  /** the CSS display of an element's source box (block-level boxes fill their container's width) */
+  displayOf: WeakMap<SceneElement, string>;
 }
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -920,7 +941,18 @@ function paragraphItems(ctx: Ctx, items: InlineItem[], block: SnapElement): Item
       return Math.abs(rw.x0 - cb.x) <= tol;
     });
   const clamp = fits && collapse ? clampOf(items, runs, block, cb, rows, LH) : null;
-  if ((rows.length > 1 || clamp) && fits) {
+  // flow first: a single line in a block-level box with room left on it is a paragraph that happens to fit, and wraps
+  // when the box narrows (a shrink-to-fit box, a button or an inline-block link, is exactly as wide as its line: it
+  // keeps the line). Lines the page keeps from wrapping (nowrap, pre) stay single lines.
+  const room =
+    ctx.flow &&
+    rows.length === 1 &&
+    collapse &&
+    !/nowrap/.test(block.layout?.whiteSpace ?? "") &&
+    !/nowrap/.test(dom.whiteSpace ?? "") &&
+    /^(block|list-item|flow-root|table-cell)$/.test(block.layout?.display ?? "block") &&
+    cb.w - (rows[0]!.x1 - rows[0]!.x0) > Math.max(4, 0.5 * dom.size);
+  if ((rows.length > 1 || clamp || room) && fits) {
     // forced breaks (<br>) and breaks the width does not explain (balanced / pretty wrapping) stay hard
     // (a clamped text flows by width: the ellipsis lands where the browser's wrapping puts it)
     let hard = false;
@@ -931,14 +963,19 @@ function paragraphItems(ctx: Ctx, items: InlineItem[], block: SnapElement): Item
       return brAfter.has(l.run) && r.t.lines[r.t.lines.length - 1] === l.line;
     };
     const breaks = (rw: Row) => brAfter.get(lastLineOf(rw).run) ?? 1;
+    // flow first: only the page's own breaks (<br>) stay hard; lines that broke earlier than the width needs come
+    // from balanced / pretty wrapping, which the text then asks for itself (it rewraps the same way at every width)
+    let early = false;
     rows.slice(0, -1).forEach((rw, i) => {
       if (forced(rw) || clamp) return;
       if (
         !dom.textWrap &&
         lastLineOf(rw).line.brk !== "word" &&
         rw.x1 - rw.x0 + 0.3 * dom.size + firstWord(rows[i + 1]!).w < cb.w - 2
-      )
-        hard = true;
+      ) {
+        if (ctx.flow) early = true;
+        else hard = true;
+      }
     });
     const parts: Part[] = [];
     rows.forEach((rw, i) => {
@@ -954,7 +991,11 @@ function paragraphItems(ctx: Ctx, items: InlineItem[], block: SnapElement): Item
             : l.line.brk === "join"
               ? ""
               : l.line.brk === "word"
-                ? "\u00ad"
+                ? // a word broken where the page hyphenates (or a soft hyphen): a soft hyphen; flow first: a word the
+                  // page only broke to fit its box (overflow-wrap) is left whole, the box breaks it again
+                  ctx.flow && dom.hyphens !== "auto" && !/\u00ad$/.test(l.line.text)
+                  ? ""
+                  : "\u00ad"
                 : " ";
         ps[ps.length - 1]!.text += sep;
       }
@@ -975,7 +1016,8 @@ function paragraphItems(ctx: Ctx, items: InlineItem[], block: SnapElement): Item
         // lower bound of the next word's width (proportional estimate, narrow letters) + a narrow space
         return rw.x1 - rw.x0 + 0.2 * dom.size + 0.6 * firstWord(rows[i + 1]!).w <= w;
       });
-    if (fragile && !clamp && !dom.textWrap && align !== "justify" && longest + 2 < w) {
+    // (flow first: the text keeps its box's width, so its margins are the page's at every width and it wraps there)
+    if (!ctx.flow && fragile && !clamp && !dom.textWrap && align !== "justify" && longest + 2 < w) {
       w = longest + 2;
       x +=
         align === "center" || align === "-webkit-center"
@@ -995,6 +1037,15 @@ function paragraphItems(ctx: Ctx, items: InlineItem[], block: SnapElement): Item
       w,
       shown,
     );
+    // the page's own line height when the measured pitch is taller (an icon in a line pushes it apart: laid out
+    // again as inline content, the icon does so itself, inlineRun)
+    if (item && strut !== null && dom.lineHeight && dom.lineHeight < strut - 0.5)
+      (ctx.cssLine ??= new WeakMap()).set(item.el, dom.lineHeight);
+    // where its last line ends (an inline box can follow it there: inlineRun)
+    if (item) {
+      const lr = rows[rows.length - 1]!;
+      (ctx.lastLine ??= new WeakMap()).set(item.el, { x1: lr.x1 - x, y: lr.y - top(rows[0]!), h: lr.h });
+    }
     // narrowed to its longest line (start-aligned): the width it has in the page, for exports that follow the page to
     // other widths (export/responsive.ts measuredFluid: the narrowed width at the capture width only)
     if (item && w < Math.ceil(cb.w * 100) / 100 - 0.5 && x === cb.x)
@@ -1002,6 +1053,19 @@ function paragraphItems(ctx: Ctx, items: InlineItem[], block: SnapElement): Item
         ...(item.el.meta ?? {}),
         narrowedBy: Math.round((Math.ceil(cb.w * 100) / 100 - w) * 100) / 100,
       };
+    if (item && early)
+      item.el.style = { ...item.el.style, textWrap: rows.length === 2 ? "balance" : "pretty" };
+    // a word the page broke only to fit its box (overflow-wrap / word-break, no hyphen): the export lets it break too
+    if (
+      item &&
+      ctx.flow &&
+      dom.hyphens !== "auto" &&
+      rows.slice(0, -1).some((rw) => {
+        const l = lastLineOf(rw).line;
+        return l.brk === "word" && !/\u00ad$/.test(l.text);
+      })
+    )
+      item.el.meta = { ...(item.el.meta ?? {}), breaksWords: true };
     // the capture's hyphenation points are soft hyphens: break there only (WebKit's own hyphenation differs from
     // Chromium's) — unless the page hyphenates itself (`hyphens: auto`): then every browser hyphenates as it does on
     // the page, at every width
@@ -1030,15 +1094,17 @@ function paragraphItems(ctx: Ctx, items: InlineItem[], block: SnapElement): Item
         const p = parts[parts.length - 1]!;
         p.text = p.text.replace(/\u00ad$/, "") + "-";
       }
+      const y0 = sg.y + sg.h / 2 - lh / 2 + shift;
       const item = textElement(
         ctx,
         parts,
         lh,
-        { x: sg.x0, y: sg.y + sg.h / 2 - lh / 2 + shift, w: sg.x1 - sg.x0, h: lh },
+        { x: sg.x0, y: y0, w: sg.x1 - sg.x0, h: lh },
         align,
         undefined,
         1,
       );
+      if (item) (ctx.lastLine ??= new WeakMap()).set(item.el, { x1: sg.x1 - sg.x0, y: sg.y - y0, h: sg.h });
       // the drawn hyphen is no character of the page's text: exports draw it (fromDsl: `meta.softHyphen`)
       if (item) {
         if (rows.length > 1 || pieces)
@@ -1329,15 +1395,55 @@ function imageItem(
   };
   if (objectPosition && (objectPosition[0] !== "50%" || objectPosition[1] !== "50%"))
     el.style!.objectPosition = objectPosition;
+  // a <picture>'s sources: the widths it switches pictures at (exports switch there, not halfway between measurements)
+  const switches = pictureSwitches(n.pictureMedia);
+  if (switches.length) el.meta = { ...(el.meta ?? {}), pictureSwitches: switches.join(",") };
   delete el.style!.fills;
   ctx.stats.images++;
   ctx.sizes.set(el, { w: n.rect.w, h: n.rect.h });
   return { el, abs: n.rect, ...tz, order: ctx.order++ };
 }
 
+/** Widths where `<source media>` conditions start or stop matching: `(min-width: 768px)` → 768, `(max-width: 600px)` → 601. */
+export function pictureSwitches(media: string[] | undefined): number[] {
+  const out = new Set<number>();
+  for (const q of media ?? [])
+    for (const m of q.matchAll(/\(\s*(min|max)-width\s*:\s*(\d*\.?\d+)(px|em|rem)\s*\)/gi)) {
+      const v = Number(m[2]) * (m[3] === "px" ? 1 : 16);
+      out.add(m[1]!.toLowerCase() === "min" ? Math.ceil(v) : Math.floor(v) + 1);
+    }
+  return [...out].sort((a, b) => a - b);
+}
+
 /** Convert one element node into items for its parent (several when it collapses). */
+/** Margins of a box and the wrappers collapsed around it: the larger one per side (adjoining margins collapse). */
+function addMargin(ctx: Ctx, el: SceneElement, m: number[] | undefined) {
+  if (!m?.some((v) => v)) return;
+  const cur = ctx.marginOf.get(el);
+  ctx.marginOf.set(el, cur ? cur.map((v, i) => Math.max(v, m[i] ?? 0)) : [...m]);
+}
+
 function convertElement(ctx: Ctx, n: SnapElement): Item[] {
   const items = convertNode(ctx, n);
+  // the box itself (its kind's element, a kept frame) or the one item a collapsed wrapper left: its margins and display
+  if (items.length === 1) {
+    addMargin(ctx, items[0]!.el, n.layout?.margin);
+    // CSS columns of a wrapper that collapsed into its one box: that box's content flows down them (multiColumn)
+    if (ctx.flow && n.layout?.columns && items[0]!.el.type === "frame") {
+      const c = ctx.css.get(items[0]!.el);
+      if (c && !c.columns) ctx.css.set(items[0]!.el, { ...c, columns: n.layout.columns });
+    }
+    // its place in a CSS grid (`grid-column` / `grid-row`): the outermost box's of those collapsed into it (the one
+    // in the grid around it; an inner box's place is in a grid that collapsed away)
+    if (n.layout?.gridColumn || n.layout?.gridRow)
+      (ctx.gridPlace ??= new WeakMap()).set(items[0]!.el, {
+        ...(n.layout.gridColumn ? { column: n.layout.gridColumn } : {}),
+        ...(n.layout.gridRow ? { row: n.layout.gridRow } : {}),
+      });
+    else ctx.gridPlace?.delete(items[0]!.el);
+    if (!ctx.displayOf.has(items[0]!.el) && n.layout?.display)
+      ctx.displayOf.set(items[0]!.el, n.layout.display);
+  }
   // the element of its own kind (img, svg, input…; the frame path records itself)
   if (n.kind && items.length === 1) ctx.idOf.set(n.id, items[0]!.el.id);
   // absolutely positioned in the page (or a marker / overlay inside one): stays absolute inside auto layout
@@ -1367,9 +1473,18 @@ function convertNode(ctx: Ctx, n: SnapElement): Item[] {
     case "br":
       return [];
     case "img": {
+      // (flow first: a picture drawn at its own proportions is "cover" — the same at the captured width, cropped
+      // rather than stretched wherever its box takes other proportions)
+      const ownRatio =
+        !!n.natural?.w &&
+        !!n.natural?.h &&
+        n.rect.h > 0 &&
+        Math.abs(n.natural.w / n.natural.h / (n.rect.w / n.rect.h) - 1) <= 0.02;
       const fit = (
         n.objectFit === "fill"
-          ? "fill"
+          ? ctx.flow && ownRatio
+            ? "cover"
+            : "fill"
           : n.objectFit === "contain"
             ? "contain"
             : n.objectFit === "none"
@@ -1402,6 +1517,8 @@ function convertNode(ctx: Ctx, n: SnapElement): Item[] {
               : n.tag === "svg"
                 ? "Icon"
                 : n.tag;
+      // a box whose screenshot had no visible pixel paints nothing at rest: no image (it would sit over its siblings)
+      if (n.blank && !n.src && !n.poster) return [];
       if (!n.src && !n.poster) {
         ctx.warn.add(`${what} could not be captured`);
         return [];
@@ -1409,12 +1526,14 @@ function convertNode(ctx: Ctx, n: SnapElement): Item[] {
       // a video becomes an editable image layer: the frame matched to the reference screenshot, else the poster, else the captured frame
       const poster =
         n.tag === "video" && n.videoTime === undefined && n.poster ? srcOf(ctx, n.poster) : undefined;
+      // (a screenshot of the box is its exact frame there: flow first draws it "cover", so another box crops it
+      // instead of stretching it)
       const it = imageItem(
         ctx,
         n,
         poster ?? n.src ?? srcOf(ctx, n.poster),
         n.tag === "video" ? `Video · ${nameOf(n, "frame")}` : nameOf(n, what),
-        poster || !n.src ? (n.objectFit === "contain" ? "contain" : "cover") : "fill",
+        poster || !n.src ? (n.objectFit === "contain" ? "contain" : "cover") : ctx.flow ? "cover" : "fill",
       );
       it.el.meta = {
         ...(it.el.meta ?? {}),
@@ -1539,7 +1658,9 @@ function convertNode(ctx: Ctx, n: SnapElement): Item[] {
         !c.kind &&
         (d === "inline" || c.contents) &&
         !(c.style && paints(boxStyle(ctx, c).style)) &&
-        (c.layout?.position ?? "static") === "static";
+        ((c.layout?.position ?? "static") === "static" ||
+          // flow first: a relative inline box without a z-index (a footnote's <sup>) stays in its line, a run of it
+          (ctx.flow && c.layout?.position === "relative" && !c.layout.z && d === "inline"));
       if (inlineWrapper) {
         visit(c.children, c.tag === "a" ? (c.attrs?.href ?? href) : href, direct && !!c.contents);
         continue;
@@ -1557,13 +1678,19 @@ function convertNode(ctx: Ctx, n: SnapElement): Item[] {
   const outerLines = ctx.lineBox;
   if (n.layout?.display !== "inline" || paints(style)) ctx.lineBox = contentBox(n);
   visit(n.children, n.tag === "a" ? n.attrs?.href : undefined, true);
-  kids.push(...paragraphItems(ctx, inline, n));
+  // the block's own text: laid out by the block (its display), placed by the block's margins once it is collapsed
+  for (const it of paragraphItems(ctx, inline, n)) {
+    if (n.layout?.display) ctx.displayOf.set(it.el, n.layout.display);
+    kids.push(it);
+  }
   ctx.lineBox = outerLines;
   resolveLayers(ctx, kids);
 
   const rot = rotationOf(n.style?.transform);
   const overflow = n.style?.overflow;
   // overflow clips to the rounded padding box: children reaching past the box or into a rounded corner need the clip
+  // (flow first: a picture as wide as the box keeps its proportions as the width changes and can outgrow a box whose
+  // height does not follow it — a viewport-tall stage around a video — so the clip stays wherever one fills the box)
   const clipNeeded =
     !!overflow &&
     kids.some(
@@ -1572,7 +1699,8 @@ function convertNode(ctx: Ctx, n: SnapElement): Item[] {
         k.abs.y < n.rect.y - 0.5 ||
         k.abs.x + k.abs.w > n.rect.x + n.rect.w + 0.5 ||
         k.abs.y + k.abs.h > n.rect.y + n.rect.h + 0.5 ||
-        cutByCorner(k.abs, n),
+        cutByCorner(k.abs, n) ||
+        (ctx.flow && k.abs.w >= n.rect.w - 1 && n.rect.w > 0 && holdsPicture(k.el)),
     );
   const button = !n.hidden && isButtonLike(n, style) && n.rect.w > 0 && n.rect.h > 0;
   // z-indexed layers (z ≠ 0) of a box that is no stacking context are painted in the nearest one. A negative one under
@@ -1597,12 +1725,15 @@ function convertNode(ctx: Ctx, n: SnapElement): Item[] {
   // <section>s) is no block of the page; kept, the export stacks it over the header and it eats the Menu tap
   const idleLayer =
     (n.layout?.position === "fixed" || n.layout?.position === "absolute") && !kids.length && !paints(style);
+  // flow first: a box as tall as the viewport (or a share of it) stays a box: the export sizes it by the viewport
+  const vh = ctx.flow ? viewportSized(ctx.snap, n) : null;
   const keep =
     !n.contents &&
     n.rect.w > 0 &&
     n.rect.h > 0 &&
     (paints(style) ||
       clipNeeded ||
+      !!vh ||
       bounds ||
       !!rot ||
       (KEEP_TAGS.has(n.tag) && !idleLayer) ||
@@ -1610,6 +1741,14 @@ function convertNode(ctx: Ctx, n: SnapElement): Item[] {
       group ||
       n.tag === "body" ||
       ctx.keep.has(n.id) ||
+      // flow first: a flex / grid box holding several layers is the layout they are in (a short list row too)
+      (ctx.flow && flexParent && kids.length - lift.length >= 2) ||
+      // flow first: so is a block holding several (a row of tags under a title): dissolved, its items would mix with
+      // its siblings' in its parent, where no line or column holds them all
+      (ctx.flow &&
+        /^(block|flow-root|list-item)$/.test(n.layout?.display ?? "") &&
+        (n.layout?.position ?? "static") === "static" &&
+        kids.length - lift.length >= 2) ||
       !!n.scroller ||
       !!n.carousel ||
       (flexItem && kids.length - lift.length >= 2));
@@ -1691,6 +1830,12 @@ function convertNode(ctx: Ctx, n: SnapElement): Item[] {
   if (n.tag === "body") abs = { x: 0, y: 0, w: page.width, h: page.height };
   const meta: Record<string, string | number | boolean> = { tag: n.tag };
   if (n.layout?.display && n.layout.display !== "block") meta.display = n.layout.display;
+  // its height is `share` × the viewport's + `px` (the export writes it in vh: as the page, it follows the viewport)
+  if (vh) {
+    meta.vhShare = vh.share;
+    meta.vhPx = vh.px;
+    if (vh.fixed) meta.vhFixed = true;
+  }
   // a pinned box the page moves once it scrolls (domCapture scrollShifts): exports move it the same way
   if (n.scrollShift && Number.isFinite(n.scrollShift.dy)) {
     meta.scrollShift = n.scrollShift.dy;
@@ -1709,6 +1854,15 @@ function convertNode(ctx: Ctx, n: SnapElement): Item[] {
   // children sit in the padding box of the border the frame draws (a border the capture dropped — same colour as the
   // fill — takes no room in the design)
   place(el, abs, borderOf(el), kids);
+  // CSS columns around one wrapper (a list's single item holding its groups): what flows down the columns is the
+  // wrapper's content, so the wrapper lays it out in the columns (multiColumn)
+  if (ctx.flow && n.layout?.columns) {
+    const only = (el.children ?? []).filter((c) => !ctx.outOfFlow.has(c));
+    const inner = only.length === 1 && only[0]!.type === "frame" ? only[0]! : null;
+    const innerCss = inner ? ctx.css.get(inner) : undefined;
+    if (inner && innerCss && !innerCss.columns)
+      ctx.css.set(inner, { ...innerCss, columns: n.layout.columns });
+  }
   // a captured button keeps its own (zero) padding: the renderer's ghost-button default (0 8px) would widen an 8 px
   // carousel dot to 16 px (border-box: padding wins over a smaller width)
   if (button && el.layout && el.layout.padding === undefined) el.layout.padding = 0;
@@ -1834,6 +1988,67 @@ function stackingContext(n: SnapElement): boolean {
     (!!s.clipPath && s.clipPath !== "none") ||
     !!s.mask
   );
+}
+
+/**
+ * The share of the viewport's height a box's own height follows (`SnapElement.vh`: it grew with a taller viewport, and
+ * no box in its flow grew as much — then it only holds one that does), with the px it adds: height = share × 100vh +
+ * px. Null for boxes of a fixed or content height.
+ */
+export function viewportSized(
+  snap: Snapshot,
+  n: SnapElement,
+): { share: number; px: number; fixed?: boolean } | null {
+  const probe = snap.viewportProbe;
+  if (!probe || n.vh === undefined || !n.rect || n.tag === "body" || n.tag === "html") return null;
+  const share = n.vh / probe;
+  if (share < 0.1 || share > 1.02) return null;
+  const inFlow = (c: SnapNode): c is SnapElement =>
+    c.kind !== "text" && !c.hidden && c.layout?.position !== "absolute" && c.layout?.position !== "fixed";
+  const held = (c: SnapElement, depth: number): boolean =>
+    (c.vh !== undefined && Math.abs(c.vh - n.vh!) <= 1) ||
+    (!!c.contents && depth < 3 && (c.children ?? []).some((g) => inFlow(g) && held(g, depth + 1)));
+  if ((n.children ?? []).some((c) => inFlow(c) && held(c, 0))) return null;
+  const s = Math.abs(share - 1) <= 0.01 ? 1 : Math.round(share * 1000) / 1000;
+  const px = n.rect.h - s * (snap.viewport?.height ?? 0);
+  // content in its flow reaching past its bottom, here or at another width of the range: its height is set (it clips
+  // or overflows there), no mere minimum
+  const over = (box: SnapElement) =>
+    !!box.rect &&
+    (box.children ?? []).some(
+      (c) => inFlow(c) && !!c.rect && c.rect.h > 0 && c.rect.y + c.rect.h > box.rect.y + box.rect.h + 1,
+    );
+  const fixed = over(n) || altBoxes(snap, n.id).some(over);
+  return { share: s, px: Math.abs(px) < 1 ? 0 : Math.round(px * 100) / 100, ...(fixed ? { fixed } : {}) };
+}
+
+/** The boxes the alt walks (`Snapshot.alt`) name as the main walk's box `id`, one per walk that has it. */
+function altBoxes(snap: Snapshot, id: number): SnapElement[] {
+  const walks = (snap as { alt?: { root?: SnapElement }[] }).alt ?? [];
+  let index = ALT_INDEX.get(snap);
+  if (!index) {
+    index = walks.map((w) => {
+      const m = new Map<number, SnapElement>();
+      const visit = (e: SnapElement) => {
+        if (typeof e.base === "number") m.set(e.base, e);
+        for (const c of e.children ?? []) if (c.kind !== "text") visit(c);
+      };
+      if (w.root) visit(w.root);
+      return m;
+    });
+    ALT_INDEX.set(snap, index);
+  }
+  return index.flatMap((m) => {
+    const e = m.get(id);
+    return e ? [e] : [];
+  });
+}
+const ALT_INDEX = new WeakMap<Snapshot, Map<number, SnapElement>[]>();
+
+/** A picture or video, or a box holding one (a few levels down: a player's wrappers). */
+function holdsPicture(el: SceneElement, depth = 0): boolean {
+  if (el.type === "image" || el.type === "video") return true;
+  return depth < 4 && (el.children ?? []).some((c) => holdsPicture(c, depth + 1));
 }
 
 /** Does `r` reach outside a rounded corner of `n`'s padding box (where overflow clipping cuts it)? */
@@ -1984,36 +2199,89 @@ function borderOf(el: SceneElement): [number, number, number, number] {
 }
 
 /**
+ * Whether a negative margin `m` on `side` of `el` or of the first box down its first children (a list's -10px that
+ * collapsed up through its wrappers) accounts for `el` starting that far before its parent (`marginOf`: the page's).
+ */
+function collapsedMargin(
+  marginOf: ((e: SceneElement) => number[] | undefined) | undefined,
+  el: SceneElement,
+  side: 0 | 3,
+  m: number,
+): boolean {
+  if (!marginOf) return false;
+  for (let e: SceneElement | undefined = el, d = 0; e && d < 4; e = e.children?.[0], d++)
+    if (Math.abs((marginOf(e)?.[side] ?? 0) - m) <= 1) return true;
+  return false;
+}
+
+/**
  * One flex line along `dir`: the smallest gap between neighbours becomes the frame gap and larger ones per-child
  * margins; the cross-axis alignment shared by most children becomes `align`, the others get `alignSelf`.
  * Null when children overlap along the axis or a child matches none of start / centre / end.
  */
-function flexLine(boxes: Box[], dir: "row" | "column", inner: { w: number; h: number }) {
+function flexLine(
+  boxes: Box[],
+  dir: "row" | "column",
+  inner: { w: number; h: number },
+  /** flow first: a child off the shared line keeps its offset from the start line as a margin (block children inset) */
+  crossFree = false,
+  /** a scrolling frame's row: its items run past its end (they scroll into view) */
+  overflowMain = false,
+  /**
+   * flow first: the negative leading margin (≤ 0) the page's CSS gives a child along `dir` — a panel pulled up over the
+   * picture before it overlaps it by exactly that, and keeps it as its margin
+   */
+  pull?: (b: Box) => number,
+  /** flow first: the page's margins of an element (a collapsed negative margin explains a child starting early) */
+  marginOf?: (e: SceneElement) => number[] | undefined,
+) {
   const main = dir === "row" ? "x" : "y",
     cross = dir === "row" ? "y" : "x";
   const mlen = dir === "row" ? "w" : "h",
     clen = dir === "row" ? "h" : "w";
   const sorted = [...boxes].sort((a, b) => a[main] - b[main]);
+  // where each child would start without its negative margin (only for an overlap the margin accounts for)
+  const pulled = sorted.map((b, i) => {
+    const m = i > 0 && pull ? Math.min(0, pull(b)) : 0;
+    if (!m) return 0;
+    const prev = sorted[i - 1]!;
+    const overlap = prev[main] + prev[mlen] - b[main];
+    return overlap > 0.75 && Math.abs(overlap + m) <= 1.5 ? m : 0;
+  });
+  const start = (i: number) => sorted[i]![main] - pulled[i]!;
   for (let i = 0; i + 1 < sorted.length; i++)
-    if (sorted[i]![main] + sorted[i]![mlen] > sorted[i + 1]![main] + 0.75) return null;
-  const gaps = sorted.slice(1).map((b, i) => b[main] - (sorted[i]![main] + sorted[i]![mlen]));
+    if (sorted[i]![main] + sorted[i]![mlen] > start(i + 1) + 0.75) return null;
+  const gaps = sorted.slice(1).map((_, i) => start(i + 1) - (sorted[i]![main] + sorted[i]![mlen]));
   const gap = gaps.length ? Math.max(0, Math.min(...gaps)) : 0;
   // extra space before a child becomes its margin once the flow would be off by more than DRIFT there (small surpluses
   // are not dropped one by one: they would add up along the line)
   let at = sorted[0]![main] + sorted[0]![mlen];
   const margins = gaps.map((_, i) => {
     const b = sorted[i + 1]!,
-      extra = b[main] - (at + gap);
+      extra = start(i + 1) - (at + gap);
     const m = extra > DRIFT ? snap(extra) : 0;
-    at += gap + m + b[mlen];
-    return m;
+    at += gap + m + pulled[i + 1]! + b[mlen];
+    return m + pulled[i + 1]!;
   });
-  const padStart = sorted[0]![main];
+  // (flow first: a text's glyph box can start a pixel or two above its line box: no overflow, no padding; a first
+  // child a little above the box (a negative margin collapsed up through its wrappers: a list's -10px) keeps that
+  // as its own negative margin)
+  const first = sorted[0]![main];
+  const glyph = crossFree && first < 0 && first >= -2 && sorted[0]!.el.type === "text";
+  const lead =
+    crossFree &&
+    !glyph &&
+    first < -0.5 &&
+    -first <= 0.25 * sorted[0]![mlen] &&
+    collapsedMargin(marginOf, sorted[0]!.el, dir === "row" ? 3 : 0, first)
+      ? r2(first)
+      : 0;
+  const padStart = glyph || lead ? 0 : first;
   const mainTotal = dir === "row" ? inner.w : inner.h,
     crossTotal = dir === "row" ? inner.h : inner.w;
   const last = sorted[sorted.length - 1]!;
   const endSpace = mainTotal - (last[main] + last[mlen]);
-  if (padStart < -0.5 || endSpace < -0.5) return null;
+  if (padStart < -0.5 || (endSpace < -0.5 && !overflowMain)) return null;
   // cross axis: the alignment most children share decides the paddings
   const near = (a: number, b: number) => Math.abs(a - b) <= TOL;
   const votes = (k: Align) =>
@@ -2028,7 +2296,11 @@ function flexLine(boxes: Box[], dir: "row" | "column", inner: { w: number; h: nu
       return near(v, ref);
     }).length;
   const mid0 = sorted[0]![cross] + sorted[0]![clen] / 2;
-  const order: Align[] = near(mid0, crossTotal / 2) ? ["center", "start", "end"] : ["start", "center", "end"];
+  // (children spanning the whole cross axis fit every alignment: start, which stays put if one of them later ends
+  // up a little shorter — centred, everything would move by half of that)
+  const span = sorted.every((b) => b[clen] >= crossTotal - 1.5);
+  const order: Align[] =
+    near(mid0, crossTotal / 2) && !span ? ["center", "start", "end"] : ["start", "center", "end"];
   let best: Align | null = null,
     n = 0;
   for (const k of order) {
@@ -2058,8 +2330,17 @@ function flexLine(boxes: Box[], dir: "row" | "column", inner: { w: number; h: nu
   // a hair outside the box (subpixel layout) is no padding: CSS rejects a negative one outright
   cpad[0] = Math.max(0, cpad[0]);
   cpad[1] = Math.max(0, cpad[1]);
+  // (flow first: the paddings are the room every child leaves, no more: one child's offset as the line's padding moves
+  // the others with it in a box as tall as its content — a taller child would be aligned to its end below it)
+  if (crossFree) {
+    const room0 = Math.min(...sorted.map((b) => b[cross])),
+      room1 = Math.min(...sorted.map((b) => crossTotal - b[cross] - b[clen]));
+    if (best === "start" && room0 < cpad[0] - TOL) cpad[0] = Math.max(0, room0);
+    if (best === "end" && room1 < cpad[1] - TOL) cpad[1] = Math.max(0, room1);
+  }
   const centre = cpad[0] + (crossTotal - cpad[0] - cpad[1]) / 2;
   const selfAlign: (Align | null)[] = [];
+  const crossMargins: number[] = [];
   for (const b of sorted) {
     // the alignment that reproduces the child best (a centred child can also sit within a pixel of the start line)
     const errs: [Align, number][] = [
@@ -2070,8 +2351,15 @@ function flexLine(boxes: Box[], dir: "row" | "column", inner: { w: number; h: nu
     const [at, err] = errs.reduce((x, y) =>
       y[1] < x[1] - 0.01 || (Math.abs(y[1] - x[1]) <= 0.01 && y[0] === best) ? y : x,
     );
-    if (err > TOL) return null;
+    if (err > TOL) {
+      const off = b[cross] - cpad[0];
+      if (!crossFree || off < -0.5) return null;
+      selfAlign.push("start");
+      crossMargins.push(snap(Math.max(0, off)));
+      continue;
+    }
     selfAlign.push(at === best ? null : at);
+    crossMargins.push(0);
   }
   const justify: "start" | "center" =
     sorted.length <= 3 && padStart > 0.5 && near(endSpace, padStart) && !margins.some((m) => m)
@@ -2083,6 +2371,8 @@ function flexLine(boxes: Box[], dir: "row" | "column", inner: { w: number; h: nu
     gap: snap(gap),
     margins,
     selfAlign,
+    crossMargins,
+    lead,
     padStart: justify === "center" ? 0 : snap(Math.max(0, padStart)),
     start: snap(Math.max(0, padStart)),
     align: best,
@@ -2173,6 +2463,7 @@ function tryAutoLayout(ctx: Ctx, frame: SceneElement): boolean {
       return false;
     if (ctx.outOfFlow.has(k)) continue;
     if (l.rotation) return false;
+    (ctx.lineTop ??= new WeakMap()).set(k, l.y);
     flow.push({
       el: k,
       x: l.x,
@@ -2183,10 +2474,20 @@ function tryAutoLayout(ctx: Ctx, frame: SceneElement): boolean {
     });
   }
   if (!flow.length) return false;
+  // flow first: a multi-column box (CSS columns) flows its children down its columns, as the page does
+  if (ctx.flow && multiColumn(ctx, frame, flow)) return true;
+  // flow first: a CSS grid whose children the page places itself (grid-column: span 3 / 4 / 7) keeps that grid
+  if (ctx.flow && cssGrid(ctx, frame, flow)) return true;
+  // flow first: a text and the small boxes on its last line right after it (an info icon, a badge) are one run of
+  // inline content: they wrap together
+  if (ctx.flow && inlineRun(ctx, frame, flow)) return true;
   // out-of-flow layers painted before the flow stay underneath it, the others on top
   const firstFlow = kids.findIndex((k) => !ctx.outOfFlow.has(k));
   const under = kids.slice(0, firstFlow),
     over = kids.slice(firstFlow).filter((k) => ctx.outOfFlow.has(k));
+  // (flow first: inline-block boxes wrap onto more lines as the page narrows: no fixed grid of their columns)
+  if (ctx.flow && inlineBlocks(ctx, frame, flow) && cssWrapRow(ctx, frame, flow, inner, under, over))
+    return true;
   const grid = gridOf(flow);
   if (grid) {
     frame.layout = {
@@ -2201,9 +2502,19 @@ function tryAutoLayout(ctx: Ctx, frame: SceneElement): boolean {
     ctx.stats.autoLayout++;
     return true;
   }
-  const res = flexLine(flow, "row", inner) ?? flexLine(flow, "column", inner);
+  // flow first: a wrapping flex row is the page's own flex layout (its lines are no single row or column)
+  if (ctx.flow && cssWrapRow(ctx, frame, flow, inner, under, over)) return true;
+  // (flow first: a slide track is a row whose slides run past its end; they keep their widths and scroll into view)
+  const track = ctx.flow && frame.layout?.scroll === "horizontal";
+  // (flow first: a negative leading margin of the page's CSS pulls a child over the one before it)
+  const pull = (side: 0 | 3) => (ctx.flow ? (b: Box) => ctx.marginOf.get(b.el)?.[side] ?? 0 : undefined);
+  const mo = ctx.flow ? (e: SceneElement) => ctx.marginOf.get(e) : undefined;
+  const res = track
+    ? flexLine(flow, "row", inner, true, true)
+    : (flexLine(flow, "row", inner, ctx.flow, false, pull(3), mo) ??
+      flexLine(flow, "column", inner, ctx.flow, false, pull(0), mo));
   if (!res) return false;
-  const { dir, sorted, gap, margins, selfAlign, align, cpad, endSpace } = res;
+  const { dir, sorted, gap, margins, selfAlign, crossMargins, align, cpad, endSpace, lead } = res;
   // a flex item the page lets grow (`flex-grow`) fills the room before its next sibling: equal items (teasers whose text
   // column takes what is left beside an image and an arrow) come out the same whatever their text measures
   const grows = new Set<number>();
@@ -2217,7 +2528,15 @@ function tryAutoLayout(ctx: Ctx, frame: SceneElement): boolean {
         grows.add(i);
     });
   // (a row centred between equal insets whose item grows has nothing left to centre: the insets are its padding)
-  const keepInsets = res.justify === "center" && grows.size > 0;
+  // (flow first: equal insets the page's CSS gives as the frame's padding are padding, not centring: the frame then
+  // grows with its content instead of keeping it centred in a fixed box)
+  const cssPad = ctx.css.get(frame)?.padding;
+  const padded =
+    ctx.flow &&
+    res.justify === "center" &&
+    !!cssPad &&
+    Math.abs((dir === "row" ? cssPad[3]! : cssPad[0]!) - res.start) <= 1;
+  const keepInsets = res.justify === "center" && (grows.size > 0 || padded);
   const justify = keepInsets ? "start" : res.justify,
     padStart = keepInsets ? res.start : res.padStart;
   const padding: [number, number, number, number] =
@@ -2226,32 +2545,79 @@ function tryAutoLayout(ctx: Ctx, frame: SceneElement): boolean {
   // as tall as its content on the page (the space below the flow is its own bottom padding): it hugs its content, so
   // it grows / shrinks with it wherever the text wraps otherwise (another width, another browser's font metrics)
   const css = ctx.css.get(frame);
-  const padBottom = css?.padding?.[2] ?? null;
+  // (the capture records padding only where a side has some: a captured box without it has none)
+  const padBottom = css?.padding?.[2] ?? (css ? 0 : null);
   const below = dir === "column" ? endSpace : r2(inner.h - Math.max(...sorted.map((b) => b.y + b.h)));
+  // the space below the flow is the frame's bottom padding, or that and the last child's bottom margin (flow first; a
+  // box that clips its corners still grows with its content)
+  const lastBottom = [...sorted].sort((a, b) => b.y + b.h - (a.y + a.h))[0];
+  const lastMargin = (lastBottom && ctx.marginOf.get(lastBottom.el)?.[2]) || 0;
   const hugs =
     padBottom !== null &&
-    !frame.layout.clip &&
+    (!frame.layout.clip || ctx.flow) &&
     !frame.layout.scroll &&
     typeof frame.layout.height === "number" &&
-    Math.abs(below - padBottom) <= 1 &&
+    (Math.abs(below - padBottom) <= 1 || (ctx.flow && Math.abs(below - padBottom - lastMargin) <= 1)) &&
     (dir === "column"
       ? justify === "start"
       : align === "start" &&
         sorted.every((b) => !b.el.layout?.alignSelf || b.el.layout.alignSelf === "start"));
-  if (hugs) {
+  // flow first: a row as tall as its tallest child (with its margins) and the page's padding hugs it too, whatever
+  // its alignment: a header bar, a logo link, a button, a list item
+  const cp = css?.padding ?? (css ? [0, 0, 0, 0] : null);
+  const tallest = Math.max(
+    ...sorted.map((b) => b.h + (ctx.marginOf.get(b.el)?.[0] ?? 0) + (ctx.marginOf.get(b.el)?.[2] ?? 0)),
+  );
+  const rowHugs =
+    !hugs &&
+    ctx.flow &&
+    dir === "row" &&
+    !!cp &&
+    !frame.layout.scroll &&
+    typeof frame.layout.height === "number" &&
+    Math.abs(inner.h - tallest - cp[0]! - cp[2]!) <= 1;
+  if (hugs || rowHugs) {
     (ctx.hugFrom ??= new WeakMap()).set(frame, {
       height: frame.layout.height as number,
       padding: frame.layout.padding,
     });
     frame.layout.height = "hug";
-    frame.layout.padding = [padding[0], padding[1], r2(Math.max(0, below)), padding[3]];
-  }
+    frame.layout.padding = rowHugs
+      ? [snap(cp![0]!), padding[1], snap(cp![2]!), padding[3]]
+      : [padding[0], padding[1], r2(Math.max(0, below)), padding[3]];
+  } else if (
+    ctx.flow &&
+    (dir === "column" ? justify === "start" : align === "start") &&
+    below > 1 &&
+    typeof frame.layout.height === "number"
+  )
+    // a box keeping its height with room below its flow: an export that lets the box follow its content (its height
+    // changes where text wraps) keeps that room below it (`meta.below`; an empty last box's margin on the page)
+    frame.meta = { ...(frame.meta ?? {}), below: r2(below) };
   sorted.forEach((b, i) => {
     unplace(b.el);
     if (b.el.type === "text" && b.el.layout?.width === undefined) delete b.el.layout!.width;
     if (grows.has(i)) b.el.layout!.width = "fill";
-    const m = i > 0 && !grows.has(i - 1) ? margins[i - 1]! : 0;
-    if (m) b.el.layout!.margin = dir === "row" ? [0, 0, 0, m] : [m, 0, 0, 0];
+    const m = i > 0 && !grows.has(i - 1) ? margins[i - 1]! : i === 0 ? lead : 0;
+    // (a row hugging its child takes the page's top padding: a cross margin measured from the line's own padding
+    // would count that padding twice, push the child down and grow the row)
+    const cm = rowHugs
+      ? Math.max(0, (crossMargins[i] ?? 0) - (snap(cp![0]!) - padding[0]))
+      : (crossMargins[i] ?? 0);
+    if (m || cm) b.el.layout!.margin = dir === "row" ? [cm, 0, 0, m] : [m, 0, 0, cm];
+    // a row hugging its tallest child with that child's margins keeps them (or it would lose that room)
+    if (rowHugs) {
+      const own = ctx.marginOf.get(b.el);
+      if (own && (own[0]! > 0 || own[2]! > 0)) {
+        const cur = (b.el.layout!.margin as [number, number, number, number] | undefined) ?? [0, 0, 0, 0];
+        b.el.layout!.margin = [
+          snap(Math.max(cur[0], own[0]!)),
+          cur[1],
+          snap(Math.max(cur[2], own[2]!)),
+          cur[3],
+        ];
+      }
+    }
     // components default to stretching in columns (buttons, inputs): pin their cross alignment
     const self =
       selfAlign[i] ??
@@ -2300,24 +2666,521 @@ function anchorOutOfFlow(ctx: Ctx, frame: SceneElement, inner: { w: number; h: n
   }
 }
 
+/**
+ * A CSS grid of equal tracks (a 12-column page grid) whose children say where they go (`grid-column` / `grid-row`):
+ * the grid as the page writes it — as many `minmax(0, 1fr)` columns, its gaps — and each child in the page's order
+ * with its placement (`meta.gridColumn` / `gridRow`, fromDsl) and margins, so it reflows as the page's grid does. Only
+ * when at least one child is placed (an auto-placed grid of equal cells is gridOf's).
+ */
+function cssGrid(ctx: Ctx, frame: SceneElement, flow: Box[]): boolean {
+  const css = ctx.css.get(frame);
+  if (!css || !/grid/.test(css.display) || !css.cols || flow.length < 2) return false;
+  const tracks = css.cols
+    .trim()
+    .split(/\s+/)
+    .map((t) => (/^-?\d*\.?\d+px$/.test(t) ? parseFloat(t) : NaN));
+  if (tracks.some((t) => !Number.isFinite(t)) || Math.max(...tracks) - Math.min(...tracks) > 0.5)
+    return false;
+  const [rowGap, colGap] = css.gap ?? [0, 0];
+  const pad = css.padding ?? [0, 0, 0, 0];
+  if (
+    !flow.some((b) => ctx.gridPlace?.get(b.el)?.column) &&
+    !autoPlaced(ctx, frame, flow, tracks, colGap, pad[1] ?? 0, pad[3] ?? 0)
+  )
+    return false;
+  // (numbered lines and spans only: named lines and areas need the page's template, which is not captured)
+  const NUMERIC = /^(span \d+|-?\d+)( \/ (span \d+|-?\d+|auto))?$/;
+  if (
+    flow.some((b) => {
+      const p = ctx.gridPlace?.get(b.el);
+      return (!!p?.column && !NUMERIC.test(p.column)) || (!!p?.row && !NUMERIC.test(p.row));
+    })
+  )
+    return false;
+  for (const b of flow) {
+    unplace(b.el);
+    const place = ctx.gridPlace?.get(b.el);
+    const mb = ctx.marginOf.get(b.el);
+    const { width: _w, margin: _m, ...rest } = b.el.layout ?? {};
+    b.el.layout = {
+      ...rest,
+      width: "fill",
+      ...(mb?.some((v) => v) ? { margin: mb.map(r2) as [number, number, number, number] } : {}),
+    };
+    if (place)
+      b.el.meta = {
+        ...(b.el.meta ?? {}),
+        ...(place.column ? { gridColumn: place.column } : {}),
+        ...(place.row ? { gridRow: place.row } : {}),
+      };
+  }
+  frame.layout = {
+    ...frame.layout,
+    grid: { columns: tracks.length, columnGap: r2(colGap), rowGap: r2(rowGap) },
+    padding: [r2(pad[0] ?? 0), r2(pad[1] ?? 0), r2(pad[2] ?? 0), r2(pad[3] ?? 0)],
+    // (the page's alignment: `normal` stretches each child to its row, as tall as the row's tallest)
+    align: /center/.test(css.align ?? "")
+      ? "center"
+      : /end/.test(css.align ?? "")
+        ? "end"
+        : /start/.test(css.align ?? "")
+          ? "start"
+          : "stretch",
+    justify: "start",
+  };
+  // stretched children follow their row, not a height of their own
+  if (frame.layout.align === "stretch")
+    for (const b of flow)
+      if (typeof b.el.layout?.height === "number") {
+        const { height: _h, ...rest } = b.el.layout;
+        b.el.layout = rest;
+      }
+  if (typeof frame.layout.height === "number") frame.layout.height = "hug";
+  ctx.stats.autoLayout++;
+  return true;
+}
+
+/**
+ * Children the page's grid places itself (no grid-column), one per cell in document order, row by row, each one track
+ * wide, with the equal tracks filling the content box: then 1fr tracks put every child where it was, and they keep
+ * doing so at other widths, where px tracks would run past the box or leave it half empty.
+ */
+function autoPlaced(
+  ctx: Ctx,
+  frame: SceneElement,
+  flow: Box[],
+  tracks: number[],
+  colGap: number,
+  padR: number,
+  padL: number,
+): boolean {
+  const size = ctx.sizes.get(frame);
+  const n = tracks.length,
+    tw = tracks[0]!;
+  if (!size || n < 2) return false;
+  const [, br, , bl] = borderOf(frame);
+  const content = size.w - bl - br - padL - padR;
+  if (Math.abs(n * tw + (n - 1) * colGap - content) > 2) return false;
+  const x0 = flow[0]!.x;
+  let rowTop = flow[0]!.y,
+    rowBottom = -Infinity;
+  for (let i = 0; i < flow.length; i++) {
+    const b = flow[i]!;
+    if (Math.abs(b.w - tw) > 1 || Math.abs(b.x - (x0 + (i % n) * (tw + colGap))) > 1) return false;
+    if (i % n === 0 && i > 0) {
+      // a new row starts below the last one
+      if (b.y < rowBottom - 1) return false;
+      rowTop = b.y;
+    } else if (Math.abs(b.y - rowTop) > TOL) return false;
+    rowBottom = Math.max(i % n === 0 ? -Infinity : rowBottom, b.y + b.h);
+  }
+  return true;
+}
+
+/**
+ * A box with CSS columns (`column-width` / `column-count`): its children flow down one column and on into the next,
+ * which no flex line reproduces. They stay in the page's order with their own bottom margins, and the export writes
+ * the page's columns (`meta.columnWidth` / `columnCount` / `columnGap`, fromDsl), so the browser fills the columns at
+ * every width as the page does. The frame is as tall as its columns.
+ */
+function multiColumn(ctx: Ctx, frame: SceneElement, flow: Box[]): boolean {
+  const cols = ctx.css.get(frame)?.columns;
+  if (!cols || (!cols.width && !cols.count) || flow.length < 2 || frame.layout?.scroll) return false;
+  for (const b of flow) {
+    unplace(b.el);
+    const mb = ctx.marginOf.get(b.el)?.[2] ?? 0;
+    const { margin: _m, ...rest } = b.el.layout ?? {};
+    b.el.layout = { ...rest, width: "fill", ...(mb > 0 ? { margin: [0, 0, r2(mb), 0] } : {}) };
+  }
+  const pad = ctx.css.get(frame)?.padding ?? [0, 0, 0, 0];
+  frame.layout = {
+    ...frame.layout,
+    direction: "column",
+    gap: 0,
+    padding: [r2(pad[0] ?? 0), r2(pad[1] ?? 0), r2(pad[2] ?? 0), r2(pad[3] ?? 0)],
+    align: "stretch",
+    justify: "start",
+  };
+  if (typeof frame.layout.height === "number") frame.layout.height = "hug";
+  frame.meta = {
+    ...(frame.meta ?? {}),
+    ...(cols.width ? { columnWidth: cols.width } : {}),
+    ...(cols.count ? { columnCount: cols.count } : {}),
+    columnGap: cols.gap,
+  };
+  ctx.stats.autoLayout++;
+  return true;
+}
+
+/** A text's last line in its parent's space (`ctx.lastLine`), or null (a clamped text has no last line of its own). */
+function lastLineOfBox(ctx: Ctx, t: Box): { x1: number; y: number; h: number } | null {
+  const own = ctx.lastLine?.get(t.el);
+  if (!own || t.el.style?.truncate) return null;
+  return { x1: t.x + own.x1, y: t.y + own.y, h: own.h };
+}
+
+/** Small boxes (icon-sized: a few lines tall at most) on the line's row, each about where the line or the box before ends. */
+function onLastLine(last: { x1: number; y: number; h: number }, boxes: Box[]): boolean {
+  if (!boxes.length) return false;
+  let end = last.x1;
+  for (const b of boxes) {
+    const cy = b.y + b.h / 2;
+    if (b.el.type === "text" || b.h > 3 * last.h || b.w > 6 * last.h) return false;
+    if (cy < last.y - 2 || cy > last.y + last.h + 2) return false;
+    // (a little before it too: an icon button pulled back by a negative margin)
+    if (b.x < end - Math.max(2, 0.5 * last.h) || b.x > end + last.h) return false;
+    end = b.x + b.w;
+  }
+  return true;
+}
+
+/**
+ * A block whose last text, with small boxes on its last line right after it, follows other content above it (two
+ * paragraphs, then a line ending in an info icon: the page's anonymous inline run after them). That run becomes a
+ * block of its own (`meta.inline`, laid out by inlineRun), and the block lays out its content again, the run now one
+ * box of it. → whether it did.
+ */
+function inlineTail(ctx: Ctx, frame: SceneElement, flow: Box[]): boolean {
+  const texts = flow.filter((b) => b.el.type === "text");
+  if (texts.length < 2 || flow.length > 12) return false;
+  const t = texts.reduce((a, b) => (b.y > a.y ? b : a));
+  const last = lastLineOfBox(ctx, t);
+  if (!last) return false;
+  const boxes = flow
+    .filter((b) => b !== t && b.y + b.h / 2 >= t.y && b.x >= t.x - 1)
+    .sort((a, b) => a.x - b.x);
+  if (!onLastLine(last, boxes)) return false;
+  const run = [t, ...boxes];
+  const rest = flow.filter((b) => !run.includes(b));
+  // the rest is above the run (it comes before it in the page)
+  if (rest.some((b) => b.y + b.h > t.y + 1)) return false;
+  // (the run's block spans the block's content, as the boxes above it do: a centred line stays centred in it)
+  const x = Math.min(...flow.map((b) => b.x)),
+    y = Math.min(...run.map((b) => b.y)),
+    w = Math.max(...flow.map((b) => b.x + b.w)) - x,
+    h = Math.max(...run.map((b) => b.y + b.h)) - y;
+  const wrap: SceneElement = {
+    id: nid(ctx),
+    type: "frame",
+    name: `Text · ${t.el.name}`.slice(0, 60),
+    layout: { position: "absolute", x: r2(x), y: r2(y), width: r2(w), height: r2(h) },
+    style: {},
+    children: run.map((b) => b.el),
+  };
+  for (const b of run) b.el.layout = { ...b.el.layout, x: r2(b.x - x), y: r2(b.y - y) };
+  ctx.sizes.set(wrap, { w, h });
+  ctx.css.set(wrap, { display: "block", position: "static" });
+  const kids = frame.children ?? [];
+  const at = kids.indexOf(t.el);
+  frame.children = kids.flatMap((k, i) => (i === at ? [wrap] : run.some((b) => b.el === k) ? [] : [k]));
+  // the run first (its own lines), then the block around it
+  tryAutoLayout(ctx, wrap);
+  tryAutoLayout(ctx, frame);
+  return true;
+}
+
+/**
+ * A block holding one text and, on its last line right after it, a few small boxes (an info icon, a footnote button, a
+ * badge: the page's inline-block / inline-flex boxes in a line of text). Placed side by side or one under the other
+ * they would sit wherever they were at the capture width; the export lays them out as inline content instead
+ * (`meta.inline`: the block's children flow in its lines, fromDsl), so the boxes follow the text's last line at every
+ * width. Children in order (the text, then the boxes left to right), the frame as tall as its lines.
+ */
+function inlineRun(ctx: Ctx, frame: SceneElement, flow: Box[]): boolean {
+  const css = ctx.css.get(frame);
+  if (!css || !/^(block|list-item|flow-root)$/.test(css.display ?? "block") || frame.layout?.scroll)
+    return false;
+  if (inlineTail(ctx, frame, flow)) return true;
+  const texts = flow.filter((b) => b.el.type === "text");
+  if (texts.length !== 1 || flow.length < 2 || flow.length > 4) return false;
+  const t = texts[0]!;
+  const last = lastLineOfBox(ctx, t);
+  const boxes = flow.filter((b) => b !== t).sort((a, b) => a.x - b.x);
+  if (!last || !onLastLine(last, boxes)) return false;
+  const ordered = [t, ...boxes];
+  for (const b of ordered) unplace(b.el);
+  // the boxes keep the gap they had after the line (a space, a margin); the lines are as tall as their content, as on
+  // the page (a box taller than the text makes its line taller there too)
+  let x = last.x1;
+  for (const b of boxes) {
+    const gap = r2(Math.max(0, b.x - x));
+    if (gap >= 1) b.el.layout = { ...b.el.layout, margin: [0, 0, 0, gap] };
+    x = b.x + b.w;
+  }
+  t.el.layout = { ...t.el.layout, width: "fill" };
+  const lh = ctx.cssLine?.get(t.el);
+  if (lh) t.el.meta = { ...(t.el.meta ?? {}), cssLineHeight: lh };
+  const kids = frame.children ?? [];
+  const rest = kids.filter((k) => !ordered.some((b) => b.el === k));
+  // (its own padding as the page gives it: what is around the lines)
+  const pad = ctx.css.get(frame)?.padding ?? [0, 0, 0, 0];
+  frame.layout = {
+    ...frame.layout,
+    direction: "column",
+    gap: 0,
+    padding: [r2(pad[0] ?? 0), r2(pad[1] ?? 0), r2(pad[2] ?? 0), r2(pad[3] ?? 0)],
+    align: "stretch",
+    justify: "start",
+  };
+  if (typeof frame.layout.height === "number") frame.layout.height = "hug";
+  frame.children = [...ordered.map((b) => b.el), ...rest];
+  frame.meta = { ...(frame.meta ?? {}), inline: true };
+  ctx.stats.autoLayout++;
+  return true;
+}
+
 function autoLayoutPass(ctx: Ctx, el: SceneElement) {
   for (const c of el.children ?? []) autoLayoutPass(ctx, c);
-  // a scrolling frame keeps its slides where they were captured (flow layout would squeeze them into its width)
+  // a scrolling frame keeps its slides where they were captured (flow layout would squeeze them into its width);
+  // flow first: a horizontal slide track flows as a row of slides that keep their widths
   if (
     el.children?.length &&
     (el.type === "frame" || el.type === "button") &&
     el.layout?.position !== undefined &&
-    !el.layout.scroll
+    (!el.layout.scroll || (ctx.flow && el.layout.scroll === "horizontal"))
   )
     tryAutoLayout(ctx, el);
   // a frame hugging its content grows only where its parent flows it in a column (the rest below moves with it): in a
   // row or grid its height is the row's (equal cards), placed in its parent it keeps its box (neighbours do not move)
   const column = el.layout?.direction === "column" && !el.layout.grid;
+  // flow first: a row or grid whose boxes in each line are equally tall stretches them to the line (equal cards), so a
+  // box as tall as its content stays that way: the line is as tall as its tallest box wherever text wraps
+  const stretch = ctx.flow && !column && !el.layout?.wrap && equalLines(ctx, el);
+  let stretched = false;
+  // (flow first: in a row that centres its children, or as its only child, a box keeps its content's height)
+  const flowKids = (el.children ?? []).filter((c) => c.layout?.position !== "absolute");
+  const ownHeight =
+    ctx.flow &&
+    !el.layout?.grid &&
+    el.layout?.direction === "row" &&
+    (el.layout.align === "center" || !!el.layout.wrap || flowKids.length === 1);
   for (const c of el.children ?? []) {
     const was = ctx.hugFrom?.get(c);
-    if (was && c.layout?.height === "hug" && (!column || c.layout.position === "absolute"))
-      c.layout = { ...c.layout, height: was.height, padding: was.padding };
+    if (!was || c.layout?.height !== "hug" || (column && c.layout.position !== "absolute")) continue;
+    if (
+      !stretch &&
+      ownHeight &&
+      c.layout.position !== "absolute" &&
+      (!c.layout.alignSelf || c.layout.alignSelf === "center")
+    )
+      continue;
+    if (stretch && c.layout.position !== "absolute") {
+      const { height: _h, alignSelf: _a, ...rest } = c.layout;
+      c.layout = rest;
+      stretched = true;
+    } else if (ctx.flow)
+      // flow first: it keeps its box, and the padding it hugged with (the page's: an export that lets it follow its
+      // content again finds it there; with its height set it changes nothing)
+      c.layout = { ...c.layout, height: was.height };
+    else c.layout = { ...c.layout, height: was.height, padding: was.padding };
   }
+  if (stretched) el.layout = { ...el.layout, align: "stretch" };
+}
+
+/** The flow children of a row / grid frame: in each line (same top) equally tall, and top-aligned. */
+function equalLines(ctx: Ctx, el: SceneElement): boolean {
+  const flow = (el.children ?? []).filter((c) => c.layout?.position !== "absolute");
+  if (flow.length < 2 || (!el.layout?.grid && el.layout?.direction !== "row")) return false;
+  // a row is one line; a grid's lines are its rows (children with the same top)
+  const lines = new Map<number, number[]>();
+  for (const c of flow) {
+    const g = ctx.sizes.get(c);
+    const y = ctx.lineTop?.get(c);
+    if (!g || y === undefined) return false;
+    const k = el.layout?.grid ? Math.round(y) : 0;
+    lines.set(k, [...(lines.get(k) ?? []), g.h]);
+  }
+  return (
+    [...lines.values()].some((hs) => hs.length >= 2) &&
+    [...lines.values()].every((hs) => Math.max(...hs) - Math.min(...hs) <= 1)
+  );
+}
+
+/**
+ * A block whose children are all inline-level boxes (inline-block / inline-flex / inline-grid: link groups of a
+ * footer) lays them out in lines as a wrapping flex row starting at its start edge would. → that row's CSS, its gap
+ * between neighbours on a line read from the capture (the whitespace between them, the same everywhere ±1.5 px), or
+ * undefined when it is no such block.
+ */
+function inlineBlocks(ctx: Ctx, frame: SceneElement, flow: Box[]): SnapLayout | undefined {
+  const css = ctx.css.get(frame);
+  if (!css || !/^(block|flow-root|list-item)$/.test(css.display) || flow.length < 2) return undefined;
+  const disp = (b: Box) => ctx.css.get(b.el)?.display ?? ctx.displayOf.get(b.el) ?? "";
+  if (!flow.every((b) => /^inline-(block|flex|grid)$/.test(disp(b)))) return undefined;
+  const m = (b: Box) => ctx.marginOf.get(b.el) ?? [0, 0, 0, 0];
+  const gaps: number[] = [];
+  for (let i = 1; i < flow.length; i++) {
+    const a = flow[i - 1]!,
+      b = flow[i]!;
+    if (b.x > a.x + a.w - 1) gaps.push(b.x - m(b)[3]! - (a.x + a.w + m(a)[1]!));
+  }
+  if (gaps.length && Math.max(...gaps) - Math.min(...gaps) > 1.5) return undefined;
+  const gap = gaps.length ? Math.max(0, Math.min(...gaps)) : 0;
+  return {
+    ...css,
+    display: "flex",
+    wrap: "wrap",
+    dir: "row",
+    justify: "normal",
+    align: "normal",
+    gap: [0, gap],
+  };
+}
+
+/**
+ * A frame the page lays out as a wrapping flex row (`flex-wrap: wrap`): its lines rebuilt from the page's own gaps,
+ * paddings and the children's margins, and kept when that reproduces every child's position (±1.5 px). The frame then
+ * wraps its children at any width, as the page does.
+ */
+function cssWrapRow(
+  ctx: Ctx,
+  frame: SceneElement,
+  flow: Box[],
+  inner: { w: number; h: number },
+  under: SceneElement[],
+  over: SceneElement[],
+): boolean {
+  const css = inlineBlocks(ctx, frame, flow) ?? ctx.css.get(frame);
+  if (
+    !css ||
+    !/flex/.test(css.display) ||
+    css.wrap !== "wrap" ||
+    !/^row/.test(css.dir ?? "row") ||
+    flow.length < 2
+  )
+    return false;
+  if (css.dir === "row-reverse") return false;
+  const jc = css.justify ?? "normal";
+  const justify: NonNullable<SceneLayout["justify"]> = /^(normal|flex-start|start|left|stretch)$/.test(jc)
+    ? "start"
+    : /^(center)$/.test(jc)
+      ? "center"
+      : /^(flex-end|end|right)$/.test(jc)
+        ? "end"
+        : jc === "space-between"
+          ? "between"
+          : jc === "space-around"
+            ? "around"
+            : jc === "space-evenly"
+              ? "evenly"
+              : ("" as never);
+  if (!justify) return false;
+  const pad = css.padding ?? [0, 0, 0, 0];
+  const [rowGap, colGap] = css.gap ?? [0, 0];
+  const avail = inner.w - pad[1]! - pad[3]!;
+  const m = (b: Box) => ctx.marginOf.get(b.el) ?? [0, 0, 0, 0];
+  const lines: Box[][] = [];
+  let x = 0;
+  for (const b of flow) {
+    const w = b.w + m(b)[1]! + m(b)[3]!;
+    const line = lines[lines.length - 1];
+    if (!line || (line.length && x + colGap + w > avail + 0.5)) {
+      lines.push([b]);
+      x = w;
+    } else {
+      line.push(b);
+      x += colGap + w;
+    }
+  }
+  const alignTo = css.align ?? "normal";
+  const shifts = new Map<Box, number>();
+  let top = pad[0]!;
+  for (const line of lines) {
+    const lh = Math.max(...line.map((b) => b.h + m(b)[0]! + m(b)[2]!));
+    // the line's free room, spread as the page's justify-content spreads it
+    const used = line.reduce((t, b) => t + b.w + m(b)[1]! + m(b)[3]!, 0) + colGap * (line.length - 1);
+    const free = Math.max(0, avail - used);
+    const k = line.length;
+    const lead =
+      justify === "center"
+        ? free / 2
+        : justify === "end"
+          ? free
+          : justify === "around"
+            ? free / k / 2
+            : justify === "evenly"
+              ? free / (k + 1)
+              : 0;
+    const between =
+      justify === "between"
+        ? k > 1
+          ? free / (k - 1)
+          : 0
+        : justify === "around"
+          ? free / k
+          : justify === "evenly"
+            ? free / (k + 1)
+            : 0;
+    let at = pad[3]! + lead;
+    for (const b of line) {
+      const mb = m(b);
+      const off = /center/.test(alignTo)
+        ? (lh - b.h - mb[0]! - mb[2]!) / 2
+        : /end/.test(alignTo)
+          ? lh - b.h - mb[0]! - mb[2]!
+          : 0;
+      if (Math.abs(b.x - (at + mb[3]!)) > 1.5) return false;
+      // (a little off its line vertically: a margin collapsed into it from inside, the list's -10px through its
+      // wrappers; it keeps that shift, its line as tall as on the page)
+      const dy = b.y - (top + mb[0]! + off);
+      if (Math.abs(dy) > 1.5) {
+        if (!ctx.flow || Math.abs(dy) > 0.25 * b.h) return false;
+        shifts.set(b, dy);
+      }
+      at += mb[3]! + b.w + mb[1]! + colGap + between;
+    }
+    top += lh + rowGap;
+  }
+  const contentBottom = top - rowGap;
+  frame.layout = {
+    ...frame.layout,
+    direction: "row",
+    wrap: true,
+    gap: snap(colGap),
+    crossGap: snap(rowGap),
+    padding: [pad[0]!, pad[1]!, pad[2]!, pad[3]!].map(snap) as [number, number, number, number],
+    align: /center/.test(alignTo) ? "center" : /end/.test(alignTo) ? "end" : "start",
+    justify,
+  };
+  for (const b of flow) {
+    unplace(b.el);
+    // an item that is a wrapping row itself (a navigation inside a bar): as wide as its content, shrinking to the
+    // room left on its line, as a flex item does on the page
+    const inner = ctx.css.get(b.el);
+    if (
+      inner &&
+      /flex/.test(inner.display) &&
+      inner.wrap === "wrap" &&
+      (inner.shrink ?? 1) > 0 &&
+      !inner.basis
+    )
+      b.el.layout = { ...b.el.layout, width: "hug" };
+    const mb = [...m(b)];
+    const dy = shifts.get(b) ?? 0;
+    if (dy) {
+      mb[0] = mb[0]! + dy;
+      mb[2] = mb[2]! - dy;
+    }
+    if (mb.some((v) => v))
+      b.el.layout = { ...b.el.layout, margin: mb.map(snap) as [number, number, number, number] };
+    if (b.el.type === "text" && b.el.layout?.width === undefined) delete b.el.layout!.width;
+  }
+  frame.children = [...under, ...flow.map((b) => b.el), ...over];
+  // as tall as its lines: it hugs them (more lines at a narrower width make it taller)
+  if (
+    typeof frame.layout.height === "number" &&
+    Math.abs(inner.h - contentBottom - pad[2]!) <= 1 &&
+    !frame.layout.scroll
+  ) {
+    (ctx.hugFrom ??= new WeakMap()).set(frame, {
+      height: frame.layout.height,
+      padding: frame.layout.padding,
+    });
+    frame.layout.height = "hug";
+  }
+  anchorOutOfFlow(ctx, frame, inner);
+  ctx.stats.autoLayout++;
+  return true;
 }
 
 /* ------------------------------------------------------------------ fluid intent */
@@ -2387,8 +3250,8 @@ function fluidPass(ctx: Ctx, frame: SceneElement, geo: WeakMap<SceneElement, Geo
     if (L > 1 && near(L, R) && L > gutter && (l.justify ?? "start") === "start" && near(L, pad[3]))
       frame.layout = { ...l, justify: "center", padding: [pad[0], 0, pad[2], 0] };
     else if (
-      L > 1 &&
-      R > 1 &&
+      // inset on both sides, or flush with the frame (a grid spanning it keeps px tracks otherwise: they do not shrink)
+      ((L > 1 && R > 1) || (Math.abs(L) <= 0.5 && Math.abs(R) <= 0.5)) &&
       fluid(L, R) &&
       l.grid &&
       new Set(fg.map((g) => Math.round(g.w))).size === 1 &&
@@ -2403,14 +3266,14 @@ function fluidPass(ctx: Ctx, frame: SceneElement, geo: WeakMap<SceneElement, Geo
         ...l,
         grid: { ...l.grid, columns: n },
         justify: "start",
-        padding: [pad[0], inner - pad[3] - n * tw - (n - 1) * cg, pad[2], pad[3]],
+        padding: [pad[0], Math.max(0, inner - pad[3] - n * tw - (n - 1) * cg), pad[2], pad[3]],
       };
       for (const c of flow) {
         const { alignSelf: _a, ...rest } = c.layout ?? {};
         c.layout = { ...rest, width: "fill" };
         filled.add(c);
       }
-    } else if (L > 1 && R > 1 && fluid(L, R) && row && flow.length >= 2) {
+    } else if (L > 1 && R > 1 && fluid(L, R) && row && !l.wrap && flow.length >= 2) {
       // ends pinned to the insets: two groups split at the widest gap, justify between
       const order = flow.map((c, i) => ({ c, g: fg[i]! })).sort((a, b) => a.g.x - b.g.x);
       let cut = 1,
@@ -2481,7 +3344,27 @@ function fluidPass(ctx: Ctx, frame: SceneElement, geo: WeakMap<SceneElement, Geo
   const absKids = frame.children.filter(
     (c) => c.layout?.position === "absolute" && geo.has(c) && !c.layout?.rotation,
   );
+  const covering = new Set<SceneElement>();
+  // flow first: a placed layer covering its whole box (a backdrop, a gradient over a photo, a video layer) fills
+  // that box at any width and height, as the page's `inset: 0` does, instead of keeping its measured size
+  const innerH = size.h - bt - bb;
   for (const c of absKids) {
+    const g = geo.get(c)!;
+    const h = ctx.sizes.get(c)?.h ?? 0;
+    if (
+      !ctx.flow ||
+      Math.abs(g.x) > 1 ||
+      Math.abs(g.w - inner) > 1 ||
+      Math.abs(g.y) > 1 ||
+      Math.abs(h - innerH) > 1
+    )
+      continue;
+    const { x: _x, y: _y, right: _r, bottom: _b, constraints: _c, ...rest } = c.layout ?? {};
+    c.layout = { ...rest, x: 0, y: 0, width: "100%", height: "100%" };
+    covering.add(c);
+  }
+  for (const c of absKids) {
+    if (covering.has(c)) continue;
     const g = geo.get(c)!,
       L = g.x,
       R = inner - g.x - g.w;
@@ -2515,6 +3398,33 @@ function fluidPass(ctx: Ctx, frame: SceneElement, geo: WeakMap<SceneElement, Geo
     const L = g.x,
       R = inner - g.x - g.w;
     const abs = c.layout?.position === "absolute";
+    // flow first: a box the page caps with max-width (and centres with auto margins) that sits at its cap here
+    // fills its parent up to the cap at any width, centred, as the page has it
+    const capped = ctx.css.get(c)?.maxW;
+    if (ctx.flow && !abs && capped && Math.abs(g.w - capped) <= 1 && (row || col) && near(L, R)) {
+      const { alignSelf: _a, margin, ...rest } = c.layout ?? {};
+      const m = pad4(margin);
+      // a box that reaches past its parent on both sides (a full-bleed stage: negative margins): it keeps reaching
+      // past it by as much, up to its cap
+      const over = L < -1 ? snap(L - p[3]) : 0;
+      c.layout = over
+        ? {
+            ...rest,
+            width: "fill",
+            maxWidth: r2(capped),
+            margin: [m[0], over, m[2], over] as [number, number, number, number],
+          }
+        : {
+            ...rest,
+            width: "100%",
+            maxWidth: r2(capped),
+            ...(col ? { alignSelf: "center" as const } : {}),
+            ...(m[0] || m[2] ? { margin: [m[0], 0, m[2], 0] as [number, number, number, number] } : {}),
+          };
+      if (row) frame.layout = { ...frame.layout, justify: "center" };
+      fluidPass(ctx, c, geo, pageW);
+      continue;
+    }
     let stretch = filled.has(c) || (abs && c.layout?.constraints?.horizontal === "left-right");
     // (a single-line label hugs its text: nothing to reflow, the frame's alignment keeps it in place)
     if (
@@ -2649,8 +3559,13 @@ function unpinClipped(root: SceneElement) {
 
 /* ------------------------------------------------------------------ entry */
 
-export function snapshotToScreen(snap: Snapshot, opts: UrlImportOptions = {}): UrlImportResult {
-  if (!snap || snap.version !== 1 || !snap.root) throw new UrlImportError("Not a page snapshot (version 1)");
+export function snapshotToScreen(input: Snapshot, opts: UrlImportOptions = {}): UrlImportResult {
+  if (!input || input.version !== 1 || !input.root)
+    throw new UrlImportError("Not a page snapshot (version 1)");
+  // flow first: boxes the capture moved to their stacking context only to paint them in order, while the page keeps
+  // them in its flow (relative), go back to where the page lays them out
+  const snap = opts.flow !== false ? unstack(input) : input;
+  if (!snap.root) throw new UrlImportError("Not a page snapshot (version 1)");
   const ctx: Ctx = {
     snap,
     warn: new Warnings(),
@@ -2669,6 +3584,9 @@ export function snapshotToScreen(snap: Snapshot, opts: UrlImportOptions = {}): U
     controls: [],
     scrolled: scrolledBoxes(snap),
     css: new WeakMap(),
+    flow: opts.flow !== false,
+    marginOf: new WeakMap(),
+    displayOf: new WeakMap(),
   };
   const W = Math.round(snap.page.width),
     H = Math.ceil(snap.page.height);
@@ -2698,6 +3616,15 @@ export function snapshotToScreen(snap: Snapshot, opts: UrlImportOptions = {}): U
   const geo = new WeakMap<SceneElement, Geo>();
   recordGeometry(ctx, root, geo);
   if (opts.autoLayout !== false) for (const c of root.children ?? []) autoLayoutPass(ctx, c);
+  // flow first: the page's own blocks (header, main, footer) stack in its flow too, so the page is as tall as they are
+  if (opts.autoLayout !== false && ctx.flow && root.children?.length) {
+    root.layout = { ...root.layout, position: "absolute", x: 0, y: 0 };
+    tryAutoLayout(ctx, root);
+    // the page keeps its measured height as a number (the measured widths' heights are read from it); the export
+    // lets it follow its flowing content
+    const { position: _p, x: _x, y: _y, ...rest } = root.layout!;
+    root.layout = { ...rest, height: H };
+  }
   if (opts.fluid !== false) fluidPass(ctx, root, geo, W);
   for (const c of root.children ?? []) nameGroups(c);
   unpinClipped(root);
@@ -3138,7 +4065,7 @@ const PLACEMENT = [
 ] as const;
 
 /** One widget state's region walk converted on its own, at the region's top-left (the controls in it kept). */
-function regionVariant(parent: Snapshot, st: RegionState, prefix: string): UrlImportResult {
+function regionVariant(parent: Snapshot, st: RegionState, prefix: string, flow?: boolean): UrlImportResult {
   const s = st.snapshot,
     r = s.root!;
   const w = r2(r.rect.w),
@@ -3167,8 +4094,100 @@ function regionVariant(parent: Snapshot, st: RegionState, prefix: string): UrlIm
       page: { ...s.page, width: w, height: h, background: "transparent" },
       root,
     },
-    { idPrefix: prefix, keep },
+    { idPrefix: prefix, keep, ...(flow === false ? { flow: false } : {}) },
   );
+}
+
+/**
+ * The capture re-parents a z-indexed box to its stacking context so the tree paints like the page (`SnapElement.from`).
+ * The box then sits outside the box it is laid out in: in its flow (relative / static) its parent's boxes no longer
+ * add up, and placed (absolute) it is placed at a fixed offset in the stacking context whatever the width, not in the
+ * box it follows on the page. Flow first, such boxes go back to their DOM parent when they stay inside its box, before
+ * the first sibling below / after them (the converter keeps their z-index and paints them in order there,
+ * resolveLayers); fixed and sticky boxes and boxes reaching past their parent stay where the capture put them.
+ * → a copy of `snap` when any moved.
+ */
+export function unstack(snap: Snapshot): Snapshot {
+  const moved: { node: SnapElement; parent: SnapElement }[] = [];
+  const byId = new Map<number, SnapElement>();
+  let any = false;
+  const scan = (n: SnapElement) => {
+    byId.set(n.id, n);
+    for (const c of n.children ?? []) {
+      if (c.kind === "text") continue;
+      if (c.from !== undefined && !OUT_OF_FLOW.has(c.layout?.position ?? "static")) any = true;
+      scan(c);
+    }
+  };
+  scan(snap.root!);
+  if (!any) return snap;
+  const root = structuredClone(snap.root!);
+  byId.clear();
+  const collect = (n: SnapElement) => {
+    byId.set(n.id, n);
+    for (const c of n.children ?? []) {
+      if (c.kind === "text") continue;
+      if (c.from !== undefined && !OUT_OF_FLOW.has(c.layout?.position ?? "static"))
+        moved.push({ node: c, parent: n });
+      collect(c);
+    }
+  };
+  collect(root);
+  const top = (c: SnapNode) => (c.kind === "text" ? c.lines[0]?.y : c.rect?.y);
+  const left = (c: SnapNode) => (c.kind === "text" ? c.lines[0]?.x : c.rect?.x);
+  for (const { node, parent } of moved) {
+    const to = byId.get(node.from!);
+    if (!to || to === node || !parent.children) continue;
+    // (an ancestor of its old parent: the box would end up inside itself otherwise)
+    if (contains(node, to)) continue;
+    // only a box inside its DOM parent's box: one reaching past it (pulled up over the band before it by a negative
+    // margin) is painted over boxes outside its parent, which only the stacking context can keep it above
+    const r = node.rect,
+      p = to.rect;
+    if (!p || r.x < p.x - 1 || r.y < p.y - 1 || r.x + r.w > p.x + p.w + 1 || r.y + r.h > p.y + p.h + 1)
+      continue;
+    parent.children = parent.children.filter((c) => c !== node);
+    const kids = (to.children ??= []);
+    const y = node.rect.y,
+      x = node.rect.x;
+    const at = kids.findIndex((c) => {
+      const cy = top(c),
+        cx = left(c);
+      return cy !== undefined && (cy > y + 0.5 || (Math.abs(cy - y) <= 0.5 && (cx ?? 0) > x + 0.5));
+    });
+    kids.splice(at < 0 ? kids.length : at, 0, node);
+    delete node.from;
+  }
+  return { ...snap, root };
+}
+// (fixed and sticky boxes stay where the capture put them: the export pins them to the page, their DOM parent may be
+// short; an absolute one goes back to be placed in the box it is placed in on the page)
+const OUT_OF_FLOW = new Set(["fixed", "sticky"]);
+function contains(n: SnapElement, target: SnapElement): boolean {
+  if (n === target) return true;
+  return (n.children ?? []).some((c) => c.kind !== "text" && contains(c, target));
+}
+
+/** The box of the node an alt walk names as main-walk node `base` (null when the walk has none). */
+function baseRect(root: SnapNode, base: number): SnapRect | null {
+  const n = root as SnapElement & { base?: number };
+  if (n.base === base && n.rect) return n.rect;
+  for (const c of n.children ?? []) {
+    const r = baseRect(c, base);
+    if (r) return r;
+  }
+  return null;
+}
+
+/** The captured box of snapshot node `id` (null when the walk has none). */
+function snapRect(root: SnapNode | undefined, id: number): SnapRect | null {
+  if (!root || typeof root !== "object") return null;
+  if ((root as SnapElement).id === id && (root as SnapElement).rect) return (root as SnapElement).rect;
+  for (const c of (root as SnapElement).children ?? []) {
+    const r = snapRect(c, id);
+    if (r) return r;
+  }
+  return null;
 }
 
 /**
@@ -3182,6 +4201,8 @@ function regionVariant(parent: Snapshot, st: RegionState, prefix: string): UrlIm
 export function applyRegionStates(
   snap: Snapshot,
   res: UrlImportResult,
+  /** convert the states as the page was (UrlImportOptions.flow) */
+  flow?: boolean,
 ): { warnings: string[]; fonts: ProjectFont[] } {
   const states = regionStatesOf(snap);
   const out = { warnings: [] as string[], fonts: [] as ProjectFont[] };
@@ -3205,7 +4226,11 @@ export function applyRegionStates(
     // states would be whole copies of the page, hidden behind it
     const pageH = Number(snap.page?.height) || 0;
     const viewH = Number(snap.viewport?.height) || 1000;
-    const regionH = Number(base.layout?.height) || 0;
+    // (its captured box: in flow its layout height may be its content's, "hug")
+    const regionH =
+      typeof base.layout?.height === "number"
+        ? base.layout.height
+        : (snapRect(snap.root ?? undefined, region)?.h ?? 0);
     if (pageH && regionH > viewH * 2 && regionH >= pageH * 0.6) {
       out.warnings.push(
         `widget "${list[0]!.label ?? ""}": its region is most of the page (${Math.round(regionH)} of ${Math.round(pageH)} px), its states are left out`,
@@ -3214,9 +4239,36 @@ export function applyRegionStates(
     }
     const place: SceneLayout = {},
       own: SceneLayout = {};
+    // (the region's geometry measured at other widths goes with its place: the state frame follows the page there)
     for (const [k, v] of Object.entries(base.layout ?? {}))
-      ((PLACEMENT as readonly string[]).includes(k) ? place : own)[k as keyof SceneLayout] = v as never;
+      ((PLACEMENT as readonly string[]).includes(k) || k === "fluid" ? place : own)[k as keyof SceneLayout] =
+        v as never;
     const width: SceneLayout["width"] = typeof place.width === "number" ? place.width : "100%";
+    // flow first: the states sit in the frame's flow, one shown at a time (the others `display: none`; the runtime
+    // swaps them): the frame is as tall as the state shown, as the region on the page is. Fitted: they are layers over
+    // each other at the frame's top-left, the frame as tall as the region was captured.
+    const inFlow = flow !== false;
+    const stateLayout = (l: SceneLayout, height: SceneLayout["height"]): SceneLayout => {
+      if (!inFlow) return { ...l, ...at(height) };
+      const { position: _p, x: _x, y: _y, right: _r, bottom: _b, constraints: _c, ...rest } = l;
+      return { ...rest, width: "fill", ...(typeof height === "number" ? { height } : {}) };
+    };
+    if (inFlow && typeof place.height !== "number") {
+      // (a region as tall as its content: the frame too)
+    } else if (typeof place.height !== "number" && regionH > 0) {
+      place.height = r2(regionH);
+      // …and its height at the widths the page was walked at (the region's box there), so it follows the page
+      const fluid = [...(place.fluid ?? [])];
+      for (const a of snap.alt ?? []) {
+        const at = Math.round(Number(a.page?.width ?? a.viewport?.width ?? 0));
+        const r = a.root ? baseRect(a.root, region) : null;
+        if (!at || !r || Math.abs(r.h - regionH) <= 0.5) continue;
+        const i = fluid.findIndex((f) => f.at === at);
+        if (i >= 0) fluid[i] = { ...fluid[i]!, height: r2(r.h) };
+        else fluid.push({ at, height: r2(r.h) });
+      }
+      if (fluid.length) place.fluid = fluid.sort((x, y) => x.at - y.at);
+    }
     const at = (height: SceneLayout["height"]): SceneLayout => ({
       position: "absolute",
       x: 0,
@@ -3224,15 +4276,19 @@ export function applyRegionStates(
       width,
       height,
     });
-    const first: SceneElement = { ...base, layout: { ...own, ...at(place.height) } };
+    // the region as captured fills the state frame (it is that region); the other states keep their own height
+    const first: SceneElement = {
+      ...base,
+      layout: inFlow ? stateLayout(own, undefined) : { ...own, ...at(place.height) },
+    };
     const variants = list.map((st, i) => {
-      const v = regionVariant(snap, st, `${prefix}s${i}-`);
+      const v = regionVariant(snap, st, `${prefix}s${i}-`, flow);
       out.fonts.push(...v.fonts);
       const { clip: _c, ...rest } = v.screen.root.layout ?? {};
       v.screen.root = {
         ...v.screen.root,
         name: `State · ${st.label || i + 1}`,
-        layout: { ...rest, ...at(v.screen.height) },
+        layout: stateLayout(rest, v.screen.height),
       };
       return { st, v };
     });

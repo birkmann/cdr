@@ -60,6 +60,8 @@ export const harness = {
 export const app = {
   info: () => call<AppInfo>("app_info"),
   openWorkspace: (path: string) => call<Workspace>("workspace_open", { path }),
+  /** Make a folder readable by the file commands, without opening it. */
+  allowFolder: (path: string) => call<void>("workspace_allow", { path }),
   recent: () => call<RecentRepo[]>("workspace_recent"),
   forget: (path: string) => call<void>("workspace_forget", { path }),
   setCloneDir: (path: string) => call<void>("settings_set_clone_dir", { path }),
@@ -153,6 +155,13 @@ export interface GitStatus {
   files: FileStatus[];
   mergeInProgress: boolean;
   rebaseInProgress: boolean;
+}
+/** What the project column shows about a folder, open in the editor or not. */
+export interface GitSummary {
+  isRepo: boolean;
+  status: GitStatus | null;
+  added: number;
+  deleted: number;
 }
 export interface DiffLine {
   kind: "add" | "del" | "context";
@@ -264,6 +273,7 @@ export const git = {
   isRepo: (root: string) => call<boolean>("git_is_repo", { root }),
   init: (root: string) => call<void>("git_init", { root }),
   status: (root: string) => call<GitStatus>("git_status", { root }),
+  summary: (path: string) => call<GitSummary>("git_summary", { path }),
   diffFile: (root: string, path: string, staged: boolean) =>
     call<FileDiff>("git_diff_file", { root, path, staged }),
   diffText: (root: string, staged: boolean) => call<string>("git_diff_text", { root, staged }),

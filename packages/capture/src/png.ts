@@ -8,6 +8,8 @@ export interface RgbImage {
   width: number;
   height: number;
   data: Uint8Array;
+  /** decoded images only: the highest alpha of any pixel (255 for images without alpha) */
+  maxAlpha?: number;
 }
 
 const SIG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -46,6 +48,7 @@ export function decodePng(input: Uint8Array): RgbImage {
   if (!channels) throw new Error(`unsupported PNG colour type ${color}`);
   const raw = inflateSync(Buffer.concat(idat));
   const out = new Uint8Array(width * height * 3);
+  let maxAlpha = 0;
   const bitsPP = channels * depth;
   const bpp = Math.max(1, bitsPP >> 3);
   const sample = (row: Uint8Array, x: number, c: number) => {
@@ -77,6 +80,7 @@ export function decodePng(input: Uint8Array): RgbImage {
       if (color === 6) a = sample(row, x, 3);
     }
     const o = (oy * width + ox) * 3;
+    if (a > maxAlpha) maxAlpha = a;
     if (a === 255) {
       out[o] = r;
       out[o + 1] = g;
@@ -115,7 +119,16 @@ export function decodePng(input: Uint8Array): RgbImage {
       prev = row;
     }
   }
-  return { width, height, data: out };
+  return { width, height, data: out, maxAlpha };
+}
+
+/** A PNG with no visible pixel (every alpha at most 2 of 255); false for anything that does not decode. */
+export function isBlankPng(input: Uint8Array): boolean {
+  try {
+    return (decodePng(input).maxAlpha ?? 255) <= 2;
+  } catch {
+    return false;
+  }
 }
 
 function unfilter(f: number, row: Uint8Array, prev: Uint8Array, bpp: number) {

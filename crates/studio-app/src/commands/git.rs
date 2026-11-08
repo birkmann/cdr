@@ -84,6 +84,13 @@ pub async fn git_is_repo(root: String, state: State<'_, AppState>) -> CmdResult<
     blocking(move || Ok(g::is_repo(&root))).await
 }
 
+/// Read-only summary of a conversation's project, which need not be the open workspace.
+#[tauri::command]
+pub async fn git_summary(path: String) -> CmdResult<g::Summary> {
+    let path = crate::project_folder(std::path::Path::new(&path))?;
+    blocking(move || g::summary(&path).map_err(err)).await
+}
+
 repo_cmd!(git_init() -> () => |r| g::init(&r));
 repo_cmd!(git_status() -> g::Status => |r| g::status(&r));
 repo_cmd!(git_diff_file(path: String, staged: bool) -> g::FileDiff => |r| g::diff_file(&r, &path, staged));

@@ -1,0 +1,39 @@
+{
+  "name": "@harness/design-system",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Design systems from a URL or images: brand reading, token system with themes, Lit web components, React and Angular wrappers, docs.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/birkmann/cdr.git",
+    "directory": "packages/design-system"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@harness/protocol": "workspace:*",
+    "@harness/capture": "workspace:*",
+    "@harness/scene": "workspace:*",
+    "@harness/extract": "workspace:*"
+  },
+  "devDependencies": {
+    "@lit/react": "^1.0.8",
+    "@types/react": "^18.3.31",
+    "lit": "^3.3.1",
+    "react": "^18.3.1"
+  }
+}

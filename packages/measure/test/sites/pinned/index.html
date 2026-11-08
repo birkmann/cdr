@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pinned</title>
+    <style>
+      /* A recreation that only holds where it was checked: every box placed by coordinates, the coordinates corrected
+         for exactly the widths a gate looks at (the captures 390, 768, 1440 and the old sweep 320, 579, 1104, 1920,
+         2560). In between, the text runs over the next box. */
+      body { margin: 0; font: 16px/24px system-ui, sans-serif; }
+      .card { position: relative; height: 150px; margin: 16px; background: #eee; }
+      .card h3 { position: absolute; left: 16px; top: 16px; margin: 0; width: calc(100% - 32px); font-size: 20px; line-height: 28px; }
+      .card p { position: absolute; left: 16px; top: 52px; margin: 0; width: calc(100% - 32px); }
+      .card a { position: absolute; left: 16px; top: 76px; }
+      @media (width: 320px), (width: 390px), (width: 579px) { .card a { top: 124px; } }
+      @media (width: 768px), (width: 1104px) { .card a { top: 100px; } }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h3>Summit tent</h3>
+      <p>Two-person, 1.9 kg, four seasons, and a porch for wet boots and a stove on rainy evenings.</p>
+      <a href="#t">Learn more</a>
+    </div>
+  </body>
+</html>

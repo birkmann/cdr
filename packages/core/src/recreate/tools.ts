@@ -3,8 +3,10 @@
 import { existsSync, readFileSync } from "node:fs";
 import type { RecreateRequest, RecreateStage, RecreateTarget } from "@harness/protocol";
 import { isRunId, RunDir, runRecreate, type RecreateResult, type RunManifest } from "@harness/recreate";
-import { formatReport, sectionBand, type MeasureReport } from "@harness/measure";
+import { decodePng, cropRows, encodePng } from "@harness/capture";
+import { formatReport, sectionBand, sectionClasses, type MeasureReport } from "@harness/measure";
 import type { Tool, ToolContext, ToolResult } from "../tools/types.js";
+import { attemptLines, measureRefusal, recordMeasure, resetAttempts, restoredMeasured } from "./attempts.js";
 import { recreateHost } from "./host.js";
 
 function needRun(ctx: ToolContext, run: unknown): { dir: RunDir; m: RunManifest } | ToolResult {
@@ -168,6 +170,8 @@ export const recreateBuildTool: Tool = {
       },
       { stopAfter: "build" },
     );
+    // a new output: earlier measures and their best copy describe another page
+    if (r.status === "success") resetAttempts(got.dir);
     return {
       ok: r.status === "success",
       output: `${r.summary}\n${stageLines(r)}\nOutput: ${index}. Next: recreate_measure.`,
@@ -191,8 +195,12 @@ export const recreateMeasureTool: Tool = {
   async execute(args: { run: string }, ctx) {
     const got = needRun(ctx, args.run);
     if ("ok" in got) return got;
+    const refused = measureRefusal(got.dir);
+    if (refused) return { ok: false, output: refused };
     const r = await runStages(ctx, got, args.run, "measure", "measure");
     const reports = r.reports;
+    // the worst widths between the captures first: that is where a recreation that only fits its checks breaks
+    const sweepImages = reports.flatMap((rep: MeasureReport) => sweepCrops(got.dir, rep).slice(0, 2));
     const images = reports.flatMap((rep: MeasureReport) =>
       rep.widths.flatMap((w) => {
         const worst = [...w.bands]
@@ -215,10 +223,26 @@ export const recreateMeasureTool: Tool = {
         ];
       }),
     );
+    const all = [...sweepImages, ...images].slice(0, 6);
+    // after the crops: a version that measures worse is replaced by the best one here
+    const statik = reports.find((rep: MeasureReport) => rep.target === "static");
+    const attempt = statik ? recordMeasure(got.dir, statik) : undefined;
+    if (attempt?.restored) {
+      const ev = restoredMeasured(got.dir);
+      if (ev) ctx.emit(ev);
+    }
     return {
       ok: r.status === "success",
-      output: `${reports.map(formatReport).join("\n\n") || r.summary}\nCompare page: ${r.comparePath ?? "(none)"}`,
-      ...(images.length ? { images: images.slice(0, 6) } : {}),
+      output: [
+        reports.map(formatReport).join("\n\n") || r.summary,
+        ...reports.map(betweenWidths),
+        "The responsive and flow gates are never traded for pixels at the captured widths: a patch that fails them is undone.",
+        `Compare page: ${r.comparePath ?? "(none)"}`,
+        ...(attempt ? attemptLines(attempt, statik!.pass) : []),
+      ]
+        .filter(Boolean)
+        .join("\n"),
+      ...(all.length ? { images: all } : {}),
     };
   },
 };
@@ -329,6 +353,16 @@ export const recreateSectionTool: Tool = {
     const blocks = [
       ...html.matchAll(new RegExp(`<!-- section:${args.id} -->[\\s\\S]*?<!-- /section -->`, "g")),
     ].map((m) => m[0]);
+    const report = got.dir.exists("measure/static/report.json")
+      ? (() => {
+          try {
+            return got.dir.readJson<MeasureReport>("measure/static/report.json");
+          } catch {
+            return null;
+          }
+        })()
+      : null;
+    const between = report ? sectionIssues(report, args.id, html) : [];
     const images = s.copies.flatMap((c) => {
       const livePath = `measure/static/${c.width}/live.png`;
       const outPath = `measure/static/${c.width}/out.png`;
@@ -349,11 +383,81 @@ export const recreateSectionTool: Tool = {
         images.length
           ? "Images: live then recreation per width (crops measured at the last recreate_measure)."
           : "Run recreate_measure for crops.",
-      ].join("\n"),
+        between.length
+          ? `At the last recreate_measure, between the captured widths and in its CSS:\n${between.map((x) => `- ${x}`).join("\n")}\nFix the layout rule (flex-wrap, grid with minmax(), clamp(), height: auto), not the numbers at the captured widths.`
+          : report
+            ? "No problems found for this section between the captured widths at the last recreate_measure."
+            : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
       ...(images.length ? { images } : {}),
     };
   },
 };
+
+/** The sweep's failing widths and the flow gate's findings, for the agent (formatReport has the gate lines). */
+function betweenWidths(rep: MeasureReport): string {
+  const bad = (rep.sweep ?? []).filter((c) => !c.pass);
+  const lines: string[] = [];
+  if (rep.sweep?.length)
+    lines.push(
+      `Between and beyond the captured widths: ${bad.length} of ${rep.sweep.length} widths fail${bad.length ? ":" : "."}`,
+      ...bad.slice(0, 10).map((c) => `  ${c.width}px ${c.issues.join("; ")}`),
+    );
+  const f = rep.flow;
+  if (f) {
+    const failing = f.violations.filter(
+      (v) => f.gating.includes(v.rule) && (v.added || !v.rule.startsWith("added-")),
+    );
+    if (failing.length)
+      lines.push(
+        "CSS that only holds where it was checked:",
+        ...failing.slice(0, 8).map((v) => `  ${v.rule}: ${v.detail}${v.selector ? ` (${v.selector})` : ""}`),
+      );
+  }
+  return lines.join("\n");
+}
+
+/** Crops of the output at the worst failing sweep widths that were shot (around the first problem found there). */
+function sweepCrops(dir: RunDir, rep: MeasureReport) {
+  const bad = (rep.sweep ?? [])
+    .filter((c) => !c.pass && dir.exists(`measure/${rep.target}/sweep/${c.width}.png`))
+    .sort((a, b) => b.issues.length - a.issues.length);
+  return bad.flatMap((c) => {
+    try {
+      const img = decodePng(dir.read(`measure/${rep.target}/sweep/${c.width}.png`));
+      const y = c.pairs?.[0]?.y ?? c.clipped?.[0]?.y ?? 0;
+      const top = Math.max(0, Math.min(img.height - 1, y - 200));
+      return [
+        {
+          mimeType: "image/png",
+          data: encodePng(cropRows(img, top, Math.min(500, img.height - top))).toString("base64"),
+          name: `out-${c.width}-${top}.png`,
+        },
+      ];
+    } catch {
+      return [];
+    }
+  });
+}
+
+/** What the last measurement found for one section: overlaps and cut text between the captures, its flow findings. */
+function sectionIssues(rep: MeasureReport, id: string, html: string): string[] {
+  const out: string[] = [];
+  for (const c of rep.sweep ?? []) {
+    for (const p of c.pairs ?? [])
+      if (p.section === id)
+        out.push(`${c.width}px: "${p.a}" overlaps ${p.kind === "media" ? "an image" : `"${p.b}"`}`);
+    for (const x of c.clipped ?? [])
+      if (x.section === id) out.push(`${c.width}px: "${x.text}" is cut off by its box`);
+  }
+  const classes = sectionClasses(html).sections.get(id) ?? new Set<string>();
+  for (const v of rep.flow?.violations ?? [])
+    if (v.selector && [...v.selector.matchAll(/\.(-?[_a-zA-Z][\w-]*)/g)].some((m) => classes.has(m[1]!)))
+      out.push(`${v.rule}: ${v.detail} (${v.selector})`);
+  return out.slice(0, 30);
+}
 
 export function recreateTools(enabled = true): Tool[] {
   if (!enabled) return [];

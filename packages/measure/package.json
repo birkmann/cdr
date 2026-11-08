@@ -25,8 +25,9 @@
     "build": "tsc -b"
   },
   "dependencies": {
-    "@harness/protocol": "workspace:*",
     "@harness/capture": "workspace:*",
-    "@harness/scene": "workspace:*"
+    "@harness/protocol": "workspace:*",
+    "@harness/scene": "workspace:*",
+    "postcss": "8.5.32"
   }
 }

@@ -15,6 +15,12 @@ export interface SessionRecreateOptions {
   runBuilds?: (dir: string) => Promise<{ ok: boolean; output: string }>;
   /** stop after this stage (`cdr recreate capture`) */
   stopAfter?: import("@harness/protocol").RecreateStage;
+  /**
+   * Run beside an agent working in the same checkout: no project lock and no turn checkpoint. Only honoured when
+   * the run writes nothing but its own `.harness/recreate/<run>` folder (no `out`). Another process cannot tell
+   * such a run is live, so only the server, which shows its own runs, asks for it.
+   */
+  shareCheckout?: boolean;
 }
 
 export async function recreateInSession(
@@ -23,7 +29,8 @@ export async function recreateInSession(
   o: SessionRecreateOptions = {},
 ): Promise<RecreateResult> {
   // the run holds the session like an agent run does: project lock, status, and Stop (session.cancel()) aborts it
-  return session.runExclusive(() => recreateRun(session, request, o));
+  const projectLock = !(o.shareCheckout && request.out === undefined);
+  return session.runExclusive(() => recreateRun(session, request, o), { projectLock });
 }
 
 async function recreateRun(

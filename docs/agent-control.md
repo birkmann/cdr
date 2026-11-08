@@ -6,11 +6,11 @@ It describes the code as of November 2026. Sections 1 to 6 are how things work t
 
 ## 1. The short answer
 
-- **A row in the Agents view is a saved conversation, not a running program.** Each row is one JSONL event log in `~/.harness/sessions/`. A row with a green dot is finished or idle: it uses no CPU, no memory and no tokens. It only takes disk space.
+- **A row in the conversation list is a saved conversation, not a running program.** Each row is one JSONL event log in `~/.harness/sessions/`. A row with a green dot is finished or idle: it uses no CPU, no memory and no tokens. It only takes disk space.
 - **Only rows under "Running" are active**: a pulsing dot (running) or an amber dot (waiting for you). The status bar's "N agents working" counts exactly those, and the Running section lists all of them, in any folder.
 - **Nothing creates conversations on its own.** Every row was started by a person sending a message, by an agent calling `spawn_agent`, or by a goal. Section 3 lists every path.
 - **All agents of one app window run inside one Node process**, the harness server (`cdr serve`) that the desktop app starts. There is not one process per agent. Quitting the app stops that server and every run in it.
-- **The list never shrinks by itself.** Delete conversations you no longer need with the × on their row in the Agents view (section 5). With no folder open, every new conversation creates a new sandbox, so the list grows quickly.
+- **The list never shrinks by itself.** Delete conversations you no longer need with the × on their row in the chat view's list (section 5). With no folder open, every new conversation creates a new sandbox, so the list grows quickly.
 
 ## 2. Terms
 
@@ -35,7 +35,7 @@ These are all the ways a conversation is created. There is no background job tha
 | You, with no folder open | First message of a new conversation | `sandbox: true` | A new sandbox. Every new conversation gets its own. |
 | You, duplicating or branching | "Duplicate" or "Branch from here" | `forkedFrom` is set, title ends in "(copy)" or "(branch)" | Same folder as the original |
 | An agent | `spawn_agent` tool call during a run | `parentSessionId` is set, title starts with the role (`executor: …`) | Parent's folder (read-only helper) or a new worktree (writing helper) |
-| A goal | Goals view, `cdr goal run`, or its schedule | `goalId` is set, "goal" badge | A worktree on `cdr/goal-<slug>` |
+| A goal | The Goals section of the chat view's project column, `cdr goal run`, or its schedule | `goalId` is set, "goal" badge | A worktree on `cdr/goal-<slug>` |
 | The CLI or the web app | `cdr`, `cdr run`, `cdr serve` | Same log folder, so it appears in the desktop app too | The folder the command ran in |
 | Tests and scripts | e2e runs or any script that uses the harness against the real `~/.harness` | Often a project path that no longer exists | Usually a temp folder |
 
@@ -94,18 +94,18 @@ With the defaults, one top-level run can have at most 3 helpers, and each writin
 
 | What you want | Desktop app | CLI or API |
 | --- | --- | --- |
-| See what is active | Agents view (Ctrl+Shift+A), "Running" section: every running or waiting agent in any folder, with its origin, elapsed time, model and tokens. Status bar shows "N agents working". | `cdr sessions`, `GET /sessions` (`runStartedAt`, `usage`, `runner`) |
+| See what is active | The chat view's list, **Working** and **Waiting**: every conversation with a running or waiting agent in any folder, with its origin and elapsed time. The project column (Ctrl+Shift+A) adds subagents, model and tokens. Status bar shows "N agents working". | `cdr sessions`, `GET /sessions` (`runStartedAt`, `usage`, `runner`) |
 | See where a conversation came from | Origin label on its row: app, web, terminal, API, subagent, goal, copy or branch. Hover it for details. | `origin`, `parentSessionId`, `goalId`, `forkedFrom` in `GET /sessions` |
 | Stop one agent | Stop button on its row, or in the conversation | `POST /sessions/:id/cancel` |
 | Stop all agents | "Stop all" in the Running section | `POST /sessions/cancel-all` |
 | Stop a helper tree | Stop the parent. Children never outlive their parent's run. | Same |
 | Continue a run cut off by a crash or quit | The row shows "interrupted"; open it and click "Continue job" | `POST /sessions/:id/continue` |
-| Answer what agents are waiting for | "Waiting for you" inbox at the top of the Agents view | In the terminal that owns the run |
+| Answer what agents are waiting for | Under the conversation in the **Waiting** group of the chat view's list | In the terminal that owns the run |
 | Limit what an agent may do | Permission mode per conversation (Ask, Auto, Yolo), allow and deny lists | `permissions` in `cdr.config.json` |
 | Limit what it may spend | No control in the UI for conversations. Goals have a budget form. | `limits` in `cdr.config.json` |
-| Pause, discard or merge a goal | Goals view (Ctrl+Shift+J) | `cdr goal merge` / `discard` |
+| Pause, discard or merge a goal | The Goals section of the chat view's project column (Ctrl+Shift+J) | `cdr goal merge` / `discard` |
 | Undo an agent's file changes | "Restore files to here" on any message | `/rewind` |
-| Delete a conversation | × on its row in the Agents view ("All" filter). Conversations whose folder was deleted are listed under "Folder deleted". | Web app sidebar, or `DELETE /sessions/:id[?folder=true]` |
+| Delete a conversation | × on its row in the chat view's list. Conversations whose folder was deleted are listed under "Folder deleted". | Web app sidebar, or `DELETE /sessions/:id[?folder=true]` |
 | Stop everything | "Stop all", or quit the app. The harness server is killed with it. | Ctrl+C in the terminal |
 
 Deleting a conversation also deletes its subagents' logs, removes their worktrees, and deletes their branches once they are merged. A worktree with uncommitted changes and an unmerged branch are kept, and the app says so. For a sandbox conversation the app then asks whether to delete the sandbox folder and its checkpoints too; it only offers this when no other conversation uses the folder, and never for a folder outside `~/.harness/sandboxes`. A running conversation cannot be deleted.

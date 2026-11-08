@@ -33,11 +33,13 @@ const TOOL_CATEGORY: Record<string, StepCategory> = {
   use_unsplash_photo: "build",
   set_preview: "build",
   set_launch: "build",
+  design_system: "build",
   recreate_build: "build",
   recreate_section: "build",
   recreate_components: "build",
   recreate_convert: "build",
   check_preview: "check",
+  check_app: "check",
   run_verification: "check",
   recreate_measure: "check",
   bash: "run",
@@ -256,6 +258,8 @@ export function toolLabel(t: ToolCallView): string {
       return `Listed ${path || "."}`;
     case "check_preview":
       return `Checked the preview${path ? ` of ${path}` : ""}`;
+    case "check_app":
+      return `Play-tested \`${command.length > 60 ? `${command.slice(0, 57)}…` : command}\``;
     case "load_skill":
       return `Loaded skill ${argOf(t, "name")}`;
     case "search_unsplash":
@@ -306,6 +310,9 @@ function describeTools(list: ToolCallView[]): string {
         break;
       case "check_preview":
         part = plural(n, "preview check");
+        break;
+      case "check_app":
+        part = plural(n, "play-test");
         break;
       case "run_verification":
         part = plural(n, "verification run");

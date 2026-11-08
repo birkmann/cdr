@@ -94,6 +94,8 @@ const snap = (children: SnapNode[], o: Partial<Snapshot> = {}): Snapshot => ({
 const all = (el: SceneElement): SceneElement[] => [el, ...(el.children ?? []).flatMap(all)];
 const find = (el: SceneElement, pred: (e: SceneElement) => boolean) => all(el).find(pred);
 const conv = (s: Snapshot, autoLayout = false) => snapshotToScreen(s, { autoLayout });
+/** the fitted geometry (flow: false): every box where it was measured, only what lines up exactly in auto layout */
+const fitted = (s: Snapshot, autoLayout = false) => snapshotToScreen(s, { autoLayout, flow: false });
 
 describe("snapshotToScreen", () => {
   it("rejects anything that is not a v1 snapshot", () => {
@@ -193,14 +195,14 @@ describe("snapshotToScreen", () => {
     expect(link.style?.decoration?.line).toBe("underline");
     // the paragraph's base style carries no underline (it would propagate to every run)
     expect(t.style?.decoration).toBeUndefined();
-    expect(t.style).toMatchObject({
-      fontFamily: "Transit, Arial",
-      fontSize: 16,
-      lineHeightPx: 24,
-      whiteSpace: "pre",
-    });
+    expect(t.style).toMatchObject({ fontFamily: "Transit, Arial", fontSize: 16, lineHeightPx: 24 });
+    // flow first: a line with room left in its block is a paragraph that wraps when the block narrows
+    expect(t.style?.whiteSpace).toBeUndefined();
+    expect(t.layout?.width).toBe(600);
     // the line box starts at the block's top (not 0.5 above it: Chromium rounds the half-leading)
     expect(t.layout).toMatchObject({ x: 0, y: 0 });
+    // fitted: a single line never wraps
+    expect(find(fitted(snap([p])).screen.root, (e) => e.type === "text")!.style?.whiteSpace).toBe("pre");
   });
 
   it("reflows a wrapped paragraph at the content width with soft hyphens at hyphenation points", () => {
@@ -216,11 +218,18 @@ describe("snapshotToScreen", () => {
         ]),
       ],
     );
-    const t = find(conv(snap([p])).screen.root, (e) => e.type === "text")!;
+    // fitted: the break inside the word is a hyphenation point (a soft hyphen)
+    const t = find(fitted(snap([p])).screen.root, (e) => e.type === "text")!;
     expect(t.text).toBe("Über 16.000 € im ersten Jahr ver­dienen? Jetzt bewerben!");
     // the captured content width, not rounded up (a wider box can pull the next word up)
     expect(t.layout?.width).toBe(200);
     expect(t.style?.whiteSpace).toBeUndefined();
+    // flow first: a page that does not hyphenate broke the word only to fit its box; the word stays whole (the box
+    // breaks it again where it has to, at any width) and the text is marked as one that breaks words
+    const f = find(conv(snap([p])).screen.root, (e) => e.type === "text")!;
+    expect(f.text).toBe("Über 16.000 € im ersten Jahr verdienen? Jetzt bewerben!");
+    expect(f.layout?.width).toBe(200);
+    expect(f.meta?.breaksWords).toBe(true);
   });
 
   it("a page that hyphenates itself keeps hyphens: auto (every browser hyphenates as on the page)", () => {
@@ -252,8 +261,13 @@ describe("snapshotToScreen", () => {
         line("für sehr wenig Mäuse.", 0, 26, 165),
       ]),
     ]);
-    const t = find(conv(snap([p])).screen.root, (e) => e.type === "text")!;
+    // fitted: the break stays where the page put it
+    const t = find(fitted(snap([p])).screen.root, (e) => e.type === "text")!;
     expect(t.text).toBe("Das Deutschlandticket\nfür sehr wenig Mäuse.");
+    // flow first: no break pinned to the capture width; the text balances its lines itself, at every width
+    const f = find(conv(snap([p])).screen.root, (e) => e.type === "text")!;
+    expect(f.text).toBe("Das Deutschlandticket für sehr wenig Mäuse.");
+    expect(f.style?.textWrap).toBe("balance");
   });
 
   it("splits a line where an inline icon sits between two text pieces", () => {
@@ -508,10 +522,15 @@ describe("snapshotToScreen", () => {
     expect(a.children?.map((c) => c.type)).toEqual(["image", "frame", "icon"]);
     expect(a.children?.every((c) => c.layout?.position === undefined)).toBe(true);
     expect(a.children?.[1]?.layout).toMatchObject({ direction: "column" });
-    // laid out as a plain block (no flex parent), the same wrapper still collapses
+    // laid out as a plain block (no flex parent), the wrapper stays one box too (flow first: its texts are a column
+    // of their own, not lines among its siblings')
     const block = { ...teaser, layout: { display: "block", position: "static" as const } };
     const b = find(conv(snap([block]), true).screen.root, (e) => e.type === "button")!;
-    expect(b.children?.filter((c) => c.type === "text")).toHaveLength(2);
+    const col = b.children?.find((c) => c.type === "frame");
+    expect(col?.children?.filter((c) => c.type === "text")).toHaveLength(2);
+    // fitted: it collapses, as before
+    const f = find(fitted(snap([block]), true).screen.root, (e) => e.type === "button")!;
+    expect(f.children?.filter((c) => c.type === "text")).toHaveLength(2);
   });
 
   it("a growing flex item fills the room before its neighbour; a layer the page positions keeps to its corner", () => {
@@ -706,8 +725,21 @@ describe("snapshotToScreen", () => {
       card(0),
       card(340),
     ]);
-    const cards = all(conv(snap([row]), true).screen.root).filter((e) => e.layout?.direction === "column");
+    // flow first: equally tall in their line, they stretch to it and are as tall as their content
+    const flowRoot = conv(snap([row]), true).screen.root;
+    const cards = all(flowRoot).filter((e) => e.layout?.direction === "column");
     expect(cards.map((c) => [c.layout?.height, c.layout?.padding])).toEqual([
+      [undefined, [10, 0, 40, 0]],
+      [undefined, [10, 0, 40, 0]],
+    ]);
+    expect(
+      find(flowRoot, (e) => e.layout?.direction === "row" && e.children?.length === 2)?.layout?.align,
+    ).toBe("stretch");
+    // fitted: each keeps its height (the row's), inside them the flow stays
+    const fixedCards = all(fitted(snap([row]), true).screen.root).filter(
+      (e) => e.layout?.direction === "column",
+    );
+    expect(fixedCards.map((c) => [c.layout?.height, c.layout?.padding])).toEqual([
       [100, [10, 0, 0, 0]],
       [100, [10, 0, 0, 0]],
     ]);
@@ -930,10 +962,29 @@ describe("auto layout keeps the captured positions", () => {
         hyphens: "auto",
       }),
     ]);
-    const t = find(conv(snap([h])).screen.root, (e) => e.type === "text")!;
+    // fitted: one line that never wraps
+    const t = find(fitted(snap([h])).screen.root, (e) => e.type === "text")!;
     expect(t.style?.whiteSpace).toBe("pre");
     expect(t.style?.textWrap).toBeUndefined();
     expect(t.style?.hyphens).toBeUndefined();
+    // flow first: a heading with room left on its line wraps as the page's does (its wrap hints kept)
+    const f = find(conv(snap([h])).screen.root, (e) => e.type === "text")!;
+    expect(f.style?.whiteSpace).toBeUndefined();
+    expect(f.layout?.width).toBe(600);
+    expect(f.style?.textWrap).toBe("balance");
+    // a label as wide as its line (an inline-block button) keeps its line
+    const btn = box("a", [0, 0, 120, 20], { layout: { display: "inline-block", position: "static" } }, [
+      text("Mehr erfahren", [line("Mehr erfahren", 0, 0, 120)]),
+    ]);
+    expect(find(conv(snap([btn])).screen.root, (e) => e.type === "text")!.style?.whiteSpace).toBe("pre");
+    // and so does text the page keeps from wrapping
+    const nowrap = box(
+      "p",
+      [0, 0, 600, 20],
+      { layout: { display: "block", position: "static", whiteSpace: "nowrap" } },
+      [text("Eins zwei", [line("Eins zwei", 0, 0, 80)])],
+    );
+    expect(find(conv(snap([nowrap])).screen.root, (e) => e.type === "text")!.style?.whiteSpace).toBe("pre");
   });
 });
 
@@ -1259,7 +1310,7 @@ describe("wave 4 styles", () => {
       ),
     ]);
     const t = find(
-      conv(
+      fitted(
         snap([p], {
           page: {
             width: 1728,
@@ -1282,9 +1333,12 @@ describe("wave 4 styles", () => {
         { size: 18, lineHeight: 28, align: "center" },
       ),
     ]);
-    const ct = find(conv(snap([c])).screen.root, (e) => e.type === "text")!;
+    const ct = find(fitted(snap([c])).screen.root, (e) => e.type === "text")!;
     expect(ct.layout).toMatchObject({ x: 22, width: 542 });
     expect(ct.style?.textAlign).toBe("center");
+    // flow first: the text keeps its box's width (its margins are the page's at every width; it wraps there)
+    const ft = find(conv(snap([c])).screen.root, (e) => e.type === "text")!;
+    expect(ft.layout).toMatchObject({ x: 0, width: 586 });
   });
 
   it("maps outlines and basic clip-paths", () => {
@@ -1477,6 +1531,22 @@ describe("fluid intent", () => {
     expect(at("rgb(7, 7, 0)").layout?.width).toBe("fill");
   });
 
+  it("turns the equal tracks of a grid flush with its parent into 1fr", () => {
+    // 2 × 2 cards spanning the frame edge to edge (no gutters): px tracks would not shrink with the page
+    const grid = painted(
+      [0, 0, W, 500],
+      { style: { bg: "rgb(6, 6, 6)" } },
+      [0, 1, 2, 3].map((i) =>
+        painted([(i % 2) * 510, Math.floor(i / 2) * 250, 490, 230], { style: { bg: `rgb(7, 7, ${i})` } }),
+      ),
+    );
+    const { root } = conv(page([painted([0, 0, W, 600], {}, [grid])]), true).screen;
+    const at = (bg: string) => find(root, (e) => e.style?.background === bg)!;
+    expect(at("rgb(6, 6, 6)").layout?.grid).toMatchObject({ columns: 2, columnGap: 20 });
+    expect(at("rgb(6, 6, 6)").layout?.padding).toEqual([0, 0, 0, 0]);
+    expect(at("rgb(7, 7, 3)").layout?.width).toBe("fill");
+  });
+
   it("stretches overhanging backgrounds and a left layer up to right-pinned neighbours", () => {
     const abs = { display: "block", position: "absolute" };
     const panel = painted([40, 0, 920, 100], { style: { bg: "rgb(1, 1, 1)" }, layout: abs }, [
@@ -1523,8 +1593,16 @@ describe("interactive pages", () => {
     expect(conv(s).idOf.has(trigger.id)).toBe(false);
     const { screen, idOf } = snapshotToScreen(s, { keep: [trigger.id] });
     const el = find(screen.root, (e) => e.id === idOf.get(trigger.id))!;
-    expect(el.layout).toMatchObject({ x: 930, y: 10, width: 44, height: 44 });
+    expect(el.layout).toMatchObject({ width: 44, height: 44 });
     expect(find(screen.root, (e) => e.id === idOf.get(icon.id))?.style?.background).toBe("rgb(0, 0, 0)");
+    // fitted: where it was measured
+    const f = snapshotToScreen(s, { keep: [trigger.id], flow: false });
+    expect(find(f.screen.root, (e) => e.id === f.idOf.get(trigger.id))!.layout).toMatchObject({
+      x: 930,
+      y: 10,
+      width: 44,
+      height: 44,
+    });
   });
 
   it("pins fixed bars inside the first viewport and sticky headers that stick for the whole page", () => {
@@ -1962,9 +2040,18 @@ describe("widget states", () => {
     const [first, sNeu, sOpen] = sw.children!;
     expect(sw.states?.active).toBe(first!.id);
     expect(sw.children).toHaveLength(3);
-    // the state frame takes the widget's place; the states sit at its top-left, each as tall as captured
-    expect(sw.layout).toMatchObject({ y: 100, height: 200 });
-    expect(sOpen!.layout).toMatchObject({ position: "absolute", x: 0, y: 0, height: 500 });
+    // the state frame takes the widget's place (in the page's flow); the states sit at its top-left, each as tall as
+    // captured
+    expect(sw.layout).toMatchObject({ height: 200 });
+    // flow first: the states sit in the frame's flow, one shown at a time (each as tall as captured)
+    expect(sOpen!.layout).toMatchObject({ width: "fill", height: 500 });
+    expect(sOpen!.layout?.position).toBeUndefined();
+    expect(first!.layout?.position).toBeUndefined();
+    // fitted: layers over each other at the frame's top-left
+    const fit = snapshotToScreen(page, { keep: regionKeepIds(page), flow: false });
+    applyRegionStates(page, fit, false);
+    const fsw = find(fit.screen.root, (e) => !!e.states)!;
+    expect(fsw.children![2]!.layout).toMatchObject({ position: "absolute", x: 0, y: 0, height: 500 });
     const named = (root: SceneElement, label: string) =>
       find(root, (e) => (e.name ?? "").includes(label) && !!e.interaction);
     // in the page: each control shows its state
@@ -2177,5 +2264,564 @@ describe("brand extras (Snapshot.brand → SceneScreen.capture)", () => {
     expect(conv(snap([], { brand: { error: "boom" } })).warnings).toContain(
       "brand extras not captured: boom",
     );
+  });
+});
+
+describe("flow first (the page's layout stays in flow)", () => {
+  const card = (x: number, w: number) =>
+    box(
+      "article",
+      [x, 0, w, 140],
+      { style: { bg: "rgb(255, 255, 255)" }, layout: { display: "block", position: "static" } },
+      [
+        box("img", [x, 0, w, 80], {
+          kind: "img",
+          src: "data:image/png;base64,AAAA",
+          natural: { w: 400, h: 200 },
+        }),
+        box(
+          "h3",
+          [x + 16, 96, w - 32, 20],
+          { layout: { display: "block", position: "static", margin: [16, 16, 4, 16] } },
+          [text("Summit tent", [line("Summit tent", x + 16, 96, 90)], { lineHeight: 20 })],
+        ),
+        box(
+          "a",
+          [x + 16, 120, 70, 20],
+          {
+            layout: { display: "inline-block", position: "static", margin: [0, 16, 0, 16] },
+            attrs: { href: "#t" },
+          },
+          [text("Learn more", [line("Learn more", x + 16, 120, 70)], { lineHeight: 20 })],
+        ),
+      ],
+    );
+
+  it("keeps a block's children in its flow, inset by their margins, the text wrapping in its box", () => {
+    // (a card spanning the page: the converter stretches what spans its parent, and its children with it)
+    const root = conv(snap([card(0, 1000)]), true).screen.root;
+    const c = find(root, (e) => e.meta?.tag === "article")!;
+    expect(c.layout?.direction).toBe("column");
+    expect(c.children!.every((k) => k.layout?.position !== "absolute")).toBe(true);
+    const title = find(c, (e) => e.text === "Summit tent")!;
+    // a block-level line with room on it: it fills its box between the page's margins and may wrap
+    expect(title.layout).toMatchObject({ width: "fill" });
+    expect(title.style?.whiteSpace).toBeUndefined();
+    // an inline-block link keeps its line, at its margin from the start
+    const link = find(c, (e) => e.text === "Learn more")!;
+    expect(link.style?.whiteSpace).toBe("pre");
+    expect(link.layout?.alignSelf).toBe("start");
+    expect((link.layout?.margin as number[])[3]).toBe(16);
+    // fitted: the same card keeps its layers where they were measured
+    const f = find(fitted(snap([card(0, 1000)]), true).screen.root, (e) => e.meta?.tag === "article")!;
+    expect(f.children!.some((k) => k.layout?.position === "absolute")).toBe(true);
+  });
+
+  it("takes a wrapping flex row from the page's CSS: its gaps, and its items in flow", () => {
+    const chip = (x: number, y: number, w: number, t: string) =>
+      box(
+        "li",
+        [x, y, w, 30],
+        {
+          style: { bg: "rgb(236, 233, 223)" },
+          layout: { display: "list-item", position: "static", padding: [6, 12, 6, 12] },
+        },
+        [text(t, [line(t, x + 12, y + 6, w - 24)], { lineHeight: 18 })],
+      );
+    const ul = box(
+      "ul",
+      [0, 0, 300, 70],
+      {
+        layout: {
+          display: "flex",
+          position: "static",
+          dir: "row",
+          wrap: "wrap",
+          justify: "normal",
+          align: "normal",
+          gap: [10, 10],
+        },
+      },
+      [
+        chip(0, 0, 140, "Weather: changeable"),
+        chip(150, 0, 120, "Huts open: 17"),
+        chip(0, 40, 100, "Rivers: high"),
+      ],
+    );
+    const root = conv(snap([ul]), true).screen.root;
+    const row = find(root, (e) => e.meta?.tag === "ul")!;
+    expect(row.layout).toMatchObject({
+      direction: "row",
+      wrap: true,
+      gap: 10,
+      crossGap: 10,
+      justify: "start",
+    });
+    expect(row.children!.map((k) => k.layout?.position)).toEqual([undefined, undefined, undefined]);
+    // as tall as its lines (more lines at a narrower width make it taller)
+    expect(row.layout?.height).toBe("hug");
+  });
+
+  it("keeps a box the page positions itself absolute inside a flowing card", () => {
+    const badge = box(
+      "span",
+      [250, 8, 40, 20],
+      { style: { bg: "rgb(200, 0, 0)" }, layout: { display: "block", position: "absolute" } },
+      [text("New", [line("New", 254, 8, 30)])],
+    );
+    const c = card(0, 300);
+    c.children = [...(c.children ?? []), badge];
+    const root = conv(snap([c]), true).screen.root;
+    const b = find(root, (e) => e.style?.background === "rgb(200, 0, 0)")!;
+    expect(b.layout?.position).toBe("absolute");
+    expect(find(root, (e) => e.meta?.tag === "article")!.layout?.direction).toBe("column");
+  });
+
+  it("fills its parent up to the page's max-width, centred, where it sits at its cap", () => {
+    const col = box(
+      "div",
+      [100, 0, 800, 100],
+      { style: { bg: "rgb(240, 240, 240)" }, layout: { display: "block", position: "static", maxW: 800 } },
+      [box("p", [100, 20, 800, 20], {}, [text("A column", [line("A column", 100, 20, 80)])])],
+    );
+    const band = box("section", [0, 0, 1000, 100], { style: { bg: "rgb(250, 250, 250)" } }, [col]);
+    const root = conv(snap([band]), true).screen.root;
+    const c = find(root, (e) => e.style?.background === "rgb(240, 240, 240)")!;
+    expect(c.layout).toMatchObject({ width: "100%", maxWidth: 800 });
+    // centred: by its own alignment in a column, by its row's justify in a row
+    const parent = find(root, (e) => !!e.children?.includes(c))!;
+    expect(c.layout?.alignSelf === "center" || parent.layout?.justify === "center").toBe(true);
+  });
+
+  it("lays out floats by their measured positions (no flex or grid behind them)", () => {
+    const float = (x: number) =>
+      box("div", [x, 0, 200, 50], {
+        style: { bg: "rgb(0, 0, 0)" },
+        layout: { display: "block", position: "static", float: "left" },
+      });
+    const row = box("div", [0, 0, 640, 50], { style: { bg: "rgb(250, 250, 250)" } }, [
+      float(0),
+      float(220),
+      float(440),
+    ]);
+    const r = find(conv(snap([row]), true).screen.root, (e) => e.style?.background === "rgb(250, 250, 250)")!;
+    expect(r.layout).toMatchObject({ direction: "row", gap: 20 });
+  });
+});
+
+describe("flow first: what the page's flow holds beyond its boxes' geometry", () => {
+  it("puts a z-indexed box the capture moved to its stacking context back in its flow (relative, not absolute)", () => {
+    const pic = box("img", [0, 0, 1000, 300], {
+      kind: "img",
+      src: "data:image/png;base64,AAAA",
+      natural: { w: 1000, h: 300 },
+    });
+    const teaser = box("section", [0, 0, 1000, 420], { style: { bg: "rgb(0, 0, 0)" } }, [pic]);
+    const panel = box(
+      "div",
+      [0, 300, 1000, 120],
+      { layout: { display: "block", position: "relative", z: 20 }, style: { bg: "rgb(0, 0, 0)" } },
+      [text("Now on order", [line("Now on order", 24, 340, 120)], { color: "rgb(255, 255, 255)" })],
+    );
+    // the capture paints it in the body's stacking context: a child of the body after the section
+    panel.from = teaser.id;
+    const s = snap([teaser, panel]);
+    const sec = find(conv(s, true).screen.root, (e) => e.meta?.tag === "section")!;
+    expect(find(sec, (e) => e.text === "Now on order")).toBeDefined();
+    expect(sec.layout?.direction).toBe("column");
+    // the snapshot itself is left as it was; fitted keeps the painted order
+    expect(s.root!.children).toContain(panel);
+    const fsec = find(fitted(s, true).screen.root, (e) => e.meta?.tag === "section")!;
+    expect(find(fsec, (e) => e.text === "Now on order")).toBeUndefined();
+    // a box pulled up over the band before its parent (negative margin) stays in the stacking context
+    const band = box("section", [0, 0, 1000, 300], { style: { bg: "rgb(0, 0, 0)" } }, [structuredClone(pic)]);
+    const form = box("section", [0, 300, 1000, 200], {}, []);
+    const card = box(
+      "div",
+      [16, 260, 968, 120],
+      {
+        layout: { display: "block", position: "relative", z: 3, margin: [-40, 0, 0, 0] },
+        style: { bg: "rgb(255, 255, 255)" },
+      },
+      [text("Start", [line("Start", 40, 300, 40)])],
+    );
+    card.from = form.id;
+    const r2 = conv(snap([band, form, card]), true).screen.root;
+    const f2 = find(r2, (e) => e.meta?.tag === "section" && !find(e, (k) => k.type === "image"));
+    expect(f2 && find(f2, (e) => e.text === "Start")).toBeFalsy();
+  });
+
+  it("marks a box whose height follows the viewport's, not the boxes around it", () => {
+    const video = box("img", [0, 0, 1000, 560], {
+      kind: "img",
+      src: "data:image/png;base64,AAAA",
+      natural: { w: 1000, h: 560 },
+    });
+    const stage = box(
+      "div",
+      [0, 0, 1000, 800],
+      { style: { bg: "rgb(0, 0, 0)", overflow: ["hidden", "hidden"] }, vh: 200 },
+      [video],
+    );
+    const half = box("div", [0, 800, 1000, 400], { style: { bg: "rgb(240, 240, 240)" }, vh: 100 }, [
+      text("Below", [line("Below", 24, 820, 50)]),
+    ]);
+    const wrap = box("div", [0, 0, 1000, 1200], { vh: 300 }, [stage, half]);
+    const s = snap([wrap], {
+      viewportProbe: 200,
+      page: {
+        width: 1000,
+        height: 1200,
+        background: "rgb(255, 255, 255)",
+        color: "rgb(0, 0, 0)",
+        font: "Transit",
+      },
+    });
+    const root = conv(s, true).screen.root;
+    const st = find(root, (e) => e.style?.background === "rgb(0, 0, 0)")!;
+    expect(st.meta).toMatchObject({ vhShare: 1, vhPx: 0 });
+    const h = find(root, (e) => e.style?.background === "rgb(240, 240, 240)")!;
+    expect(h.meta).toMatchObject({ vhShare: 0.5, vhPx: 0 });
+    // the wrapper grew only because its boxes did
+    expect(all(root).filter((e) => e.meta?.vhShare !== undefined)).toHaveLength(2);
+    expect(st.meta?.vhFixed).toBeUndefined();
+    // a stage its video overflows (clipped) has its height set, not a minimum
+    const tall = box("img", [0, 0, 1000, 900], {
+      kind: "img",
+      src: "data:image/png;base64,AAAA",
+      natural: { w: 1000, h: 900 },
+    });
+    const clipping = box(
+      "div",
+      [0, 0, 1000, 800],
+      { style: { bg: "rgb(0, 0, 0)", overflow: ["hidden", "hidden"] }, vh: 200 },
+      [tall],
+    );
+    const f = find(
+      conv(snap([clipping], { viewportProbe: 200 }), true).screen.root,
+      (e) => e.meta?.vhShare !== undefined,
+    )!;
+    expect(f.meta).toMatchObject({ vhShare: 1, vhFixed: true });
+    // nothing without the capture's viewport walk
+    expect(all(conv(snap([wrap]), true).screen.root).some((e) => e.meta?.vhShare !== undefined)).toBe(false);
+  });
+
+  it("keeps the clip of a box a picture fills (the picture can outgrow it at another width)", () => {
+    const pic = box("img", [0, 0, 1000, 400], {
+      kind: "img",
+      src: "data:image/png;base64,AAAA",
+      natural: { w: 1000, h: 400 },
+    });
+    const fig = () =>
+      box("figure", [0, 0, 1000, 400], { style: { overflow: ["hidden", "hidden"] } }, [
+        structuredClone(pic),
+        box(
+          "p",
+          [12, 360, 200, 24],
+          { layout: { display: "block", position: "absolute" }, style: { bg: "rgb(0, 0, 0)" } },
+          [text("Photo: the valley", [line("Photo: the valley", 16, 362, 150)])],
+        ),
+      ]);
+    const clipped = (r: SceneElement) => all(r).some((e) => e.layout?.clip && e !== r);
+    expect(clipped(conv(snap([fig()]), true).screen.root)).toBe(true);
+    expect(clipped(fitted(snap([fig()]), true).screen.root)).toBe(false);
+  });
+
+  it("keeps a row's padding to the room every child leaves: a lower child gets its own margin", () => {
+    // a grid centring a teaser (with a top margin) beside a list as tall as the row
+    const row = box(
+      "div",
+      [40, 0, 944, 425],
+      { layout: { display: "grid", position: "static", align: "center" } },
+      [
+        box("div", [40, 91.5, 616, 282], { style: { bg: "rgb(255, 255, 255)" } }, [
+          text("Sharing in one app", [line("Sharing in one app", 57, 108, 200)]),
+        ]),
+        box("div", [720, 0, 264, 425], { style: { bg: "rgb(240, 240, 240)" } }, [
+          text("Ticket app", [line("Ticket app", 737, 16, 100)]),
+        ]),
+      ],
+    );
+    const f = find(
+      conv(snap([row]), true).screen.root,
+      (e) => e.layout?.direction === "row" && e.children?.length === 2,
+    )!;
+    expect((f.layout?.padding as number[])[0]).toBe(0);
+    const [teaser, list] = f.children!;
+    expect((teaser!.layout?.margin as number[] | undefined)?.[0]).toBeCloseTo(91.5, 1);
+    expect(list!.layout?.alignSelf ?? "start").toBe("start");
+  });
+
+  it("keeps a panel the page pulls up over the picture before it (a negative margin) in the column", () => {
+    const teaser = (marginTop: number) =>
+      box("div", [0, 0, 390, 622], { layout: { display: "block", position: "relative" } }, [
+        box("img", [0, 0, 390, 390], {
+          kind: "img",
+          src: "data:image/png;base64,AAAA",
+          natural: { w: 390, h: 390 },
+        }),
+        box(
+          "div",
+          [0, 218, 390, 404],
+          {
+            layout: { display: "block", position: "relative", margin: [marginTop, 0, 0, 0] },
+            style: { bg: "rgb(0, 0, 0)" },
+          },
+          [
+            text("The BMW 1 Series.", [line("The BMW 1 Series.", 24, 266, 200)], {
+              color: "rgb(255, 255, 255)",
+            }),
+          ],
+        ),
+      ]);
+    const col = (r: SceneElement) =>
+      find(r, (e) => e.layout?.direction === "column" && !!e.children?.some((c) => c.type === "image"));
+    const t = col(conv(snap([teaser(-172)]), true).screen.root)!;
+    expect(t).toBeDefined();
+    expect(t.children!.every((c) => c.layout?.position !== "absolute")).toBe(true);
+    const panel = t.children!.find((c) => c.style?.background === "rgb(0, 0, 0)")!;
+    expect((panel.layout?.margin as number[])[0]).toBe(-172);
+    // an overlap the page's CSS does not account for stays as it was
+    expect(col(conv(snap([teaser(-40)]), true).screen.root)).toBeUndefined();
+  });
+
+  it("keeps a multi-column list's items in the page's order, for the export's columns to flow", () => {
+    const item = (x: number, y: number, h: number, t: string) =>
+      box(
+        "li",
+        [x, y, 230, h],
+        { layout: { display: "inline-block", position: "static", margin: [0, 0, 38, 0] } },
+        [text(t, [line(t, x, y + 12, 80)])],
+      );
+    const list = box(
+      "ul",
+      [0, 0, 960, 456],
+      {
+        layout: { display: "block", position: "static", columns: { width: 230, gap: 20 } },
+        style: { bg: "rgb(66, 66, 66)" },
+      },
+      [
+        item(0, 0, 226, "About"),
+        item(0, 264, 154, "Routes"),
+        item(250, 0, 178, "Tickets"),
+        item(500, 0, 130, "Apps"),
+      ],
+    );
+    const f = find(conv(snap([list]), true).screen.root, (e) => e.meta?.columnWidth !== undefined)!;
+    expect(f.meta).toMatchObject({ columnWidth: 230, columnGap: 20 });
+    expect(f.children!.map((c) => find(c, (e) => e.type === "text")?.text)).toEqual([
+      "About",
+      "Routes",
+      "Tickets",
+      "Apps",
+    ]);
+    expect(f.children!.every((c) => c.layout?.position !== "absolute")).toBe(true);
+    expect((f.children![0]!.layout?.margin as number[])[2]).toBe(38);
+    // fitted: where they were measured
+    expect(
+      find(fitted(snap([list]), true).screen.root, (e) => e.meta?.columnWidth !== undefined),
+    ).toBeUndefined();
+  });
+
+  it("lays out inline-block children of a block as a wrapping row (they wrap onto more lines when it narrows)", () => {
+    const group = (x: number, y: number, h: number, t: string) =>
+      box(
+        "div",
+        [x, y, 320, h],
+        {
+          layout: { display: "inline-block", position: "static", margin: [0, 0, 48, 0] },
+          style: { bg: "rgb(30, 30, 30)" },
+        },
+        [text(t, [line(t, x + 16, y + 8, 80)])],
+      );
+    const nav = box("nav", [0, 0, 1000, 472], { layout: { display: "block", position: "static" } }, [
+      group(0, 0, 188, "Products"),
+      group(324, 0, 188, "Industries"),
+      group(648, 0, 188, "Research"),
+      group(0, 236, 188, "Careers"),
+    ]);
+    const f = find(conv(snap([nav]), true).screen.root, (e) => e.layout?.wrap === true)!;
+    expect(f.layout).toMatchObject({ direction: "row", wrap: true, gap: 4 });
+    expect(f.children!.every((c) => c.layout?.position !== "absolute")).toBe(true);
+  });
+
+  it("makes the last line run of a block (a text ending in an info icon, after two paragraphs) inline content", () => {
+    const para = (y: number, t: string, display = "block") =>
+      box("p", [60, y, 749, display === "block" ? 28 : 23], { layout: { display, position: "static" } }, [
+        text(t, [line(t, 60, y + 2, display === "block" ? 340 : 280)], { size: 18, lineHeight: 23 }),
+      ]);
+    const block = box("div", [60, 0, 749, 84], {}, [
+      para(0, "Lease from 299 a month. Optional with"),
+      para(28, "comprehensive cover for 49 a month."),
+      para(58, "Financial Services.", "inline"),
+      box("button", [344, 57, 24, 24], {
+        layout: { display: "inline-flex", position: "relative" },
+        attrs: { "aria-label": "Info" },
+      }),
+    ]);
+    const root = conv(snap([block]), true).screen.root;
+    const run = find(root, (e) => e.meta?.inline === true)!;
+    expect(run).toBeDefined();
+    expect(run.children!.map((c) => c.type)).toEqual(["text", "button"]);
+    expect(run.children![0]!.text).toBe("Financial Services.");
+    // the block around it is a column: the two paragraphs, then the run
+    const col = find(root, (e) => !!e.children?.includes(run))!;
+    expect(col.layout?.direction).toBe("column");
+    expect(col.children!.every((c) => c.layout?.position !== "absolute")).toBe(true);
+  });
+
+  it("keeps a footnote's relative <sup> in its paragraph, which then wraps as one text", () => {
+    const t =
+      "Optional extra leasing service. The monthly cost of the insurance is added to the monthly rate.";
+    const p = box("p", [24, 0, 342, 54], {}, [
+      box("sup", [24, 0, 6, 13], { layout: { display: "inline", position: "relative" } }, [
+        text("1", [line("1", 24, 0, 4)], { size: 9 }),
+      ]),
+      text(
+        t,
+        [
+          line("Optional extra leasing service. The monthly cost of", 30, 1, 320, "space"),
+          line("the insurance is added to the monthly rate.", 24, 19, 300),
+        ],
+        {
+          size: 12,
+          lineHeight: 18,
+        },
+      ),
+    ]);
+    const root = conv(snap([p]), true).screen.root;
+    const texts = all(root).filter((e) => e.type === "text");
+    expect(texts).toHaveLength(1);
+    expect(texts[0]!.meta?.line).toBeUndefined();
+    expect(texts[0]!.text).toContain("1");
+    expect(texts[0]!.text).toContain("monthly rate.");
+  });
+
+  it("keeps the page's CSS grid with its children's placements (a 12-column grid, cards spanning 3)", () => {
+    const card = (x: number, y: number, col: string, t: string) =>
+      box(
+        "a",
+        [x, y, 300, 200],
+        {
+          layout: { display: "block", position: "relative", gridColumn: col },
+          style: { bg: "rgb(255, 255, 255)" },
+        },
+        [text(t, [line(t, x + 16, y + 16, 120)])],
+      );
+    const grid = box(
+      "section",
+      [0, 0, 1290, 430],
+      {
+        layout: {
+          display: "grid",
+          position: "relative",
+          cols: Array(12).fill("80px").join(" "),
+          gap: [30, 30],
+        },
+        style: { bg: "rgb(240, 240, 240)" },
+      },
+      [
+        card(330, 0, "4 / 7", "Subscription"),
+        card(660, 0, "span 3 / auto", "Careers"),
+        card(220, 230, "3 / 6", "Tickets"),
+      ],
+    );
+    const f = find(conv(snap([grid]), true).screen.root, (e) => !!e.layout?.grid)!;
+    expect(f.layout?.grid).toMatchObject({ columns: 12, columnGap: 30, rowGap: 30 });
+    expect(f.children!.map((c) => c.meta?.gridColumn)).toEqual(["4 / 7", "span 3 / auto", "3 / 6"]);
+    expect(f.children!.every((c) => c.layout?.position !== "absolute")).toBe(true);
+  });
+
+  it("keeps a child off the line where it was when a row takes the page's padding (no double count)", () => {
+    // a grey statistic bar (padding 16) with a 76px text block and a 20px icon low in the bar
+    const bar = box(
+      "div",
+      [0, 100, 326, 108],
+      {
+        layout: {
+          display: "flex",
+          position: "static",
+          dir: "row",
+          align: "self-end",
+          padding: [16, 16, 16, 16],
+        },
+        style: { bg: "rgb(244, 244, 244)" },
+      },
+      [
+        box("div", [16, 116, 250, 76], { style: { bg: "rgb(1, 1, 1)" } }),
+        box("span", [290, 170, 20, 20], { style: { bg: "rgb(2, 2, 2)" } }),
+      ],
+    );
+    const root = conv(snap([bar]), true).screen.root;
+    const at = (bg: string) => find(root, (e) => e.style?.background === bg)!;
+    expect(at("rgb(244, 244, 244)").layout).toMatchObject({ height: "hug", padding: [16, 16, 16, 16] });
+    // 70px below the bar's top: 16 of padding and 54 of margin (70 of margin would put it 86 down and grow the bar)
+    expect((at("rgb(2, 2, 2)").layout?.margin as number[])[0]).toBe(54);
+  });
+
+  it("keeps a CSS grid the page fills itself (one row of auto-placed tiles) as 1fr tracks", () => {
+    const tile = (x: number, t: string) =>
+      box("div", [x, 0, 340, 120], { style: { bg: "rgb(255, 255, 255)" } }, [
+        text(t, [line(t, x + 16, 16, 120)]),
+      ]);
+    const grid = (w: number) =>
+      box(
+        "div",
+        [0, 0, w, 120],
+        {
+          layout: {
+            display: "grid",
+            position: "relative",
+            cols: Array(4).fill("340px").join(" "),
+            gap: [0, 16],
+          },
+          style: { bg: "rgb(240, 240, 240)" },
+        },
+        [0, 1, 2, 3].map((i) => tile(i * 356, `Tile ${i}`)),
+      );
+    const f = find(conv(snap([grid(1408)]), true).screen.root, (e) => !!e.layout?.grid)!;
+    expect(f.layout?.grid).toMatchObject({ columns: 4, columnGap: 16 });
+    expect(f.children!.every((c) => c.layout?.width === "fill" && c.layout?.position !== "absolute")).toBe(
+      true,
+    );
+    // tracks that do not fill the box (the page centres them): 1fr would move every tile
+    const wide = find(
+      conv(snap([grid(1600)]), true).screen.root,
+      (e) => e.style?.background === "rgb(240, 240, 240)",
+    )!;
+    expect(wide.layout?.grid?.columns).not.toBe(4);
+  });
+
+  it("lays out a text and the small box on its last line, right after it, as inline content", () => {
+    const note = (iconX: number) =>
+      box("div", [24, 100, 600, 42], {}, [
+        box("p", [24, 101, 600, 36], { layout: { display: "inline", position: "static" } }, [
+          text(
+            "Energy use combined: 19–15.7 kWh/100 km (WLTP); range 680–828 km (WLTP)",
+            [
+              line("Energy use combined: 19–15.7 kWh/100 km (WLTP); range ", 24, 101, 560, "space"),
+              line("680–828 km (WLTP)", 24, 120, 116),
+            ],
+            { size: 12, lineHeight: 19 },
+          ),
+        ]),
+        box(
+          "button",
+          [iconX, 117.6, 24, 24],
+          { layout: { display: "inline-flex", position: "relative" }, attrs: { "aria-label": "Info" } },
+          [],
+        ),
+      ]);
+    const block = (r: SceneElement) => find(r, (e) => e.meta?.inline === true);
+    const root = conv(snap([note(143)]), true).screen.root;
+    const b = block(root)!;
+    expect(b).toBeDefined();
+    expect(b.children![0]!.type).toBe("text");
+    expect(b.children!.every((c) => c.layout?.position !== "absolute")).toBe(true);
+    expect((b.children![1]!.layout?.margin as number[])[3]).toBe(3);
+    // a box far from where the line ends is laid out as before
+    expect(block(conv(snap([note(560)]), true).screen.root)).toBeUndefined();
+    // fitted: as measured
+    expect(block(fitted(snap([note(143)]), true).screen.root)).toBeUndefined();
   });
 });

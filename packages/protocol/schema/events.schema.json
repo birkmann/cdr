@@ -2649,6 +2649,19 @@
               "description": "worst pixel mismatch of the section's band over the widths",
               "type": "number"
             },
+            "reason": {
+              "description": "why the section is below its threshold or was sent to repair: its pixels at the captured widths, its layout at the widths between them (overlaps, cut text), or CSS that does not flow",
+              "enum": [
+                "pixel",
+                "responsive",
+                "flow"
+              ],
+              "type": "string"
+            },
+            "reverted": {
+              "description": "a repair was undone: it broke the section at a width between the captures, or did not improve it",
+              "type": "boolean"
+            },
             "runId": {
               "type": "string"
             },

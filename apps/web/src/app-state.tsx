@@ -23,6 +23,16 @@ export interface Settings {
   /** AI-generated titles and summaries, cached per project path. */
   projectSummaries: Record<string, ProjectSummary>;
   theme: Theme;
+  /** List conversations other tools ran unattended (goal runs, software-factory agents) next to your own. */
+  showAutomated: boolean;
+}
+
+/**
+ * A conversation no person started here: a goal's run, or one a tool created over the API (the software factory's
+ * planners, judges and workers). Their output belongs to that tool, so lists hide them unless asked.
+ */
+export function isAutomated(s: SessionInfo): boolean {
+  return s.origin === "api" || !!s.goalId;
 }
 
 export interface ProjectSummary {
@@ -46,6 +56,7 @@ const DEFAULTS: Settings = {
   hiddenProjects: [],
   projectSummaries: {},
   theme: "dark",
+  showAutomated: false,
 };
 
 function loadSettings(): Settings {

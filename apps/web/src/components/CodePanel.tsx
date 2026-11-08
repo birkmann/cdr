@@ -91,7 +91,13 @@ export function CodePanel({
           onClick={() => (previewHost ? previewHost.open() : setTab("preview"))}
           draggable={!!previewHost?.dragStart}
           onDragStart={previewHost?.dragStart}
-          title={previewHost ? "Open the preview in the editor (or drag it where you want it)" : undefined}
+          title={
+            previewHost?.dragStart
+              ? "Open the preview in the editor (or drag it where you want it)"
+              : previewHost
+                ? "Open the preview beside the chat"
+                : undefined
+          }
         >
           Preview{s.preview ? <span className="count live">●</span> : null}
         </button>
@@ -149,7 +155,11 @@ export function CodePanel({
 
 /** Lets a host app show the preview outside the chat's side panel. */
 export interface PreviewHost {
-  open(): void;
+  /**
+   * `automatic` is set when a preview arrived, as opposed to the user asking for it. `live` tells a page the agent
+   * published just now from one that was already in the conversation's history when it was shown.
+   */
+  open(automatic?: boolean, live?: boolean): void;
   /** Drag source for the Preview tab and preview cards, so the preview can be dropped where it should open. */
   dragStart?(e: React.DragEvent): void;
 }
@@ -284,6 +294,23 @@ export function Preview({
     setUpdated(false);
   }, [path]);
   const url = client && base && path && !preparing ? client.previewUrl(base, path) : "";
+  // An iframe shows a refused or missing file as a blank page: ask first, and explain instead.
+  const [failed, setFailed] = useState<number>();
+  useEffect(() => {
+    setFailed(undefined);
+    if (!url) return;
+    let cancelled = false;
+    fetch(url, { method: "HEAD", cache: "no-store" })
+      .then((r) => {
+        if (!cancelled && !r.ok) setFailed(r.status);
+      })
+      .catch(() => {
+        /* unreachable server: the iframe shows the browser's own error */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [url, nonce]);
   // a running 1:1 recreation: the live page's screenshot, replaced section by section by the coded page; the
   // regular preview takes over once the whole page is in place
   const [, setRevealed] = useState(0);
@@ -343,7 +370,7 @@ export function Preview({
           </a>
         )}
       </div>
-      {url && !buildShot && (
+      {url && !buildShot && !failed && (
         <div className={`preview-update-bar${updates ? " has-updates" : ""}`}>
           <span role="status" aria-live="polite">
             {updates
@@ -388,6 +415,21 @@ export function Preview({
           </span>
           <strong>Building your preview</strong>
           <p>The page will appear here when it’s ready, with its styles and scripts.</p>
+        </div>
+      ) : url && failed ? (
+        <div className="preview-failed" role="alert">
+          <strong>This page can’t be shown</strong>
+          <p>
+            <code>{path}</code>{" "}
+            {failed === 404
+              ? "is missing, or sits in a hidden folder this conversation hasn’t published a preview from."
+              : failed === 403
+                ? "is outside the files this conversation can show."
+                : `could not be loaded (HTTP ${failed}).`}
+          </p>
+          <button className="secondary tiny" onClick={refresh}>
+            Try again
+          </button>
         </div>
       ) : url ? (
         <div className={`preview-stage ${device}`}>

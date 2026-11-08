@@ -7,6 +7,7 @@ import { IChevron, IFile, IFolder, IPlus, IRefresh } from "./icons";
 import { Welcome } from "./Welcome";
 import { confirmDialog } from "./dialogs";
 import { FileIcon } from "./FileIcon";
+import { ConversationStrip } from "./ConversationFolder";
 
 type Pending = { parent: string; kind: "file" | "dir" } | { rename: string } | null;
 
@@ -45,6 +46,31 @@ export function Explorer({ onClone }: { onClone(): void }) {
     setEntries(new Map());
     setExpanded(new Set([""]));
   }, [root]);
+
+  // "Reveal": expand every folder down to the path, select it and scroll it into view once it is listed.
+  const scrollTo = useRef<string | null>(null);
+  const treeRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const path = st.reveal?.path.replace(/^\/+|\/+$/g, "");
+    if (!root || !path) return;
+    const parts = path.split("/");
+    setExpanded((s) => {
+      const n = new Set(s);
+      for (let i = 1; i <= parts.length; i++) n.add(parts.slice(0, i).join("/"));
+      return n;
+    });
+    setSelected(path);
+    scrollTo.current = path;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [st.reveal?.nonce, root]);
+  useEffect(() => {
+    const path = scrollTo.current;
+    if (!path) return;
+    const row = treeRef.current?.querySelector(`[data-path="${CSS.escape(path)}"]`);
+    if (!row) return;
+    scrollTo.current = null;
+    row.scrollIntoView({ block: "center" });
+  }, [entries]);
 
   // Reload expanded folders when files change.
   useEffect(() => {
@@ -165,9 +191,10 @@ export function Explorer({ onClone }: { onClone(): void }) {
       out.push(
         <button
           key={e.path}
-          className={`st-tree-row ${cls ?? ""} ${e.ignored ? "ignored" : ""} ${isActive || selected === e.path ? "on" : ""}`}
+          className={`st-tree-row ${cls ?? ""} ${isActive || selected === e.path ? "on" : ""}`}
           style={{ paddingLeft: 8 + depth * 12 }}
           title={e.path}
+          data-path={e.path}
           onClick={() => {
             setSelected(e.path);
             if (e.isDir) toggle(e.path);
@@ -234,7 +261,9 @@ export function Explorer({ onClone }: { onClone(): void }) {
           </button>
         </div>
       </div>
+      <ConversationStrip />
       <div
+        ref={treeRef}
         className="st-tree"
         role="tree"
         onContextMenu={(ev) => {

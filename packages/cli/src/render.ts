@@ -255,7 +255,8 @@ export class Renderer {
           this.line(
             `    ${e.status === "below-threshold" ? c.yellow("▲") : c.green("▪")} ${e.index + 1}/${e.total} ${e.id}` +
               c.dim(
-                ` [${e.kind}] ${e.status}${e.pixel !== undefined ? ` ${(e.pixel * 100).toFixed(1)} %` : ""}`,
+                ` [${e.kind}] ${e.status}${e.pixel !== undefined ? ` ${(e.pixel * 100).toFixed(1)} %` : ""}` +
+                  `${e.reason && e.status !== "ok" ? ` (${e.reason})` : ""}${e.reverted ? " · repair undone" : ""}`,
               ),
           );
         break;

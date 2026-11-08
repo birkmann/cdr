@@ -12,8 +12,10 @@ import {
   irPaths,
   linear,
   pwlCss,
+  fluidValue,
+  fluidFit,
+  FLUID_TOL,
   reflowIr,
-  stepCss,
   FLUID_FIT,
   type FluidScreen,
 } from "@harness/codegen";
@@ -514,9 +516,11 @@ describe("measured variants (URL capture: one per layout range, measured at the 
   const d = out[1]!,
     p = out[0]!;
 
-  it("applies from its range start exactly and is scaled only below the narrowest width measured", () => {
+  it("applies from its range start exactly and reflows over its whole range (never scaled)", () => {
     expect(d.responsive).toMatchObject({ minWidth: 1200, fluid: 1200 });
-    expect(p.responsive).toMatchObject({ minWidth: 0, fluid: 320 });
+    expect(p.responsive).toMatchObject({ minWidth: 0, fluid: 0 });
+    const css = String(buildHtmlFiles([phone, desk], { vars: {} } as never)["styles.css"]);
+    expect(css).not.toMatch(/zoom:/);
   });
 
   it("follows the measured geometry on either side of the capture width (a kink at the capture is kept)", () => {
@@ -542,8 +546,8 @@ describe("measured variants (URL capture: one per layout range, measured at the 
     const files = buildHtmlFiles([phone, desk], { vars: {} } as never);
     const css = String(files["styles.css"]);
     expect(css).toContain("@media (min-width: 1200px)");
-    // (CDR: the widest variant sees the viewport only up to its widest measurement, so no value extrapolates past it)
-    const vw = String.raw`min\(100vw, \d+px\)`;
+    // (measured: the widest variant follows the viewport past its widest measurement too, continuing its lines)
+    const vw = String.raw`100vw`;
     expect(css).toMatch(
       new RegExp(
         String.raw`calc\(75px \+ 0\.5 \* max\(0px, ${vw} - 1440px\) \+ 0\.083333 \* min\(0px, ${vw} - 1440px\)\)`,
@@ -608,14 +612,15 @@ describe("a text narrowed to its longest line at the capture width", () => {
   const out = fluidVariants([s, { ...variant(800, 600, at(800, 500)), nodeId: "p-800" }])[0]!;
   const lead = find(out.ir, "Lead");
 
-  it("keeps the narrowed width at the capture width and follows the page width elsewhere; the mark is not exported", () => {
-    expect(len(lead.style.width!, 390)).toBeCloseTo(279, 2);
+  it("follows the page width at every width (no width pinned to the capture width); the mark is not exported", () => {
+    expect(len(lead.style.width!, 390)).toBeCloseTo(310, 2);
     expect(len(lead.style.width!, 393)).toBeCloseTo(313, 2);
     expect(len(lead.style.width!, 375)).toBeCloseTo(295, 2);
+    expect(lead.style.width).not.toMatch(/1000/);
     expect("data-narrowed" in lead.attrs).toBe(false);
   });
 
-  it("a stretched one keeps its narrowing as right margin at the capture width only", () => {
+  it("a stretched one keeps the page's right margin at every width (its narrowing is not pinned)", () => {
     const m = (W: number, right: number, nb?: number) =>
       el("main", {
         name: `Q · ${W}`,
@@ -644,7 +649,7 @@ describe("a text narrowed to its longest line at the capture width", () => {
       fluidVariants([q, { ...variant(800, 600, m(800, 0)), nodeId: "q-800" }])[0]!.ir,
       "Lead",
     );
-    expect(len(side(lead2.style.margin!, 1), 390)).toBeCloseTo(33.64, 2);
+    expect(len(side(lead2.style.margin!, 1), 390)).toBeCloseTo(0, 2);
     expect(len(side(lead2.style.margin!, 1), 393)).toBeCloseTo(0, 2);
     expect(len(side(lead2.style.margin!, 1), 375)).toBeCloseTo(0, 2);
   });
@@ -697,38 +702,237 @@ describe("art direction (another picture at some measured widths)", () => {
   });
 });
 
-describe("stepCss", () => {
-  it("keeps the nearest measured value (a text box gaining a line between two widths), exact at the design width", () => {
-    // a teaser 120 px tall at 360–390, 144 px at 412 (its title wraps once more there)
-    const pts: Array<[number, number]> = [
+describe("fluidValue (continuous values through the measured widths)", () => {
+  /** the value as CSS evaluated at viewport width x (len), or the constant when there is no CSS */
+  const value = (pts: Array<[number, number]>, W: number) => {
+    const css = fluidValue(pts, W);
+    const at = pts.find((p) => p[0] === W)![1];
+    return (x: number) => (css === null ? at : len(css, x));
+  };
+  const lo = 320,
+    hi = 1920;
+  /** the largest step between neighbouring widths a value may take: its steepest measured slope (+1 px rounding) */
+  const continuous = (f: (x: number) => number, pts: Array<[number, number]>) => {
+    const s = [...pts].sort((a, b) => a[0] - b[0]);
+    const steep = Math.max(...s.slice(1).map((p, i) => Math.abs((p[1] - s[i]![1]) / (p[0] - s[i]![0]))));
+    for (let x = lo; x < hi; x++) if (Math.abs(f(x + 1) - f(x)) > steep + 1e-6) return x;
+    return null;
+  };
+  const sets: Record<string, Array<[number, number]>> = {
+    "a line (a column that follows the viewport)": [
+      [360, 320],
+      [390, 350],
+      [412, 372],
+      [767, 727],
+    ],
+    "a column reaching its max-width between two measured widths": [
+      [1024, 1024],
+      [1100, 1100],
+      [1232, 1200],
+      [1280, 1200],
+      [1440, 1200],
+      [1920, 1200],
+    ],
+    "clamp(): flat, growing, flat": [
+      [320, 28],
+      [400, 28],
+      [600, 36],
+      [800, 44],
+      [1000, 52],
+      [1200, 52],
+      [1440, 52],
+    ],
+    "two kinks at measured widths": [
+      [320, 16],
+      [390, 16],
+      [600, 37],
+      [767, 37],
+    ],
+    "an irregular value (a height that changes where text wraps)": [
+      [320, 168],
+      [340, 120],
+      [360, 168],
+      [390, 120],
+      [412, 168],
+      [430, 120],
+    ],
+  };
+  for (const [name, pts] of Object.entries(sets))
+    it(`${name}: within 1 px at every measured width, or constant; continuous; monotone where the points are`, () => {
+      const W = pts[Math.min(2, pts.length - 1)]![0];
+      const f = value(pts, W);
+      const css = fluidValue(pts, W);
+      if (css !== null)
+        for (const [x, y] of pts) expect(Math.abs(f(x) - y), `${x}px`).toBeLessThanOrEqual(FLUID_TOL + 1e-6);
+      else for (let x = lo; x <= hi; x += 7) expect(f(x)).toBe(pts.find((p) => p[0] === W)![1]);
+      expect(continuous(f, pts)).toBeNull();
+      expect(css ?? "").not.toMatch(/\* ?1000\b|\b1000 ?\*|clamp\(0px/);
+      const sorted = [...pts].sort((a, b) => a[0] - b[0]);
+      const rising = sorted.every((p, i) => i === 0 || p[1] >= sorted[i - 1]![1]);
+      if (rising && css !== null)
+        for (let x = sorted[0]![0]; x < sorted[sorted.length - 1]![0]; x += 3)
+          expect(f(x + 3)).toBeGreaterThanOrEqual(f(x) - 1e-6);
+    });
+
+  it("is exact at a kink between measured widths (min(100vw, 1200px))", () => {
+    const f = value(sets["a column reaching its max-width between two measured widths"]!, 1440);
+    expect(f(1104)).toBeCloseTo(1104, 3);
+    expect(f(1199)).toBeCloseTo(1199, 3);
+    expect(f(1200)).toBeCloseTo(1200, 3);
+    expect(f(1300)).toBeCloseTo(1200, 3);
+  });
+
+  it("never fits the measured widths with steps: an irregular value is the design width's, constant", () => {
+    const zigzag = sets["an irregular value (a height that changes where text wraps)"]!;
+    expect(fluidValue(zigzag, 390)).toBeNull();
+    expect(fluidFit(zigzag, 390)).toBeNull();
+    expect(linear(zigzag)).toBe(false);
+    // four points always have a continuous line through them (two knots): no step either
+    const four: Array<[number, number]> = [
       [320, 168],
       [360, 120],
       [390, 120],
       [412, 144],
     ];
-    expect(linear(pts)).toBe(false);
-    expect(
-      linear([
-        [320, 100],
-        [390, 135],
-        [412, 146],
-      ]),
-    ).toBe(true);
-    const css = stepCss(pts, 390)!;
-    expect(len(css, 390)).toBeCloseTo(120, 3);
-    expect(len(css, 393)).toBeCloseTo(120, 3);
-    expect(len(css, 405)).toBeCloseTo(144, 3);
-    expect(len(css, 412)).toBeCloseTo(144, 3);
-    expect(len(css, 335)).toBeCloseTo(168, 3);
-    expect(len(css, 375)).toBeCloseTo(120, 3);
-    expect(
-      stepCss(
-        [
-          [390, 10],
-          [412, 10],
-        ],
-        390,
+    const f = value(four, 390);
+    for (const [x, y] of four) expect(f(x)).toBeCloseTo(y, 2);
+    expect(Math.abs(f(401) - f(400))).toBeLessThan(2);
+  });
+});
+
+describe("the recorded fixture, emitted (flow first)", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { pageScreens, pageSections, tagSections } = await import("@harness/scene");
+  const { getEmitter } = await import("@harness/codegen");
+  const { flowLint, sectionClasses } = await import("@harness/measure");
+  const recorded = (w: number) =>
+    JSON.parse(
+      readFileSync(
+        new URL(`../../capture/test/sites/acme/recorded/${w}.snapshot.json`, import.meta.url),
+        "utf8",
       ),
-    ).toBeNull();
+    );
+  const ps = pageScreens([
+    { width: 390, minWidth: 0, snap: recorded(390) },
+    { width: 768, minWidth: 768, snap: recorded(768) },
+    { width: 1440, minWidth: 1024, snap: recorded(1440) },
+  ]);
+  const screens = tagSections(ps.screens, pageSections(ps.screens));
+  const files = getEmitter("static")!.emit({ screens, fonts: ps.fonts, page: ps.page }, { assets: "none" });
+  const html = String(files["index.html"]),
+    css = String(files["styles.css"]);
+  // per class: its tag, whether it sits in a menu overlay, whether it holds text that wraps (its own or below it)
+  const info = new Map<string, { tag: string; overlay: boolean; wraps: boolean }>();
+  const rules = new Map<string, string>();
+  for (const m of css.matchAll(/^\.([\w-]+) \{\n([\s\S]*?)\n\}/gm)) rules.set(m[1]!, m[2]!);
+  const stack: { cls?: string; overlay: boolean }[] = [];
+  for (const m of html.matchAll(/<(\/?)([a-z0-9-]+)([^>]*?)(\/?)>|([^<]+)/g)) {
+    if (m[5] !== undefined) {
+      const own = stack[stack.length - 1]?.cls;
+      if (m[5].trim() && own && !/white-space: (pre|nowrap);/.test(rules.get(own) ?? ""))
+        for (const s of stack) if (s.cls) info.get(s.cls)!.wraps = true;
+      continue;
+    }
+    if (m[1]) {
+      stack.pop();
+      continue;
+    }
+    const cls = /class="([^"]+)"/.exec(m[3]!)?.[1];
+    const overlay = stack.some((s) => s.overlay) || /data-overlay[= ]/.test(m[3]!);
+    if (cls && !info.has(cls)) info.set(cls, { tag: m[2]!, wraps: false, overlay });
+    if (!/^(img|br|input|source|meta|link|path|circle|rect|polygon|line)$/.test(m[2]!) && !m[4])
+      stack.push({ cls, overlay });
+  }
+  const page = [...rules].filter(([c]) => !info.get(c)?.overlay);
+
+  it("has no CSS that holds at one width only: no pins, no scaling", () => {
+    const { sections, media } = sectionClasses(html);
+    const lint = flowLint({
+      css,
+      scope: { ids: [...sections.keys()], classes: [...sections.values()].flatMap((c) => [...c]) },
+      mediaClasses: media,
+      boundaries: [768, 1024],
+    });
+    expect(lint.counts["value-pin"] ?? 0).toBe(0);
+    expect(lint.counts["media-pin"] ?? 0).toBe(0);
+    expect(lint.counts.zoom ?? 0).toBe(0);
+  });
+
+  it("takes boxes out of the flow only where the page does (the carousel arrows), and never fixes a wrapping text's height", () => {
+    // 110 such rules before flow first; the page itself places 3 boxes (×2 slider arrows per variant here)
+    const placed = page.filter(([, b]) => /^ {2}position: (absolute|fixed);/m.test(b)).map(([c]) => c);
+    expect(placed.length).toBeLessThanOrEqual(10);
+    const fixed = page
+      .filter(([c, b]) => /^ {2}height: [\d.]+px;/m.test(b) && info.get(c)?.wraps)
+      .map(([c]) => c);
+    expect(fixed).toEqual([]);
+  });
+
+  it("takes far fewer boxes out of the flow than the fitted geometry (under a third)", () => {
+    const fit = pageScreens(
+      [
+        { width: 390, minWidth: 0, snap: recorded(390) },
+        { width: 768, minWidth: 768, snap: recorded(768) },
+        { width: 1440, minWidth: 1024, snap: recorded(1440) },
+      ],
+      true,
+      { flow: false },
+    );
+    const fcss = String(
+      getEmitter("static")!.emit(
+        { screens: tagSections(fit.screens, pageSections(fit.screens)), fonts: fit.fonts, page: fit.page },
+        { assets: "none" },
+      )["styles.css"],
+    );
+    expect((fcss.match(/position: absolute/g) ?? []).length).toBeGreaterThan(
+      3 * (css.match(/position: absolute/g) ?? []).length,
+    );
+  });
+});
+
+describe("a box taller than its flowing content (its heading placed over it)", () => {
+  // a card as tall as its grid row: 48 px of icons in flow, the heading placed (absolute) at its top
+  const card = (h: number) =>
+    el("main", {
+      name: "Main",
+      style: { position: "relative", width: "1440px", height: "900px" },
+      children: [
+        el("div", {
+          name: "Page",
+          style: { position: "relative", height: "900px" },
+          children: [
+            el("div", {
+              name: "Card",
+              style: {
+                display: "flex",
+                "flex-direction": "row",
+                "align-items": "flex-end",
+                height: `${h}px`,
+                padding: "0px 16px 16px 16px",
+              },
+              children: [
+                el("div", { name: "Icon", style: { width: "48px", height: "48px" } }),
+                el("p", {
+                  name: "Heading",
+                  style: { position: "absolute", left: "16px", top: "0px", width: "268px" },
+                  children: [{ kind: "text", text: "Create a streamhouse" }],
+                }),
+              ],
+            }),
+          ],
+        }),
+      ],
+    });
+  it("keeps its measured height where it changes between widths (it does not collapse to its icons)", () => {
+    const desk: FluidScreen & ExportScreen = {
+      ...variant(1440, 1200, card(192)),
+      measured: [
+        { width: 1200, ir: card(214) },
+        { width: 1920, ir: card(192) },
+      ],
+    };
+    const [d] = fluidVariants([desk]);
+    expect(find(d!.ir, "Card").style.height).not.toBe("auto");
+    expect(len(find(d!.ir, "Card").style.height!, 1440)).toBeCloseTo(192, 0);
   });
 });

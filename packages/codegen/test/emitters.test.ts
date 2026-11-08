@@ -83,25 +83,11 @@ describe("emitter registry", () => {
 });
 
 describe("wide screens", () => {
-  it("never extrapolates past the widest measurement: viewport terms stop there and the layout is centred", () => {
+  it("a variant measured across its range keeps following the page past its widest measurement (no cap, no frozen term)", () => {
     const css = String(getEmitter("static")!.emit(input(), {})["styles.css"]);
-    // the recorded 1440 capture was also walked at 1920: that is the widest measured width
-    const m =
-      /@media \(min-width: (\d+)px\) \{ [^}]*> main \{ max-width: (\d+)px; margin-left: auto; margin-right: auto; \} \}/.exec(
-        css,
-      );
-    expect(m).not.toBeNull();
-    const M = Number(m![2]);
-    expect(Number(m![1])).toBe(M + 1);
-    expect(M).toBe(1920);
-    // the widest variant's rules only ever see the viewport up to that width
-    // (its own rule block: from its comment to the next page-level comment)
-    const start = css.indexOf("· 1440 */");
-    const widest = css.slice(
-      start,
-      css.indexOf("/* Home:", start) > 0 ? css.indexOf("/* Home:", start) : undefined,
-    );
-    expect(widest).toContain(`min(100vw, ${M}px)`);
-    expect(widest.replaceAll(`min(100vw, ${M}px)`, "").includes("100vw")).toBe(false);
+    // the recorded 1440 capture was also walked at 1920: its lines continue past it, as the page's do (a centred
+    // column keeps centring, a full-bleed band keeps spanning the window)
+    expect(css).not.toMatch(/> main \{ max-width: \d+px; margin-left: auto; margin-right: auto; \}/);
+    expect(css).not.toMatch(/min\(100vw, \d+px\)/);
   });
 });
