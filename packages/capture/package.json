@@ -1,6 +1,6 @@
 {
   "name": "@harness/capture",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "Headless-Chrome page capture for 1:1 recreation: CDP driver + in-page DOM walker → Snapshot.",
   "license": "MIT",

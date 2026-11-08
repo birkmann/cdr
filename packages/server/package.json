@@ -1,6 +1,6 @@
 {
   "name": "@harness/server",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "HTTP + SSE server for the CDR harness.",
   "license": "MIT",

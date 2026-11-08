@@ -1,6 +1,6 @@
 {
   "name": "@harness/scene",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "Snapshot → Scene: conversion, fluid geometry, layout plan, sections (recreate pipeline).",
   "license": "MIT",

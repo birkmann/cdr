@@ -1,6 +1,6 @@
 {
   "name": "@harness/design-system",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "Design systems from a URL or images: brand reading, token system with themes, Lit web components, React and Angular wrappers, docs.",
   "license": "MIT",

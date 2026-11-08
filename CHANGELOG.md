@@ -4,6 +4,8 @@ All notable changes are listed here. The project follows [Semantic Versioning](h
 
 ## Unreleased
 
+## 0.3.0 (2026-11-08)
+
 - Desktop: app previews open beside the conversation in the chat view instead of switching to the Code view. The preview shares the right pane with file tabs, and a toolbar button moves it to the Code view when you want it there.
 - Desktop: file names in chat messages and tool steps are links. In the chat view a file opens beside the conversation, read-only, with tabs, a folder tree and Markdown rendering, without switching to the Code view.
 - Desktop: the app opens in a new chat view that reads left to right: every conversation grouped by Working, Waiting and Settled; the selected conversation; and its project with branch, changes, running agents, goals and preview. The previous layout is now the Code view of a project, one click (or Ctrl+Shift+U) away. Switching views keeps open files and terminals. The Agents and Goals side panels moved into the chat view. Permission requests are answered in the conversation list, and clicking an OS notification selects its conversation.
