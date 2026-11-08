@@ -13,7 +13,8 @@
       .card h3 { position: absolute; left: 16px; top: 16px; margin: 0; width: calc(100% - 32px); font-size: 20px; line-height: 28px; }
       .card p { position: absolute; left: 16px; top: 52px; margin: 0; width: calc(100% - 32px); }
       .card a { position: absolute; left: 16px; top: 76px; }
-      @media (width: 320px), (width: 390px), (width: 579px) { .card a { top: 124px; } }
+      /* 148px clears four lines of text: system-ui takes three at 320px on macOS and four on Linux. */
+      @media (width: 320px), (width: 390px), (width: 579px) { .card a { top: 148px; } }
       @media (width: 768px), (width: 1104px) { .card a { top: 100px; } }
     </style>
   </head>

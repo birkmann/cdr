@@ -693,18 +693,29 @@ function measuredFluid(s: FluidScreen, i: number, ir: IrElement): { min: number;
             ? nb
             : -nb
           : 0;
+      // a wrapping row measured at the width of its own content has no room to spare: a fit that lands a fraction of a
+      // px short sends its last item onto a new line, so the row gets the most the fit may be off
+      const wrapRoom = (k: number) =>
+        !isRow(me.el.style) || me.el.style["flex-wrap"] !== "wrap"
+          ? 0
+          : prop === "width" && parts.length === 1
+            ? FLUID_TOL
+            : prop === "margin" && parts.length === 4 && k === 1
+              ? -FLUID_TOL
+              : 0;
       const next = parts.map((part, k) => {
         const v = pxOf(part);
         if (v === null) return part;
         // a text narrowed to its longest line here (a fitted capture): its box in the page, at every width (a narrower
         // value at the capture width alone would be a pin)
         const n = narrowed(k);
-        const pts: Array<[number, number]> = [[W, v + n]];
+        const room = wrapRoom(k);
+        const pts: Array<[number, number]> = [[W, v + n + room]];
         for (const p of partners) {
           const t = p.st[prop];
           const tp = t === undefined ? null : t.trim().split(/\s+/);
           const y = tp && tp.length === parts.length ? pxOf(tp[k]) : null;
-          if (y !== null) pts.push([p.W, y]);
+          if (y !== null) pts.push([p.W, y + room]);
         }
         // a height that changes where text wraps onto another line (no line through the measured heights) is the
         // height of the box's content: the box follows it (height: auto) instead of a value fitted to the measured widths

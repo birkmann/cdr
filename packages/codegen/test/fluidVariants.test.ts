@@ -556,6 +556,47 @@ describe("measured variants (URL capture: one per layout range, measured at the 
   });
 });
 
+describe("a wrapping row fitted to the width of its own content", () => {
+  const at = (W: number, style: Record<string, string>) =>
+    el("main", {
+      name: `R · ${W}`,
+      style: { width: "100%" },
+      children: [
+        el("div", {
+          name: "Page",
+          style: { position: "relative", width: "100%" },
+          children: [el("nav", { name: "Nav", style: { display: "flex", ...style }, children: [] })],
+        }),
+      ],
+    });
+  const nav = (a: Record<string, string>, b: Record<string, string>) => {
+    const s: FluidScreen & ExportScreen = {
+      ...variant(600, 500, at(600, a)),
+      measured: [{ width: 700, ir: at(700, b) }],
+    };
+    return find(fluidVariants([s, { ...variant(800, 701, at(800, b)), nodeId: "r-800" }])[0]!.ir, "Nav").style;
+  };
+  const wrap = { "flex-wrap": "wrap" };
+
+  it("gets the most the fit may be off, so its last item stays on the row", () => {
+    const { width } = nav({ ...wrap, width: "540px" }, { ...wrap, width: "596px" });
+    expect(len(width!, 600)).toBeCloseTo(541, 2);
+    expect(len(width!, 700)).toBeCloseTo(597, 2);
+  });
+
+  it("gets it from its right margin when the margin sets the width", () => {
+    const { margin } = nav({ ...wrap, margin: "0px 30px 0px 0px" }, { ...wrap, margin: "0px 79px 0px 0px" });
+    expect(len(side(margin!, 1), 600)).toBeCloseTo(29, 2);
+    expect(len(side(margin!, 1), 700)).toBeCloseTo(78, 2);
+  });
+
+  it("leaves a row that does not wrap at its measured width", () => {
+    const { width } = nav({ width: "540px" }, { width: "596px" });
+    expect(len(width!, 600)).toBeCloseTo(540, 2);
+    expect(len(width!, 700)).toBeCloseTo(596, 2);
+  });
+});
+
 describe("pwlCss", () => {
   it("passes through every measured width and keeps a kink between them (a max-width column reaching its cap)", () => {
     // ibm.com-like: a 16 px gutter grid filling the viewport up to 1584 px, then centred

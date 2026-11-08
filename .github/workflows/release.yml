@@ -121,7 +121,13 @@ jobs:
           bundles=""
           # MSI versions must be numeric, so prereleases ship only the NSIS installer on Windows.
           if [[ "$RUNNER_OS" == "Windows" && "${{ needs.prepare.outputs.prerelease }}" == "true" ]]; then bundles="--bundles nsis"; fi
-          node ../../apps/desktop/node_modules/@tauri-apps/cli/tauri.js build ${{ matrix.args }} $bundles
+          # Bundling downloads WiX, NSIS and linuxdeploy from GitHub, so a brief outage there should not end the release.
+          for attempt in 1 2 3; do
+            node ../../apps/desktop/node_modules/@tauri-apps/cli/tauri.js build ${{ matrix.args }} $bundles && exit 0
+            echo "::warning::Build attempt $attempt failed"
+            sleep 30
+          done
+          exit 1
       - name: Collect installers
         run: |
           mkdir -p upload
