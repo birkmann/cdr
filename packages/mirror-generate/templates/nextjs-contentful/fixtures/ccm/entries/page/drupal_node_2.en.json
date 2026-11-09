@@ -1,0 +1,179 @@
+{
+  "ccmId": "drupal:node:2",
+  "type": "page",
+  "locale": "en",
+  "status": "published",
+  "fields": {
+    "title": "About us",
+    "body": {
+      "type": "doc",
+      "children": [
+        {
+          "type": "paragraph",
+          "children": [
+            {
+              "type": "text",
+              "value": "We are a small team of "
+            },
+            {
+              "type": "text",
+              "value": "food lovers",
+              "marks": [
+                "bold"
+              ]
+            },
+            {
+              "type": "text",
+              "value": "."
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "children": [
+            {
+              "type": "text",
+              "value": "Our values"
+            }
+          ]
+        },
+        {
+          "type": "list",
+          "ordered": false,
+          "children": [
+            {
+              "type": "listItem",
+              "children": [
+                {
+                  "type": "paragraph",
+                  "children": [
+                    {
+                      "type": "text",
+                      "value": "Fresh ingredients"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "children": [
+                {
+                  "type": "paragraph",
+                  "children": [
+                    {
+                      "type": "text",
+                      "value": "Simple recipes"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "children": [
+                {
+                  "type": "paragraph",
+                  "children": [
+                    {
+                      "type": "text",
+                      "value": "Balanced nutrition"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "embeddedAsset",
+          "ref": {
+            "kind": "asset",
+            "id": "drupal:media:22"
+          }
+        },
+        {
+          "type": "heading",
+          "level": 3,
+          "children": [
+            {
+              "type": "text",
+              "value": "Opening hours"
+            }
+          ]
+        },
+        {
+          "type": "rawHtml",
+          "html": "<table><thead><tr><th>Day</th><th>Hours</th></tr></thead><tbody><tr><td>Mon–Fri</td><td>8–18</td></tr><tr><td>Sat</td><td>9–14</td></tr></tbody></table>",
+          "reason": "table"
+        },
+        {
+          "type": "paragraph",
+          "children": [
+            {
+              "type": "text",
+              "value": "Read our article on "
+            },
+            {
+              "type": "link",
+              "ref": {
+                "kind": "entry",
+                "id": "drupal:node:3"
+              },
+              "children": [
+                {
+                  "type": "text",
+                  "value": "healthy breakfast"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": " or visit "
+            },
+            {
+              "type": "link",
+              "href": "https://www.nestle.com",
+              "children": [
+                {
+                  "type": "text",
+                  "value": "nestle.com"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": "."
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "sourceChangedAt": "2024-06-02T10:00:00.000Z",
+  "source": {
+    "system": "drupal",
+    "kind": "node",
+    "id": "2",
+    "bundle": "page",
+    "url": "http://localhost:8080/jsonapi/node/page/n0000000-0000-4000-8000-000000000002?resourceVersion=id%3A2"
+  },
+  "path": "/about-us",
+  "slug": "about-us",
+  "meta": {
+    "title": "About us | Nestle Demo Kitchen",
+    "description": "Who we are and what we cook.",
+    "canonical": "/about-us",
+    "hreflang": [
+      {
+        "locale": "de",
+        "href": "/de/ueber-uns"
+      },
+      {
+        "locale": "en",
+        "href": "/about-us"
+      }
+    ]
+  }
+}

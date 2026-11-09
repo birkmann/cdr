@@ -1,0 +1,15 @@
+[
+  {
+    "code": "en",
+    "name": "English",
+    "default": true,
+    "pathPrefix": ""
+  },
+  {
+    "code": "de",
+    "name": "Deutsch",
+    "default": false,
+    "fallback": "en",
+    "pathPrefix": "de"
+  }
+]

@@ -4,7 +4,7 @@ import type { RecreateRequest } from "@harness/protocol";
 import { runRecreate, type RecreateResult } from "@harness/recreate";
 import type { Session } from "../session.js";
 import type { ToolContext } from "../tools/types.js";
-import { recreateHost } from "./host.js";
+import { mirrorHost, recreateHost } from "./host.js";
 
 export interface SessionRecreateOptions {
   /** answer the consent gate automatically (`--yes`), logged as permission.resolved { auto: true } */
@@ -53,13 +53,41 @@ async function recreateRun(
     // naming, vision and repair only with a configured, reachable model; the deterministic stages need none
     ...(modelOk ? { complete: (role, messages, opts) => session.complete(role, messages, opts) } : {}),
   };
+  const r = await (request.mode === "mirror" ? runMirrorMode(ctx, request, o) : runRebuild(ctx, request, o));
+  return settle(session, r);
+}
+
+async function runMirrorMode(
+  ctx: ToolContext,
+  request: RecreateRequest,
+  o: SessionRecreateOptions,
+): Promise<RecreateResult> {
+  // loaded on first use: only mirror mode needs Playwright
+  const { runMirror } = await import("@harness/mirror");
+  return runMirror(request, mirrorHost(ctx, { consentArgs: request, yes: o.yes }));
+}
+
+/** Starts the generated app of a finished mirror run for viewing, without the provider keys in its environment. */
+export async function openRecreateApp(session: Session, runId: string): Promise<{ url: string }> {
+  const { openMirrorApp } = await import("@harness/mirror");
+  return openMirrorApp({ projectRoot: session.projectRoot, runId, secretEnv: session.secretEnv });
+}
+
+async function runRebuild(
+  ctx: ToolContext,
+  request: RecreateRequest,
+  o: SessionRecreateOptions,
+): Promise<RecreateResult> {
   const host = {
     ...recreateHost(ctx, { consentArgs: request, yes: o.yes, sectionChecks: o.sectionChecks }),
     ...(o.runBuilds ? { runBuilds: o.runBuilds } : {}),
   };
   // repair is opt-in: without `repair: true` no model call patches the output
   if (request.repair !== true) delete (host as { repair?: unknown }).repair;
-  const r = await runRecreate(request, host, { stopAfter: o.stopAfter });
+  return runRecreate(request, host, { stopAfter: o.stopAfter });
+}
+
+function settle(session: Session, r: RecreateResult): RecreateResult {
   // gates that miss are a result, not a broken job: the page was built and measured, every stage finished. The run
   // keeps its status (CLI exit code, evals); the session's job is done, nothing to continue
   const measuredBelowGates =

@@ -32,7 +32,8 @@
     "@harness/protocol": "workspace:*",
     "@harness/core": "workspace:*",
     "@harness/server": "workspace:*",
-    "@harness/client": "workspace:*"
+    "@harness/client": "workspace:*",
+    "@harness/autopilot": "workspace:*"
   },
   "bin": {
     "cdr": "dist/bin.js"

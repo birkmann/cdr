@@ -153,6 +153,8 @@ export interface HarnessClient {
   forkSession(id: string, req?: ForkSessionRequest): Promise<SessionInfo>;
   /** Bring a branch's new messages back into the conversation it came from. */
   mergeBranch(id: string): Promise<MergeBranchResponse>;
+  /** Start the generated app of a finished mirror run; the address of the page on its own loopback port. */
+  recreateApp(id: string, runId: string): Promise<{ url: string }>;
   browse(path?: string, opts?: { hidden?: boolean }): Promise<BrowseResponse>;
   availableModels(projectPath?: string): Promise<Record<string, AvailableModels>>;
   /** Account balance of the provider behind `model` (default: the configured executor). */
@@ -265,6 +267,7 @@ export function createClient(opts: ClientOptions): HarnessClient {
     deleteMessage: (id, messageId) => call("DELETE", `/sessions/${enc(id)}/messages/${enc(messageId)}`),
     forkSession: (id, req) => call("POST", `/sessions/${enc(id)}/fork`, req ?? {}),
     mergeBranch: (id) => call("POST", `/sessions/${enc(id)}/merge`, {}),
+    recreateApp: (id, runId) => call("POST", `/sessions/${enc(id)}/recreate/${enc(runId)}/app`, {}),
     browse: (path, o) =>
       call("GET", `/browse?${path ? `path=${enc(path)}&` : ""}${o?.hidden ? "hidden=true" : ""}`),
     balance: (o) => {
@@ -472,6 +475,11 @@ export interface RecreateRunView {
   url: string;
   dir?: string;
   targets: string[];
+  mode?: "rebuild" | "mirror";
+  /** mirror mode: the latest result per verify gate */
+  verify?: Record<string, Extract<HarnessEvent, { type: "recreate.verify" }>>;
+  /** mirror mode: the fix loop's attempts */
+  fixes?: Extract<HarnessEvent, { type: "recreate.fix" }>[];
   consent?: { by: "user" | "auto"; at: string; mode: string };
   stages: Record<
     string,
@@ -917,6 +925,8 @@ export function reduceSession(state: SessionState, e: HarnessEvent): SessionStat
     case "recreate.section":
     case "recreate.shot":
     case "recreate.measured":
+    case "recreate.verify":
+    case "recreate.fix":
     case "recreate.components":
     case "recreate.consent":
     case "recreate.finished":
@@ -1028,6 +1038,7 @@ export function reduceRecreate(
       r.url = e.url;
       r.dir = e.dir;
       r.targets = e.targets;
+      if (e.mode) r.mode = e.mode;
       r.status = "running";
       break;
     case "recreate.consent":
@@ -1073,6 +1084,12 @@ export function reduceRecreate(
     case "recreate.measured":
       r.measured = { ...r.measured, [e.target]: e };
       if (e.comparePath) r.comparePath = e.comparePath;
+      break;
+    case "recreate.verify":
+      r.verify = { ...r.verify, [e.gate]: e };
+      break;
+    case "recreate.fix":
+      r.fixes = [...(r.fixes ?? []), e];
       break;
     case "recreate.components":
       r.components = e;

@@ -1,11 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { HarnessEvent } from "@harness/protocol";
 import { Harness, MockProvider } from "@harness/core";
 import { parseRecreateRequest, startServer, type StartedServer } from "@harness/server";
 import { createClient } from "@harness/client";
+import { closeMirrorApps } from "@harness/mirror";
 
 const MODELS = {
   providers: { mock: { type: "mock" } },
@@ -212,6 +213,11 @@ describe("recreate run folders on the preview path", () => {
       expect([403, 404], path).toContain((await fetch(url(path))).status);
     expect((await fetch(url(`.harness/recreate/${otherRun}/manifest.json`))).status).toBe(404);
     expect((await fetch(url(`.harness/recreate/..%2Fsecret.txt/x`))).status).toBe(404);
+    // a run from another conversation opens once this one has published a page of it
+    mkdirSync(join(project, ".harness", "recreate", otherRun, "out/static"), { recursive: true });
+    writeFileSync(join(project, ".harness", "recreate", otherRun, "out/static/index.html"), "<h1>other</h1>");
+    s.emit({ type: "preview.ready", path: `.harness/recreate/${otherRun}/out/static/index.html` });
+    expect((await fetch(url(`.harness/recreate/${otherRun}/out/static/index.html`))).status).toBe(200);
     expect((await fetch(url(".harness/secret.txt"))).status).toBe(404);
     expect((await fetch(url(`.harness/recreate/${runId}/missing.png`))).status).toBe(404);
     expect(
@@ -221,5 +227,109 @@ describe("recreate run folders on the preview path", () => {
         )
       ).status,
     ).toBe(404);
+  });
+});
+
+describe("POST /sessions/:id/recreate/:run/app", () => {
+  const open = (id: string, run: string, headers: Record<string, string> = auth) =>
+    fetch(`${srv.url}/sessions/${id}/recreate/${run}/app`, { method: "POST", headers });
+
+  it("needs the token and a run of this session", async () => {
+    const c = createClient({ baseUrl: srv.url, token: TOKEN });
+    const info = await c.createSession({ projectPath: project });
+    expect((await open(info.id, "20261108-120000-example-com-abc", {})).status).toBe(401);
+    expect((await open(info.id, "20261108-120000-example-com-abc")).status).toBe(404);
+    expect((await open(info.id, "..%2F..%2Fetc")).status).toBe(404);
+  });
+});
+
+describe("the live-reload version of a preview folder", () => {
+  it("can be polled from a sandboxed page", async () => {
+    const c = createClient({ baseUrl: srv.url, token: TOKEN });
+    const info = await c.createSession({ projectPath: project });
+    const { previewBase } = await c.getSession(info.id, { events: false });
+    const res = await fetch(`${srv.url}${previewBase}.cdr-live`, { headers: { origin: "null" } });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("access-control-allow-origin")).toBe("*");
+  });
+});
+
+describe("the static snapshot of a mirror run", () => {
+  const FAKE_NEXT = `#!/usr/bin/env node
+require("http").createServer((_q, r) => r.end("real app")).listen(Number(process.argv[process.argv.indexOf("-p") + 1]), "127.0.0.1");
+`;
+  const setup = async (runId: string, built: boolean) => {
+    const c = createClient({ baseUrl: srv.url, token: TOKEN });
+    const info = await c.createSession({ projectPath: project });
+    const { previewBase } = await c.getSession(info.id, { events: false });
+    const dir = join(project, ".harness", "recreate", runId);
+    mkdirSync(join(dir, "out/preview"), { recursive: true });
+    writeFileSync(join(dir, "out/preview/index.html"), "<h1>snapshot</h1>");
+    writeFileSync(
+      join(dir, "manifest.json"),
+      JSON.stringify({
+        id: runId,
+        version: 1,
+        createdAt: "2026-11-08T12:00:00.000Z",
+        updatedAt: "2026-11-08T12:00:00.000Z",
+        request: { url: "https://example.com/", mode: "mirror", to: ["mirror"] },
+        stages: { report: { status: "done" } },
+        outputs: [],
+        measurements: [],
+        gates: [],
+        finalUrl: "https://www.example.com/de.html",
+      }),
+    );
+    if (built) {
+      mkdirSync(join(dir, "out/mirror/node_modules/next/dist/bin"), { recursive: true });
+      mkdirSync(join(dir, "out/mirror/.next"), { recursive: true });
+      writeFileSync(join(dir, "out/mirror/.next/BUILD_ID"), "b1\n");
+      writeFileSync(join(dir, "out/mirror/node_modules/next/dist/bin/next"), FAKE_NEXT);
+      chmodSync(join(dir, "out/mirror/node_modules/next/dist/bin/next"), 0o755);
+    }
+    srv.harness
+      .getSession(info.id)
+      .emit({ type: "preview.ready", path: `.harness/recreate/${runId}/out/preview/index.html` });
+    return `${srv.url}${previewBase}.harness/recreate/${runId}/out/preview/`;
+  };
+  const get = (url: string, dest?: string) =>
+    fetch(url, { redirect: "manual", headers: dest ? { "sec-fetch-dest": dest } : {} });
+
+  afterAll(() => closeMirrorApps());
+
+  it("leads a page opened in a tab to the real app, and stays the snapshot inside a frame", async () => {
+    const base = await setup("20261108-130000-example-com-abc", true);
+    const tab = await get(`${base}index.html?live=1`, "document");
+    expect(tab.status).toBe(302);
+    const location = tab.headers.get("location")!;
+    expect(location).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/de\.html$/);
+    expect(await (await fetch(location)).text()).toBe("real app");
+
+    const frame = await get(`${base}index.html`, "iframe");
+    expect(frame.status).toBe(200);
+    expect(await frame.text()).toContain("snapshot");
+  });
+
+  it("shows the snapshot when there is no app to open", async () => {
+    const base = await setup("20261108-130100-example-com-abc", false);
+    const tab = await get(`${base}index.html`, "document");
+    expect(tab.status).toBe(200);
+    expect(await tab.text()).toContain("snapshot");
+  });
+
+  it("answers live reload from inside the run folder, only for runs of the session", async () => {
+    const base = await setup("20261108-130200-example-com-abc", false);
+    const res = await fetch(`${base}.cdr-live`, { headers: { origin: "null" } });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("access-control-allow-origin")).toBe("*");
+    const first = ((await res.json()) as { version: string }).version;
+    expect(first).toBeTruthy();
+    await new Promise((r) => setTimeout(r, 350));
+    writeFileSync(`${join(project, ".harness/recreate/20261108-130200-example-com-abc/out/preview")}/new.css`, "a{}");
+    const next = (await (await fetch(`${base}.cdr-live`)).json()) as { version: string };
+    expect(next.version).not.toBe(first);
+
+    const other = base.replace("20261108-130200-example-com-abc", "20261108-130300-example-com-abc");
+    expect((await fetch(`${other}.cdr-live`)).status).toBe(404);
   });
 });

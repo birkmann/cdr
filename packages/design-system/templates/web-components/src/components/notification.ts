@@ -29,11 +29,11 @@ export class Notification extends LitElement {
         color: var(--__P__-text-inverse);
         border-left: 3px solid var(--kind);
         border-radius: var(--__P__-radius-field);
-        max-width: 48rem;
+        max-width: var(--__P__-dim-48rem);
       }
       :host([toast]) .n {
         box-shadow: var(--__P__-shadow-02);
-        width: 18rem;
+        width: var(--__P__-dim-18rem);
         flex-wrap: wrap;
       }
       :host([kind='error']) {
@@ -60,7 +60,7 @@ export class Notification extends LitElement {
       .icon-wrap {
         display: inline-flex;
         color: var(--kind);
-        margin-top: 0.125rem;
+        margin-top: var(--__P__-dim-0-125rem);
       }
       :host([kind='warning']:not([low-contrast])) .icon-wrap,
       :host([kind='warning']) .icon-wrap {
@@ -85,8 +85,8 @@ export class Notification extends LitElement {
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        width: 2rem;
-        height: 2rem;
+        width: var(--__P__-dim-2rem);
+        height: var(--__P__-dim-2rem);
         margin: calc(-1 * var(--__P__-spacing-03)) calc(-1 * var(--__P__-spacing-03)) 0 0;
         border: 0;
         background: transparent;

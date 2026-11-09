@@ -1,0 +1,112 @@
+[
+  {
+    "from": "/old-about",
+    "to": "/about-us",
+    "status": 301,
+    "locale": "en",
+    "source": {
+      "system": "drupal",
+      "kind": "redirect",
+      "id": "1"
+    }
+  },
+  {
+    "from": "/de/alt-ueber-uns",
+    "to": "/de/ueber-uns",
+    "status": 301,
+    "locale": "de",
+    "source": {
+      "system": "drupal",
+      "kind": "redirect",
+      "id": "2"
+    }
+  },
+  {
+    "from": "/de/node/3",
+    "to": "/de/news/gesundes-fruehstueck",
+    "status": 301,
+    "locale": "de",
+    "source": {
+      "system": "drupal",
+      "kind": "node",
+      "id": "3"
+    }
+  },
+  {
+    "from": "/node/3",
+    "to": "/news/healthy-breakfast",
+    "status": 301,
+    "locale": "en",
+    "source": {
+      "system": "drupal",
+      "kind": "node",
+      "id": "3"
+    }
+  },
+  {
+    "from": "/de/node/4",
+    "to": "/de/news/obst",
+    "status": 301,
+    "locale": "de",
+    "source": {
+      "system": "drupal",
+      "kind": "node",
+      "id": "4"
+    }
+  },
+  {
+    "from": "/node/4",
+    "to": "/news/fruit",
+    "status": 301,
+    "locale": "en",
+    "source": {
+      "system": "drupal",
+      "kind": "node",
+      "id": "4"
+    }
+  },
+  {
+    "from": "/de/node/1",
+    "to": "/de",
+    "status": 301,
+    "locale": "de",
+    "source": {
+      "system": "drupal",
+      "kind": "node",
+      "id": "1"
+    }
+  },
+  {
+    "from": "/node/1",
+    "to": "/",
+    "status": 301,
+    "locale": "en",
+    "source": {
+      "system": "drupal",
+      "kind": "node",
+      "id": "1"
+    }
+  },
+  {
+    "from": "/de/node/2",
+    "to": "/de/ueber-uns",
+    "status": 301,
+    "locale": "de",
+    "source": {
+      "system": "drupal",
+      "kind": "node",
+      "id": "2"
+    }
+  },
+  {
+    "from": "/node/2",
+    "to": "/about-us",
+    "status": 301,
+    "locale": "en",
+    "source": {
+      "system": "drupal",
+      "kind": "node",
+      "id": "2"
+    }
+  }
+]

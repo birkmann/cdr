@@ -1,0 +1,1 @@
+{ "site": "template", "dataSource": "ccm", "ccmDir": "fixtures/ccm", "siteUrl": "", "dateLocales": { "en": "en-GB", "de": "de-DE" } }

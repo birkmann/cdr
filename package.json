@@ -31,7 +31,8 @@
     "screenshots": "node scripts/screenshots/capture.mjs",
     "release:version": "node scripts/version.mjs",
     "release:cli": "pnpm build && pnpm bundle:harness && node scripts/package-cli.mjs",
-    "cdr": "node packages/cli/dist/bin.js"
+    "cdr": "node packages/cli/dist/bin.js",
+    "autopilot": "node packages/cli/dist/bin.js autopilot"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",

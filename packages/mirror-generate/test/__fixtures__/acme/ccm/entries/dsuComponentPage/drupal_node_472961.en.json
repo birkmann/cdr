@@ -1,0 +1,40 @@
+{
+ "ccmId": "drupal:node:472961",
+ "type": "dsuComponentPage",
+ "locale": "en",
+ "path": "/",
+ "slug": "",
+ "status": "published",
+ "fields": {
+  "title": "Home",
+  "lnNComponents": [
+   {
+    "kind": "entry",
+    "id": "drupal:paragraph:334386"
+   }
+  ]
+ },
+ "meta": {
+  "title": "Acme: Good food, Good life | Acme Global",
+  "description": "Acme is the world's largest food & beverage company. We unlock the power of food and beverages to enhance quality of life for everyone, today and for generations to come.",
+  "canonical": "https://www.acme.com/",
+  "og": {
+   "og:site_name": "Acme Global",
+   "og:type": "website",
+   "og:url": "https://www.acme.com/home",
+   "og:title": "Home"
+  },
+  "twitter": {
+   "twitter:card": "summary",
+   "twitter:description": "Acme, the world's largest food and beverage company, is committed to enhancing quality of life and contributing to a healthier future.",
+   "twitter:image": "https://www.acme.com/sites/default/files/about-us-landing-purpose-boys_5.jpg"
+  }
+ },
+ "source": {
+  "system": "html",
+  "kind": "page",
+  "id": "node/472961",
+  "bundle": "dsu_component_page",
+  "url": "http://localhost:4401/"
+ }
+}

@@ -1,0 +1,97 @@
+{
+  "id": "siteHeader",
+  "name": "Site header",
+  "selector": "header#header.site-header",
+  "kind": "chrome",
+  "template": "<header id=\"header\" class=\"site-header\" data-drupal-selector=\"site-header\" role=\"banner\">\n            <div class=\"site-header__container container\">\n              <div class=\"region region--header\">\n                <div id=\"block-demo-site-branding\" class=\"block block-system block-system-branding-block site-branding\">\n                  <a href=\"{{homeUrl}}\" rel=\"home\" class=\"site-branding__logo\"><img src=\"{{logo.url}}\" alt=\"{{logo.alt}}\" width=\"{{logo.width}}\" height=\"{{logo.height}}\" fetchpriority=\"high\"></a>\n                  <div class=\"site-branding__text\">\n                    <div class=\"site-branding__name\"><a href=\"{{homeUrl}}\" rel=\"home\" title=\"{{t.home}}\">{{siteName}}</a></div>\n                    <div class=\"site-branding__slogan\">{{slogan}}</div>\n                  </div>\n                </div>\n                <button class=\"mobile-nav-button\" data-drupal-selector=\"mobile-nav-button\" aria-label=\"{{t.mainNavigation}}\" aria-controls=\"header-nav\" aria-expanded=\"false\">\n                  <span class=\"mobile-nav-button__label\">{{t.menu}}</span>\n                  <span class=\"mobile-nav-button__icon\"></span>\n                </button>\n                <div id=\"header-nav\" class=\"header-nav\" data-drupal-selector=\"header-nav\">\n                  {{{mainNav}}}\n                  {{{languageSwitcher}}}\n                </div>\n              </div>\n            </div>\n          </header>",
+  "props": [
+    {
+      "name": "homeUrl",
+      "type": "link",
+      "ccmField": "route.home"
+    },
+    {
+      "name": "logo",
+      "type": "asset",
+      "ccmField": "settings.logo"
+    },
+    {
+      "name": "siteName",
+      "type": "text",
+      "ccmField": "settings.siteName"
+    },
+    {
+      "name": "slogan",
+      "type": "text",
+      "ccmField": "settings.extra.slogan"
+    },
+    {
+      "name": "mainNav",
+      "type": "html",
+      "component": "mainNav"
+    },
+    {
+      "name": "languageSwitcher",
+      "type": "html",
+      "component": "languageSwitcher"
+    },
+    {
+      "name": "t.home",
+      "type": "text",
+      "i18n": {
+        "de": "Startseite",
+        "en": "Home"
+      }
+    },
+    {
+      "name": "t.mainNavigation",
+      "type": "text",
+      "i18n": {
+        "de": "Hauptnavigation",
+        "en": "Main navigation"
+      }
+    },
+    {
+      "name": "t.menu",
+      "type": "text",
+      "i18n": {
+        "de": "Menü",
+        "en": "Menu"
+      }
+    }
+  ],
+  "exampleHtml": "<header id=\"header\" class=\"site-header\" data-drupal-selector=\"site-header\" role=\"banner\">\n            <div class=\"site-header__container container\">\n              <div class=\"region region--header\">\n                <div id=\"block-demo-site-branding\" class=\"block block-system block-system-branding-block site-branding\">\n                  <a href=\"/\" rel=\"home\" class=\"site-branding__logo\"><img src=\"/sites/default/files/logo.svg\" alt=\"Acme Demo Kitchen logo\" width=\"160\" height=\"40\" fetchpriority=\"high\"></a>\n                  <div class=\"site-branding__text\">\n                    <div class=\"site-branding__name\"><a href=\"/\" rel=\"home\" title=\"Home\">Acme Demo Kitchen</a></div>\n                    <div class=\"site-branding__slogan\">Good food, good life</div>\n                  </div>\n                </div>\n                <button class=\"mobile-nav-button\" data-drupal-selector=\"mobile-nav-button\" aria-label=\"Main navigation\" aria-controls=\"header-nav\" aria-expanded=\"false\">\n                  <span class=\"mobile-nav-button__label\">Menu</span>\n                  <span class=\"mobile-nav-button__icon\"></span>\n                </button>\n                <div id=\"header-nav\" class=\"header-nav\" data-drupal-selector=\"header-nav\">\n                  <nav role=\"navigation\" aria-labelledby=\"block-demo-main-menu-menu\" id=\"block-demo-main-menu\" class=\"block block-menu navigation menu--main primary-nav\">\n                    <h2 class=\"visually-hidden block__title\" id=\"block-demo-main-menu-menu\">Main navigation</h2>\n                    <ul class=\"menu primary-nav__menu primary-nav__menu--level-1\" data-drupal-selector=\"primary-nav-menu--level-1\">\n          <li class=\"menu-item primary-nav__menu-item primary-nav__menu-item--link primary-nav__menu-item--level-1 menu-item--active-trail\">\n            <a href=\"/\" class=\"primary-nav__menu-link primary-nav__menu-link--link primary-nav__menu-link--level-1 is-active\" data-drupal-link-system-path=\"<front>\" aria-current=\"page\">Home</a>\n          </li>\n          <li class=\"menu-item primary-nav__menu-item primary-nav__menu-item--link primary-nav__menu-item--level-1\">\n            <a href=\"/about-us\" class=\"primary-nav__menu-link primary-nav__menu-link--link primary-nav__menu-link--level-1\" data-drupal-link-system-path=\"node/2\">About us</a>\n          </li>\n          <li class=\"menu-item primary-nav__menu-item primary-nav__menu-item--link primary-nav__menu-item--level-1 menu-item--expanded primary-nav__menu-item--has-children\">\n            <a href=\"/news\" class=\"primary-nav__menu-link primary-nav__menu-link--link primary-nav__menu-link--level-1\" data-drupal-link-system-path=\"news\">News</a>\n            <ul class=\"menu primary-nav__menu primary-nav__menu--level-2\">\n          <li class=\"menu-item primary-nav__menu-item primary-nav__menu-item--link primary-nav__menu-item--level-2\">\n            <a href=\"/news/healthy-breakfast\" class=\"primary-nav__menu-link primary-nav__menu-link--link primary-nav__menu-link--level-2\" data-drupal-link-system-path=\"node/3\">Healthy breakfast</a>\n          </li>\n            </ul>\n          </li>\n                    </ul>\n                  </nav>\n                  <div class=\"language-switcher-language-url block block-language block-language-blocklanguage-interface\" id=\"block-demo-languageswitcher\" role=\"navigation\" aria-label=\"Language switcher\">\n  <ul class=\"links language-switcher__links\"><li hreflang=\"en\" data-drupal-link-system-path=\"<front>\" class=\"en is-active\" aria-current=\"page\"><a href=\"/\" class=\"language-link is-active\" hreflang=\"en\" data-drupal-link-system-path=\"<front>\">English</a></li><li hreflang=\"de\" data-drupal-link-system-path=\"<front>\" class=\"de\"><a href=\"/de\" class=\"language-link\" hreflang=\"de\" data-drupal-link-system-path=\"<front>\">Deutsch</a></li></ul>\n</div>\n                </div>\n              </div>\n            </div>\n          </header>",
+  "exampleProps": {
+    "homeUrl": "/",
+    "logo": {
+      "url": "/sites/default/files/logo.svg",
+      "alt": "Acme Demo Kitchen logo",
+      "width": "160",
+      "height": "40"
+    },
+    "siteName": "Acme Demo Kitchen",
+    "slogan": "Good food, good life",
+    "mainNav": "<nav role=\"navigation\" aria-labelledby=\"block-demo-main-menu-menu\" id=\"block-demo-main-menu\" class=\"block block-menu navigation menu--main primary-nav\">\n                    <h2 class=\"visually-hidden block__title\" id=\"block-demo-main-menu-menu\">Main navigation</h2>\n                    <ul class=\"menu primary-nav__menu primary-nav__menu--level-1\" data-drupal-selector=\"primary-nav-menu--level-1\">\n          <li class=\"menu-item primary-nav__menu-item primary-nav__menu-item--link primary-nav__menu-item--level-1 menu-item--active-trail\">\n            <a href=\"/\" class=\"primary-nav__menu-link primary-nav__menu-link--link primary-nav__menu-link--level-1 is-active\" data-drupal-link-system-path=\"<front>\" aria-current=\"page\">Home</a>\n          </li>\n          <li class=\"menu-item primary-nav__menu-item primary-nav__menu-item--link primary-nav__menu-item--level-1\">\n            <a href=\"/about-us\" class=\"primary-nav__menu-link primary-nav__menu-link--link primary-nav__menu-link--level-1\" data-drupal-link-system-path=\"node/2\">About us</a>\n          </li>\n          <li class=\"menu-item primary-nav__menu-item primary-nav__menu-item--link primary-nav__menu-item--level-1 menu-item--expanded primary-nav__menu-item--has-children\">\n            <a href=\"/news\" class=\"primary-nav__menu-link primary-nav__menu-link--link primary-nav__menu-link--level-1\" data-drupal-link-system-path=\"news\">News</a>\n            <ul class=\"menu primary-nav__menu primary-nav__menu--level-2\">\n          <li class=\"menu-item primary-nav__menu-item primary-nav__menu-item--link primary-nav__menu-item--level-2\">\n            <a href=\"/news/healthy-breakfast\" class=\"primary-nav__menu-link primary-nav__menu-link--link primary-nav__menu-link--level-2\" data-drupal-link-system-path=\"node/3\">Healthy breakfast</a>\n          </li>\n            </ul>\n          </li>\n                    </ul>\n                  </nav>",
+    "languageSwitcher": "<div class=\"language-switcher-language-url block block-language block-language-blocklanguage-interface\" id=\"block-demo-languageswitcher\" role=\"navigation\" aria-label=\"Language switcher\">\n  <ul class=\"links language-switcher__links\"><li hreflang=\"en\" data-drupal-link-system-path=\"<front>\" class=\"en is-active\" aria-current=\"page\"><a href=\"/\" class=\"language-link is-active\" hreflang=\"en\" data-drupal-link-system-path=\"<front>\">English</a></li><li hreflang=\"de\" data-drupal-link-system-path=\"<front>\" class=\"de\"><a href=\"/de\" class=\"language-link\" hreflang=\"de\" data-drupal-link-system-path=\"<front>\">Deutsch</a></li></ul>\n</div>",
+    "t": {
+      "menu": "Menu",
+      "home": "Home",
+      "mainNavigation": "Main navigation"
+    }
+  },
+  "source": "heuristic",
+  "instances": 6,
+  "pages": [
+    "/",
+    "/about-us",
+    "/de",
+    "/de/news/gesundes-fruehstueck",
+    "/de/ueber-uns",
+    "/news/healthy-breakfast"
+  ],
+  "locales": [
+    "de",
+    "en"
+  ],
+  "verified": true
+}

@@ -1,0 +1,16 @@
+{
+ "contentType": "dsuComponentPage",
+ "layout": "default",
+ "chrome": [
+  "siteHeader"
+ ],
+ "slots": [
+  {
+   "component": "dsuComponentPageComponents",
+   "region": "content"
+  }
+ ],
+ "bodyClass": "hide-default-heading home path-frontpage page-node-type-dsu-component-page has-glyphicons",
+ "wrapperHtml": "<main class=\"main-wrapper\" id=\"main-content\">\n                      <div class=\"region region-page-header\">\n    \n\n{{{regions.pageHeader}}}\n\n\n  </div>\n\n                 <div class=\"container\">\n                      <div class=\"row\">\n              <div class=\"col-md-12\">\n                  <div class=\"region region-content\">\n      \n\n  \n{{{regions.content}}}\n\n\n\n\n  </div>\n\n              </div>\n            </div>\n                  </div>\n      </main>",
+ "examplePath": "/"
+}

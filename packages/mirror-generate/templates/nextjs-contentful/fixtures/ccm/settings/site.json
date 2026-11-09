@@ -1,0 +1,63 @@
+{
+  "siteName": {
+    "en": "Nestle Demo Kitchen",
+    "de": "Nestle Demo Küche"
+  },
+  "baseUrl": "http://localhost:4400",
+  "logo": {
+    "kind": "asset",
+    "id": "drupal:media:24"
+  },
+  "footerText": {
+    "de": "© 2024 Nestle Demo Küche. Alle Rechte vorbehalten.",
+    "en": "© 2024 Nestle Demo Kitchen. All rights reserved."
+  },
+  "seoDefaults": {
+    "title": "Nestle Demo Kitchen",
+    "description": "Good food, good life"
+  },
+  "scripts": [
+    {
+      "id": "cookie-consent",
+      "src": "/themes/custom/demo/js/cookies.js",
+      "placement": "body"
+    },
+    {
+      "id": "analytics",
+      "src": "https://www.googletagmanager.com/gtm.js?id=GTM-DEMO",
+      "placement": "head"
+    }
+  ],
+  "extra": {
+    "slogan": {
+      "en": "Good food, good life",
+      "de": "Gutes Essen, gutes Leben"
+    },
+    "frontPage": "drupal:node:1",
+    "cookieBanner": {
+      "selector": "#cookie-banner"
+    },
+    "theme": "demo",
+    "metatagDefaults": {
+      "front": {
+        "canonical_url": "[site:url]",
+        "description": "[site:slogan]",
+        "title": "[site:name] | [site:slogan]"
+      },
+      "global": {
+        "canonical_url": "[current-page:url]",
+        "title": "[current-page:title] | [site:name]"
+      },
+      "node": {
+        "canonical_url": "[node:url]",
+        "description": "[node:summary]",
+        "title": "[node:title] | [site:name]"
+      },
+      "taxonomy_term": {
+        "canonical_url": "[term:url]",
+        "description": "[term:description]",
+        "title": "[term:name] | [site:name]"
+      }
+    }
+  }
+}

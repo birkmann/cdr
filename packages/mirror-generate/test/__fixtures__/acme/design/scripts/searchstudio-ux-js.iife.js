@@ -1,0 +1,1 @@
+/* searchstax (stub) */

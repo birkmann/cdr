@@ -1,0 +1,21 @@
+{
+  "ccmId": "drupal:media:23",
+  "src": "http://localhost:4400/sites/default/files/2024-05/fruit.jpg",
+  "originalPath": "/sites/default/files/2024-05/fruit.jpg",
+  "fileName": "fruit.jpg",
+  "mime": "image/jpeg",
+  "source": {
+    "system": "drupal",
+    "kind": "media",
+    "id": "23",
+    "bundle": "image",
+    "url": "http://localhost:8080/jsonapi/media/image/m0000000-0000-4000-8000-000000000023?resourceVersion=id%3A23"
+  },
+  "size": 40013,
+  "width": 800,
+  "height": 600,
+  "alt": {
+    "de": "Frisches Obst",
+    "en": "Fresh fruit"
+  }
+}

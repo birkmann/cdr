@@ -1,0 +1,151 @@
+# Theme pack: nestle.com, Drupal 10 custom theme `da_vinci_code` (DSU / Lightnest components).
+# Schema: ProfilePack in packages/adapters/source-html/src/profiles.ts. Moved verbatim from the former TS constants
+# PARAGRAPH_PROFILES / ENTITY_ROOTS / CLASS_FIELDS (P1, docs/DEEPSEEK_ONLY_PLAN.md §5.1) — Nestlé CCM byte-identical.
+#
+# Keys of `profiles` are Drupal machine names (paragraph type or, for nodes rendered in a view mode, the view mode).
+# A slot is "<selector>" (text) or { sel, kind, parentLink?, nonEmpty?, labelSel?, item? }; slot ids are CCM field ids
+# (camelCase, marked sourceMeta.inferred). Order matters: slots/fields are emitted in file order, entity roots and
+# class fields are first-match.
+id: da_vinci_code
+description: nestle.com (Drupal 10, da_vinci_code theme, DSU/Lightnest components)
+detect:
+  themes: [da_vinci_code]
+
+# Entity roots without `paragraph` class / `paragraph--type--*`: selector -> machine name.
+entityRoots:
+  - { sel: ".expandable-card__item[id^='section-']", type: accordion_item, entity: paragraph }
+  - { sel: ".downloads-component-wrapper", type: downloads, entity: paragraph }
+  - { sel: "section.brand-portfolio", type: brand_portfolio, entity: paragraph }
+  - { sel: ".downloads-item", type: downloads_item, entity: item }
+
+# Root-class patterns mapped to typed (enum-like text) fields on every section (merged before the generic ones).
+classFields:
+  - { re: "^cta-style-(.+)$", field: style }
+  - { re: "^position-(left|right|center|top|bottom)$", field: position }
+  - { re: "^color-library-(.+)$", field: color }
+  - { re: "^da-vinci-code-background--(.+)$", field: background }
+
+# Component class prefixes of this theme (for verify's component attribution; generic prefixes live in verify).
+componentClassPrefixes: [dsu-c-, ln-c-, quick-fact, statement, careers]
+
+profiles:
+  # ---- home
+  ln_c_entityslider:
+    items: cEntityRelation
+    slots:
+      sliderClasses: { sel: ".slick", kind: classes }
+  # node rendered in view mode `entityslider_hero` (slide of the entity slider)
+  entityslider_hero:
+    slots:
+      title: ".entityslider-hero__title"
+      body: { sel: ".entityslider-hero__body", kind: richText }
+    items: cta
+  statement_component:
+    slots:
+      eyebrow: ".statement__eyebrow"
+  quick_facts_component:
+    slots:
+      title: ".quick-facts__title"
+    items: quickFactItems
+  quick_fact_item:
+    slots:
+      smallText: ".quick-facts__small-text"
+      bigText: ".quick-facts__big-text"
+  dsu_c_view:
+    slots:
+      title: ".news-module__title"
+      viewTitle: ".viewsreference--view-title"
+  ai_search_component:
+    slots:
+      title: ".ai-search__title"
+      description: { sel: ".ai-search__description", kind: richText }
+      suggestionsHeading: ".ai-search__suggestions-heading"
+      suggestions: { sel: "a.ai-search__suggestions-link", kind: links }
+      formHtml: { sel: "form", kind: html }
+  accordion:
+    slots:
+      heading: ".expandable-card__heading"
+  accordion_item:
+    slots:
+      number: ".expandable-card__bar-number"
+      title: ".expandable-card__bar-title"
+    flags:
+      expanded: is-expanded
+  careers_search_banner:
+    slots:
+      title: ".careers-search-banner__title"
+      description: { sel: ".careers-search-banner__description", kind: richText }
+      jobCount: ".careers-search-banner__job-count"
+      formHtml: { sel: "form", kind: html }
+      exploreLabel: ".careers-search-banner__explore-label"
+      links: { sel: "a.careers-search-banner__link", kind: links }
+  brand_portfolio:
+    slots:
+      title: ".brand-portfolio__title"
+      subtitle: ".brand-portfolio__subtitle"
+      filterHeading: ".brand-portfolio__filter-heading"
+      filterPanelHeading: ".brand-portfolio__filter-panel-heading"
+      cta: { sel: "a.brand-portfolio__cta", kind: link, labelSel: ".brand-portfolio__cta-label" }
+      categories: { sel: ".brand-portfolio__pill", kind: list, item: { id: "@data-category-id", label: text } }
+      logos: { sel: ".brand-portfolio__bubbles img", kind: assets }
+      groups:
+        sel: ".brand-portfolio__group"
+        kind: list
+        item:
+          categoryId: "@data-category-id"
+          default: "?is-default"
+          brands:
+            sel: ".brand-portfolio__bubble"
+            item: { brandId: "@data-brand-id", position: "#@data-position", label: "@aria-label", logo: img }
+      backgroundImage: { sel: ".brand-portfolio__bg", kind: bgImage }
+      data: { sel: "script[type='application/json']", kind: json }
+      detailCtaLabel: ".brand-portfolio__detail-cta-label"
+  # ---- about
+  half_half_color_block:
+    slots:
+      title: { sel: ".half-half-color-block__text_inner h2", kind: text, nonEmpty: true }
+      body: { sel: ".half-half-color-block__body", kind: richText }
+      linkLabel: ".half-half-color-block__link"
+      link: { sel: "a.link-body", kind: link, labelSel: ".half-half-color-block__link" }
+      textClasses: { sel: ".half-half-color-block__text", kind: classes }
+  card_grid:
+    items: cardItems
+    slots:
+      gridClasses: { sel: "ul.card-grid", kind: classes }
+  card_item_custom:
+    slots:
+      title: ".card-item__title"
+      body: { sel: ".card-item__body", kind: richText }
+      moreLabel: ".card-item__more"
+      image: { sel: ".card-item__image img", kind: asset }
+      link: { sel: "a", kind: link, parentLink: true, labelSel: ".card-item__more" }
+  downloads:
+    slots:
+      title: ".downloads-content__title"
+      description: ".downloads-content__description"
+    items: downloadItems
+  downloads_item:
+    slots:
+      title: ".downloads-item__description"
+      fileSize: ".downloads-item__filesize"
+      linkLabel: ".downloads-item__download_link"
+      file: { sel: "a.download-item__link_wrapper", kind: link, labelSel: ".downloads-item__download_link" }
+      image: { sel: ".downloads-item__image img", kind: asset }
+  # ---- article
+  card_carousel:
+    slots:
+      title: ".card-carousel-container__title"
+      containerClasses: { sel: ".card-carousel-container", kind: classes }
+      gridClasses: { sel: ".card-carousel", kind: classes }
+    items: cardItems
+  ln_c_card_item:
+    slots:
+      title: ".card-item__title"
+      body: { sel: ".card-item__body", kind: richText }
+      moreLabel: ".card-item__more"
+      link: { sel: "a.card-item__link", kind: link, labelSel: ".card-item__more" }
+  feature_banner:
+    slots:
+      title: ".banner__content_header h2"
+      link: { sel: ".banner__content_link a", kind: link }
+      bannerClasses: { sel: ".feature-banner", kind: classes }

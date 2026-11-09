@@ -339,6 +339,8 @@ export type EventBody =
       finalUrl?: string;
       widths: number[];
       targets: RecreateTarget[];
+      /** how the page is reproduced; absent means "rebuild" */
+      mode?: RecreateMode;
       /** the consent recorded earlier (a resumed run); a new run's consent arrives as recreate.consent */
       consent?: RecreateConsent;
       /** run folder relative to the project root */
@@ -398,6 +400,33 @@ export type EventBody =
       comparePath?: string;
     }
   | {
+      /** one gate of mirror mode's verify suite */
+      type: "recreate.verify";
+      runId: string;
+      stage: "verify" | "reverify";
+      check: string;
+      gate: string;
+      pass: boolean;
+      value?: string | number;
+      threshold?: string | number;
+      issues: number;
+      /** reported, but not part of the run's result */
+      advisory: boolean;
+      /** pages whose source changed since the crawl (judged against the crawl-time capture) */
+      drift?: number;
+    }
+  | {
+      /** one attempt of mirror mode's fix loop, kept or rolled back */
+      type: "recreate.fix";
+      runId: string;
+      handler: string;
+      target: string;
+      accepted: boolean;
+      reason: string;
+      before?: number;
+      after?: number;
+    }
+  | {
       type: "recreate.components";
       runId: string;
       sets: RecreateSetSummary[];
@@ -422,6 +451,8 @@ export type EventBody =
 export type RecreateTarget =
   "static" | "react-vite" | "ds-react" | "ds-lit" | "ds-angular" | "tokens" | "design-md" | (string & {});
 
+export type RecreateMode = "rebuild" | "mirror";
+
 export type RecreateStage =
   | "consent"
   | "probe"
@@ -433,7 +464,17 @@ export type RecreateStage =
   | "system"
   | "convert"
   | "ds-export"
-  | "repair";
+  | "repair"
+  | "crawl"
+  | "ccm"
+  | "design"
+  | "generate"
+  | "appbuild"
+  | "serve"
+  | "verify"
+  | "fix"
+  | "reverify"
+  | "report";
 
 export interface RecreateConsent {
   /** who answered: the user, or the permission mode / --yes on their behalf */
@@ -463,6 +504,12 @@ export interface RecreateSetSummary {
 /** What a recreation run is asked to do (CLI flags, tool arguments, POST /recreate). */
 export interface RecreateRequest {
   url: string;
+  /** rebuild (default): measured and rebuilt as code you own; mirror: the page's own files re-served by a generated app */
+  mode?: RecreateMode;
+  /** mirror mode: run the fix loop (default true) */
+  fix?: boolean;
+  /** mirror mode: pages to crawl, following the page's links when above 1 (default 1) */
+  pages?: number;
   /** capture widths (default: the page's own layout ranges, else 390, 768, 1440) */
   widths?: number[];
   /** outputs (default ["static"]) */
@@ -520,11 +567,47 @@ export interface RecreateConfig {
   remoteUrl?: string;
   /** capture sessions (device classes) run at once, each in its own browser (default 3) */
   captureParallel?: number;
+  /** mirror mode (`--mode mirror`) */
+  mirror?: {
+    viewports?: { name: string; width: number; height: number }[];
+    maxPages?: number;
+    gates?: { parity?: number; bboxPx?: number; textSimilarity?: number };
+    fix?: { enabled?: boolean; maxIterations?: number; budgetUsd?: number };
+    /** CSS selectors left out of every comparison */
+    mask?: string[];
+  };
   /**
    * which widths are captured when none are given: one variant per layout range of the page (`ranges`, default: every
    * range measured) or one per device class (`devices`: phone, tablet, desktop; quicker on pages with many switches)
    */
   capturePlan?: "ranges" | "devices";
+}
+
+/** `autopilot` section of the config: budgets, parallelism and snapshots of the matrix. */
+export interface AutopilotConfig {
+  budgets?: {
+    /** a design-system build, in milliseconds (default 15 minutes) */
+    designSystemMs?: number;
+    /** a replica build and its final check, in milliseconds (default 20 minutes) */
+    replicaMs?: number;
+    /** a fixer goal: dollars and milliseconds (defaults 10 and 45 minutes) */
+    fixerUsd?: number;
+    fixerMs?: number;
+  };
+  /** sites that run at the same time (default 2) */
+  parallel?: number;
+  freeze?: {
+    /** a snapshot is reused until it is this old, in days (default 7) */
+    maxAgeDays?: number;
+    /** fall back to the Wayback Machine for every site that blocks the crawl (default false) */
+    wayback?: boolean;
+  };
+  /** the share of the replica rendered by design-system components (start 0.5, step 0.1, max 0.9) */
+  coverage?: { start?: number; step?: number; max?: number };
+  /** site ids kept from the fixers */
+  holdout?: string[];
+  /** set in a site's project folder by the runner: the replay URL of its snapshot */
+  replayUrl?: string;
 }
 
 /** Result of checking one acceptance criterion (autonomous workflow review). */
@@ -722,6 +805,8 @@ export interface HarnessConfig {
   mcpServers?: Record<string, McpServerConfig>;
   /** 1:1 recreation of live web pages */
   recreate?: RecreateConfig;
+  /** The self-improving matrix (`cdr autopilot`, docs/plans/autopilot-self-improving-pipeline.md). */
+  autopilot?: AutopilotConfig;
   /** Design systems from a URL or images (design_system). */
   designSystem?: {
     /** Vision-capable model role or provider/model that reads brands from images (default: the executor). */

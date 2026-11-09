@@ -13,13 +13,13 @@ export class Loading extends LitElement {
         display: inline-flex;
       }
       svg {
-        width: 5.5rem;
-        height: 5.5rem;
+        width: var(--__P__-dim-5-5rem);
+        height: var(--__P__-dim-5-5rem);
         animation: spin 690ms linear infinite;
       }
       :host([size='small']) svg {
-        width: 1rem;
-        height: 1rem;
+        width: var(--__P__-dim-1rem);
+        height: var(--__P__-dim-1rem);
       }
       circle {
         fill: none;

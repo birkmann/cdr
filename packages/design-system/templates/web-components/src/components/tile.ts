@@ -20,7 +20,7 @@ export class Tile extends LitElement {
         ${type('body-01')}
         position: relative;
         display: block;
-        min-height: 4rem;
+        min-height: var(--__P__-dim-4rem);
         padding: var(--__P__-spacing-05);
         background: var(--__P__-layer-01);
         color: var(--__P__-text-primary);
@@ -47,8 +47,8 @@ export class Tile extends LitElement {
         top: var(--__P__-spacing-05);
         right: var(--__P__-spacing-05);
         display: inline-flex;
-        width: 1rem;
-        height: 1rem;
+        width: var(--__P__-dim-1rem);
+        height: var(--__P__-dim-1rem);
         border: 1px solid var(--__P__-icon-secondary);
         border-radius: 2px;
         color: var(--__P__-icon-on-color);

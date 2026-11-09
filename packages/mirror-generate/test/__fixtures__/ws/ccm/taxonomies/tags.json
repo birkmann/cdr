@@ -1,0 +1,48 @@
+{
+  "id": "tags",
+  "name": "Tags",
+  "hierarchical": false,
+  "terms": [
+    {
+      "ccmId": "drupal:taxonomy_term:1",
+      "name": {
+        "de": "Frühstück",
+        "en": "Breakfast"
+      },
+      "slug": {
+        "de": "fruehstueck",
+        "en": "breakfast"
+      },
+      "weight": 0,
+      "source": {
+        "system": "drupal",
+        "kind": "taxonomy_term",
+        "id": "1",
+        "bundle": "tags"
+      }
+    },
+    {
+      "ccmId": "drupal:taxonomy_term:2",
+      "name": {
+        "de": "Ernährung",
+        "en": "Nutrition"
+      },
+      "slug": {
+        "de": "ernaehrung",
+        "en": "nutrition"
+      },
+      "weight": 1,
+      "source": {
+        "system": "drupal",
+        "kind": "taxonomy_term",
+        "id": "2",
+        "bundle": "tags"
+      }
+    }
+  ],
+  "source": {
+    "system": "drupal",
+    "kind": "taxonomy_vocabulary",
+    "id": "tags"
+  }
+}

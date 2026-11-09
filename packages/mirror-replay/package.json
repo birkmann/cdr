@@ -1,0 +1,32 @@
+{
+  "name": "@harness/mirror-replay",
+  "version": "0.3.1",
+  "private": true,
+  "description": "Frozen snapshots of a page: capture once, then answer every request from disk.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/birkmann/cdr.git",
+    "directory": "packages/mirror-replay"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@harness/protocol": "workspace:*",
+    "@harness/mirror-core": "workspace:*",
+    "@harness/mirror-capture": "workspace:*"
+  }
+}

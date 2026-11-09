@@ -1,0 +1,47 @@
+{
+  "id": "sectionTeaserList",
+  "name": "Section Teaser List",
+  "selector": "div.paragraph.paragraph--type--teaser-list.paragraph--view-mode--default",
+  "kind": "section",
+  "ccmType": "sectionTeaserList",
+  "template": "<div class=\"paragraph paragraph--type--teaser-list paragraph--view-mode--default\">\n  <div class=\"container\">\n    <h2 class=\"teaser-list__heading field field--name-field-heading field--type-string field--label-hidden field__item\">{{heading}}</h2>\n    <div class=\"field field--name-field-view field--type-viewsreference field--label-hidden field__item\"><div class=\"views-element-container\"><div class=\"view view-articles view-id-articles view-display-id-block_latest js-view-dom-id-articles-block_latest\">\n    <div class=\"view-content grid-teasers\">\n      {{#each items}}<div class=\"views-row\">{{{this.html}}}</div>{{/each}}\n    </div>\n  </div>\n</div></div>\n  </div>\n</div>",
+  "props": [
+    {
+      "name": "heading",
+      "type": "text",
+      "ccmField": "heading"
+    },
+    {
+      "name": "items",
+      "type": "list",
+      "ccmField": "collection",
+      "itemComponent": "articleTeaser",
+      "itemFields": {
+        "html": "html"
+      }
+    }
+  ],
+  "exampleHtml": "<div class=\"paragraph paragraph--type--teaser-list paragraph--view-mode--default\" data-paragraph-id=\"103\">\n  <div class=\"container\">\n    <h2 class=\"teaser-list__heading field field--name-field-heading field--type-string field--label-hidden field__item\">Latest articles</h2>\n    <div class=\"field field--name-field-view field--type-viewsreference field--label-hidden field__item\"><div class=\"views-element-container\"><div class=\"view view-articles view-id-articles view-display-id-block_latest js-view-dom-id-articles-block_latest\">\n    <div class=\"view-content grid-teasers\">\n      <div class=\"views-row\"><article data-history-node-id=\"4\" class=\"node node--type-article node--promoted node--view-mode-teaser teaser\">\n  <div class=\"teaser__image\"><div class=\"field field--name-field-image field--type-entity-reference field--label-hidden field__item\"><article class=\"media media--type-image media--view-mode-default\">\n  <div class=\"field field--name-field-media-image field--type-image field--label-hidden field__item\">  <img loading=\"lazy\" src=\"/sites/default/files/2024-05/fruit.jpg\" width=\"800\" height=\"600\" alt=\"Fresh fruit\">\n</div>\n</article>\n</div></div>\n  <div class=\"teaser__content\">\n    <h3 class=\"node__title teaser__title\"><a href=\"/news/fruit\" rel=\"bookmark\"><span class=\"field field--name-title field--type-string field--label-hidden\">Why fruit belongs on your plate</span></a></h3>\n    <div class=\"node__meta teaser__meta\"><time datetime=\"2024-05-25T08:00:00+00:00\" class=\"teaser__date\">25 May 2024</time></div>\n  </div>\n</article></div>\n      <div class=\"views-row\"><article data-history-node-id=\"3\" class=\"node node--type-article node--promoted node--view-mode-teaser teaser\">\n  <div class=\"teaser__image\"><div class=\"field field--name-field-image field--type-entity-reference field--label-hidden field__item\"><article class=\"media media--type-image media--view-mode-default\">\n  <div class=\"field field--name-field-media-image field--type-image field--label-hidden field__item\">  <img loading=\"lazy\" src=\"/sites/default/files/2024-05/oats.jpg\" width=\"800\" height=\"600\" alt=\"Rolled oats\">\n</div>\n</article>\n</div></div>\n  <div class=\"teaser__content\">\n    <h3 class=\"node__title teaser__title\"><a href=\"/news/healthy-breakfast\" rel=\"bookmark\"><span class=\"field field--name-title field--type-string field--label-hidden\">Five tips for a healthy breakfast</span></a></h3>\n    <div class=\"node__meta teaser__meta\"><time datetime=\"2024-05-20T08:00:00+00:00\" class=\"teaser__date\">20 May 2024</time></div>\n  </div>\n</article></div>\n    </div>\n  </div>\n</div></div>\n  </div>\n</div>",
+  "exampleProps": {
+    "heading": "Latest articles",
+    "items": [
+      {
+        "html": "<article data-history-node-id=\"4\" class=\"node node--type-article node--promoted node--view-mode-teaser teaser\">\n  <div class=\"teaser__image\"><div class=\"field field--name-field-image field--type-entity-reference field--label-hidden field__item\"><article class=\"media media--type-image media--view-mode-default\">\n  <div class=\"field field--name-field-media-image field--type-image field--label-hidden field__item\">  <img loading=\"lazy\" src=\"/sites/default/files/2024-05/fruit.jpg\" width=\"800\" height=\"600\" alt=\"Fresh fruit\">\n</div>\n</article>\n</div></div>\n  <div class=\"teaser__content\">\n    <h3 class=\"node__title teaser__title\"><a href=\"/news/fruit\" rel=\"bookmark\"><span class=\"field field--name-title field--type-string field--label-hidden\">Why fruit belongs on your plate</span></a></h3>\n    <div class=\"node__meta teaser__meta\"><time datetime=\"2024-05-25T08:00:00+00:00\" class=\"teaser__date\">25 May 2024</time></div>\n  </div>\n</article>"
+      },
+      {
+        "html": "<article data-history-node-id=\"3\" class=\"node node--type-article node--promoted node--view-mode-teaser teaser\">\n  <div class=\"teaser__image\"><div class=\"field field--name-field-image field--type-entity-reference field--label-hidden field__item\"><article class=\"media media--type-image media--view-mode-default\">\n  <div class=\"field field--name-field-media-image field--type-image field--label-hidden field__item\">  <img loading=\"lazy\" src=\"/sites/default/files/2024-05/oats.jpg\" width=\"800\" height=\"600\" alt=\"Rolled oats\">\n</div>\n</article>\n</div></div>\n  <div class=\"teaser__content\">\n    <h3 class=\"node__title teaser__title\"><a href=\"/news/healthy-breakfast\" rel=\"bookmark\"><span class=\"field field--name-title field--type-string field--label-hidden\">Five tips for a healthy breakfast</span></a></h3>\n    <div class=\"node__meta teaser__meta\"><time datetime=\"2024-05-20T08:00:00+00:00\" class=\"teaser__date\">20 May 2024</time></div>\n  </div>\n</article>"
+      }
+    ]
+  },
+  "source": "heuristic",
+  "instances": 2,
+  "pages": [
+    "/",
+    "/de"
+  ],
+  "locales": [
+    "de",
+    "en"
+  ],
+  "verified": true
+}

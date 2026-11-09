@@ -1,0 +1,69 @@
+{
+  "id": "articleTeaser",
+  "name": "Article Teaser",
+  "selector": "article.node.node--type-article.node--promoted",
+  "kind": "section",
+  "ccmType": "article",
+  "viewMode": "teaser",
+  "template": "<article class=\"node node--type-article node--promoted node--view-mode-teaser teaser\">\n  <div class=\"teaser__image\">{{#if image}}<div class=\"field field--name-field-image field--type-entity-reference field--label-hidden field__item\"><article class=\"media media--type-image media--view-mode-default\">\n  <div class=\"field field--name-field-media-image field--type-image field--label-hidden field__item\">  <img loading=\"lazy\" src=\"{{image.url}}\" width=\"{{image.width}}\" height=\"{{image.height}}\" alt=\"{{image.alt}}\">\n</div>\n</article>\n</div>{{/if}}</div>\n  <div class=\"teaser__content\">\n    <h3 class=\"node__title teaser__title\"><a href=\"{{url}}\" rel=\"bookmark\"><span class=\"field field--name-title field--type-string field--label-hidden\">{{title}}</span></a></h3>\n    <div class=\"node__meta teaser__meta\"><time datetime=\"{{created.iso}}\" class=\"teaser__date\">{{created.formatted}}</time></div>\n  </div>\n</article>",
+  "props": [
+    {
+      "name": "image",
+      "type": "asset",
+      "ccmField": "image"
+    },
+    {
+      "name": "url",
+      "type": "link",
+      "ccmField": "path"
+    },
+    {
+      "name": "title",
+      "type": "text",
+      "ccmField": "title"
+    },
+    {
+      "name": "created",
+      "type": "text",
+      "ccmField": "created",
+      "format": {
+        "kind": "date",
+        "options": {
+          "day": "numeric",
+          "month": "long",
+          "year": "numeric"
+        },
+        "locales": {
+          "en": "en-GB",
+          "de": "de"
+        }
+      }
+    }
+  ],
+  "exampleHtml": "<article data-history-node-id=\"4\" class=\"node node--type-article node--promoted node--view-mode-teaser teaser\">\n  <div class=\"teaser__image\"><div class=\"field field--name-field-image field--type-entity-reference field--label-hidden field__item\"><article class=\"media media--type-image media--view-mode-default\">\n  <div class=\"field field--name-field-media-image field--type-image field--label-hidden field__item\">  <img loading=\"lazy\" src=\"/sites/default/files/2024-05/fruit.jpg\" width=\"800\" height=\"600\" alt=\"Fresh fruit\">\n</div>\n</article>\n</div></div>\n  <div class=\"teaser__content\">\n    <h3 class=\"node__title teaser__title\"><a href=\"/news/fruit\" rel=\"bookmark\"><span class=\"field field--name-title field--type-string field--label-hidden\">Why fruit belongs on your plate</span></a></h3>\n    <div class=\"node__meta teaser__meta\"><time datetime=\"2024-05-25T08:00:00+00:00\" class=\"teaser__date\">25 May 2024</time></div>\n  </div>\n</article>",
+  "exampleProps": {
+    "image": {
+      "url": "/sites/default/files/2024-05/fruit.jpg",
+      "alt": "Fresh fruit",
+      "width": "800",
+      "height": "600"
+    },
+    "url": "/news/fruit",
+    "title": "Why fruit belongs on your plate",
+    "created": {
+      "iso": "2024-05-25T08:00:00+00:00",
+      "formatted": "25 May 2024"
+    }
+  },
+  "source": "heuristic",
+  "instances": 4,
+  "pages": [
+    "/",
+    "/de"
+  ],
+  "locales": [
+    "de",
+    "en"
+  ],
+  "verified": true
+}

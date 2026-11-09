@@ -175,6 +175,7 @@ function walkFiles(dir: string, limit = 5000): string[] {
       const full = join(abs, e);
       const st = lstatSync(full, { throwIfNoEntry: false });
       if (!st || st.isSymbolicLink()) continue;
+      if (st.isDirectory() && (e === "node_modules" || e === ".next")) continue;
       if (st.isDirectory()) walk(full);
       else out.push(full);
     }

@@ -1,0 +1,12 @@
+{
+ "tags": [
+  { "tag": "og:type", "pages": [
+   { "path": "/", "locale": "en", "type": "landingPage", "present": true, "cls": "A", "equals": [], "newPresent": false },
+   { "path": "/about-us", "locale": "en", "type": "page", "present": true, "cls": "A", "equals": [], "newPresent": false },
+   { "path": "/news/healthy-breakfast", "locale": "en", "type": "article", "present": true, "cls": "B", "equals": [], "newPresent": false },
+   { "path": "/news/second", "locale": "en", "type": "article", "present": true, "cls": "B", "equals": [], "newPresent": false },
+   { "path": "/de/news/zweiter", "locale": "de", "type": "article", "present": true, "cls": "B", "equals": [], "newPresent": false }
+  ] }
+ ],
+ "previousAttempts": []
+}

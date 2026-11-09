@@ -102,6 +102,147 @@ describe("snapshotToScreen", () => {
     expect(() => snapshotToScreen({} as Snapshot)).toThrow(UrlImportError);
   });
 
+  it("centres a control's value in its content box, below a floating label's top padding", () => {
+    const select = box("select", [0, 0, 320, 48], {
+      kind: "input",
+      layout: { display: "inline-block", position: "static", padding: [20, 48, 0, 16] },
+      input: {
+        type: "select",
+        value: "Alle zeigen",
+        placeholder: "",
+        placeholderColor: "rgb(0, 0, 0)",
+        font: font({ lineHeight: 24 }),
+        multiline: false,
+      },
+    } as Partial<SnapElement>);
+    const value = find(conv(snap([select])).screen.root, (e) => e.name === "Value");
+    // the content box runs from 20 to 48, its centre at 34: the 24 px line starts at 22
+    expect(value?.layout?.y).toBe(22);
+  });
+
+  it("caps CSS columns at the most the page shows, since a computed width is frozen", () => {
+    const item = (t: string, x: number, y: number) =>
+      box("li", [x, y, 177, 100], { layout: { display: "inline-block", position: "static" } }, [
+        text(t, [line(t, x, y + 10, 120)]),
+      ]);
+    const list = box(
+      "ul",
+      [8, 0, 374, 200],
+      {
+        style: { bg: "rgb(1, 2, 3)" },
+        layout: { display: "block", position: "static", columns: { width: 130, gap: 20 } },
+      },
+      [item("A", 8, 0), item("B", 8, 100), item("C", 205, 0), item("D", 205, 100)],
+    );
+    const ul = find(conv(snap([list]), true).screen.root, (e) => e.meta?.tag === "ul");
+    expect(ul?.meta?.columnWidth).toBe(130);
+    expect(ul?.meta?.columnCount).toBe(2);
+  });
+
+  it("keeps the page in flow under a sticky bar lifted over its content", () => {
+    const page = box("div", [0, 0, 1000, 800], { style: { bg: "rgb(1, 2, 3)" } }, [
+      box("h1", [0, 50, 400, 30], {}, [text("Title", [line("Title", 0, 55, 100)])]),
+      box("p", [0, 500, 400, 30], {}, [text("Below", [line("Below", 0, 505, 100)])]),
+    ]);
+    const bar = box(
+      "div",
+      [0, 300, 1000, 100],
+      {
+        style: { bg: "rgb(9, 9, 9)" },
+        layout: { display: "block", position: "sticky", z: 390, stack: true },
+      },
+      [text("Bar", [line("Bar", 0, 320, 100)])],
+    );
+    const root = conv(snap([page, bar]), true).screen.root;
+    const first = root.children?.find((c) => c.meta?.tag === "div");
+    expect(first?.layout?.position).not.toBe("absolute");
+  });
+
+  it("fills CSS columns in reading order, not paint order", () => {
+    const item = (t: string, x: number, y: number, o: Partial<SnapElement> = {}) =>
+      box("li", [x, y, 177, 100], { layout: { display: "inline-block", position: "static" }, ...o }, [
+        text(t, [line(t, x, y + 10, 120)]),
+      ]);
+    const list = box(
+      "ul",
+      [8, 0, 374, 200],
+      {
+        style: { bg: "rgb(1, 2, 3)" },
+        layout: { display: "block", position: "static", columns: { width: 130, gap: 20 } },
+      },
+      [
+        item("A", 8, 0),
+        item("B", 8, 100),
+        item("C", 205, 0),
+        // a painted item is sorted before the bare ones in paint order
+        item("D", 205, 100, { style: { bg: "rgb(9, 9, 9)" } }),
+      ],
+    );
+    const ul = find(conv(snap([list]), true).screen.root, (e) => e.meta?.tag === "ul");
+    const names = ul?.children?.map((c) => all(c).find((e) => e.type === "text")?.name);
+    expect(names).toEqual(["A", "B", "C", "D"]);
+  });
+
+  it("keeps a wrapping row of padded links in flow", () => {
+    const link = (t: string, x: number, y: number, w: number) =>
+      box(
+        "a",
+        [x, y, w, 25],
+        { layout: { display: "block", position: "static", padding: [4, 4, 0, 4], margin: [8, 8, 0, 8] } },
+        [text(t, [line(t, x + 4, y + 4, w - 8)])],
+      );
+    // 200 wide, gap 8, margins 8: two links on the first line, one centred on the second
+    const row = box(
+      "span",
+      [0, 0, 200, 74],
+      {
+        style: { bg: "rgb(1, 2, 3)" },
+        layout: {
+          display: "flex",
+          position: "static",
+          dir: "row",
+          wrap: "wrap",
+          justify: "center",
+          align: "center",
+          gap: [8, 8],
+        },
+      },
+      [
+        link("One", 12, 10.5, 72),
+        link("Two", 108, 10.5, 80),
+        // a painted box comes before the links in paint order, though it is the last item of the row
+        box(
+          "button",
+          [60, 54.5, 80, 25],
+          {
+            style: { bg: "rgb(9, 9, 9)" },
+            layout: { display: "block", position: "static", margin: [8, 8, 0, 8] },
+          },
+          [text("Three", [line("Three", 64, 58, 72)])],
+        ),
+      ],
+    );
+    const root = conv(snap([row]), true).screen.root;
+    const wrapped = find(root, (e) => !!e.layout?.wrap);
+    expect(wrapped?.layout?.justify).toBe("center");
+    expect(wrapped?.children?.every((c) => c.layout?.position !== "absolute")).toBe(true);
+  });
+
+  it("leaves out what a closed <details> hides and keeps what an open one shows", () => {
+    const details = (y: number, h: number, panelY: number, answer: string) =>
+      box("details", [0, y, 800, h], {}, [
+        box("summary", [0, y, 800, 50], {}, [
+          text(`Question ${answer}`, [line(`Question ${answer}`, 0, y + 10, 200)]),
+        ]),
+        box("div", [0, panelY, 800, 100], {}, [text(answer, [line(answer, 0, panelY + 10, 200)])]),
+      ]);
+    const root = conv(snap([details(0, 150, 50, "shown"), details(150, 51, 200, "closed")])).screen.root;
+    const texts = all(root).flatMap((e) => (e.type === "text" ? [JSON.stringify(e)] : []));
+    expect(texts.some((t) => t.includes("Question closed"))).toBe(true);
+    expect(texts.some((t) => t.includes("shown"))).toBe(true);
+    expect(texts.some((t) => t.includes('"closed"'))).toBe(false);
+  });
+
   it("keeps painted boxes, collapses empty wrappers and positions children relative to the padding box", () => {
     const card = box(
       "div",
@@ -2823,5 +2964,79 @@ describe("flow first: what the page's flow holds beyond its boxes' geometry", ()
     expect(block(conv(snap([note(560)]), true).screen.root)).toBeUndefined();
     // fitted: as measured
     expect(block(fitted(snap([note(143)]), true).screen.root)).toBeUndefined();
+  });
+});
+
+describe("hidden content", () => {
+  it("keeps a screen-reader heading as its element", async () => {
+    const { hiddenMarkupOf } = await import("../src/importers/url/convert.js");
+    const out = hiddenMarkupOf({ tag: "h1", attrs: {}, srText: 'Mobil <in> "Berlin"' })!;
+    expect(out).toMatch(/^<h1 style="position:absolute;/);
+    expect(out).toContain("Mobil &lt;in&gt; &quot;Berlin&quot;</h1>");
+  });
+
+  it("only writes an element it knows and a safe link", async () => {
+    const { hiddenMarkupOf } = await import("../src/importers/url/convert.js");
+    expect(hiddenMarkupOf({ tag: "script", attrs: {}, srText: "x" })).toMatch(/^<span /);
+    expect(hiddenMarkupOf({ tag: "a", attrs: { href: "javascript:alert(1)" }, srText: "x" })).toMatch(
+      /^<span /,
+    );
+    expect(hiddenMarkupOf({ tag: "a", attrs: { href: "/de" }, srText: "x" })).toMatch(/^<a href="\/de"/);
+  });
+
+  it("writes a crawler's menu hidden, without unsafe links", async () => {
+    const { hiddenMarkupOf } = await import("../src/importers/url/convert.js");
+    const out = hiddenMarkupOf({
+      tag: "nav",
+      attrs: {},
+      hiddenLinks: [
+        { href: "/de/a.html", text: "A & B" },
+        { href: "javascript:x", text: "bad" },
+      ],
+    })!;
+    expect(out).toBe(
+      '<nav aria-hidden="true" style="display:none"><a href="/de/a.html" tabindex="-1">A &amp; B</a></nav>',
+    );
+  });
+});
+
+describe("what the page wrote", () => {
+  const heading = { tag: "h2", id: 7 };
+
+  it("keeps one heading tag for a heading in several text blocks", () => {
+    const screen = conv(
+      snap([
+        box("h2", [0, 0, 400, 60], { heading }, [
+          box("span", [0, 0, 400, 24], { heading }, [text("Neu", [line("Neu", 0, 0, 40)])]),
+          box("span", [0, 30, 400, 24], { heading }, [text("Das Ticket", [line("Das Ticket", 0, 30, 90)])]),
+        ]),
+      ]),
+    );
+    const tags = all(screen.screen.root)
+      .filter((e) => e.type === "text")
+      .map((e) => e.meta?.textTag);
+    expect(tags).toEqual(["h2", "p"]);
+  });
+
+  it("says nothing about text outside any heading", () => {
+    const screen = conv(snap([box("div", [0, 0, 400, 24], {}, [text("Hallo", [line("Hallo", 0, 0, 50)])])]));
+    expect(find(screen.screen.root, (e) => e.type === "text")?.meta?.textTag).toBeUndefined();
+  });
+
+  it("keeps a screen-reader box inside its section", () => {
+    const screen = conv(
+      snap([
+        box("main", [0, 100, 800, 300], {}, [
+          box("h1", [0, 100, 1, 1], {
+            srText: "Mobil in Berlin",
+            layout: { display: "block", position: "absolute" },
+          }),
+          box("div", [0, 100, 800, 300], {}, [text("Sichtbar", [line("Sichtbar", 0, 100, 80)])]),
+        ]),
+      ]),
+    );
+    const hidden = find(screen.screen.root, (e) => typeof e.meta?.hiddenMarkup === "string");
+    expect(hidden?.meta?.hiddenMarkup).toContain("<h1 ");
+    expect(hidden?.meta?.hiddenMarkup).toContain("Mobil in Berlin</h1>");
   });
 });

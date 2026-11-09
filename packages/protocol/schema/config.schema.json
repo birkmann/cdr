@@ -2,6 +2,79 @@
   "$ref": "#/definitions/HarnessConfig",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "definitions": {
+    "AutopilotConfig": {
+      "additionalProperties": false,
+      "description": "`autopilot` section of the config: budgets, parallelism and snapshots of the matrix.",
+      "properties": {
+        "budgets": {
+          "additionalProperties": false,
+          "properties": {
+            "designSystemMs": {
+              "description": "a design-system build, in milliseconds (default 15 minutes)",
+              "type": "number"
+            },
+            "fixerMs": {
+              "type": "number"
+            },
+            "fixerUsd": {
+              "description": "a fixer goal: dollars and milliseconds (defaults 10 and 45 minutes)",
+              "type": "number"
+            },
+            "replicaMs": {
+              "description": "a replica build and its final check, in milliseconds (default 20 minutes)",
+              "type": "number"
+            }
+          },
+          "type": "object"
+        },
+        "coverage": {
+          "additionalProperties": false,
+          "description": "the share of the replica rendered by design-system components (start 0.5, step 0.1, max 0.9)",
+          "properties": {
+            "max": {
+              "type": "number"
+            },
+            "start": {
+              "type": "number"
+            },
+            "step": {
+              "type": "number"
+            }
+          },
+          "type": "object"
+        },
+        "freeze": {
+          "additionalProperties": false,
+          "properties": {
+            "maxAgeDays": {
+              "description": "a snapshot is reused until it is this old, in days (default 7)",
+              "type": "number"
+            },
+            "wayback": {
+              "description": "fall back to the Wayback Machine for every site that blocks the crawl (default false)",
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        },
+        "holdout": {
+          "description": "site ids kept from the fixers",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "parallel": {
+          "description": "sites that run at the same time (default 2)",
+          "type": "number"
+        },
+        "replayUrl": {
+          "description": "set in a site's project folder by the runner: the replay URL of its snapshot",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
     "HarnessConfig": {
       "additionalProperties": false,
       "properties": {
@@ -41,6 +114,10 @@
             }
           },
           "type": "object"
+        },
+        "autopilot": {
+          "$ref": "#/definitions/AutopilotConfig",
+          "description": "The self-improving matrix (`cdr autopilot`, docs/plans/autopilot-self-improving-pipeline.md)."
         },
         "checkpoints": {
           "additionalProperties": false,
@@ -584,6 +661,76 @@
             },
             "text": {
               "type": "number"
+            }
+          },
+          "type": "object"
+        },
+        "mirror": {
+          "additionalProperties": false,
+          "description": "mirror mode (`--mode mirror`)",
+          "properties": {
+            "fix": {
+              "additionalProperties": false,
+              "properties": {
+                "budgetUsd": {
+                  "type": "number"
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "maxIterations": {
+                  "type": "number"
+                }
+              },
+              "type": "object"
+            },
+            "gates": {
+              "additionalProperties": false,
+              "properties": {
+                "bboxPx": {
+                  "type": "number"
+                },
+                "parity": {
+                  "type": "number"
+                },
+                "textSimilarity": {
+                  "type": "number"
+                }
+              },
+              "type": "object"
+            },
+            "mask": {
+              "description": "CSS selectors left out of every comparison",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "maxPages": {
+              "type": "number"
+            },
+            "viewports": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "height": {
+                    "type": "number"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "width": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "name",
+                  "width",
+                  "height"
+                ],
+                "type": "object"
+              },
+              "type": "array"
             }
           },
           "type": "object"

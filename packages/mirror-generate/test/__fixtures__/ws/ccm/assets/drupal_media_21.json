@@ -1,0 +1,21 @@
+{
+  "ccmId": "drupal:media:21",
+  "src": "http://localhost:4400/sites/default/files/2024-05/hero-breakfast.jpg",
+  "originalPath": "/sites/default/files/2024-05/hero-breakfast.jpg",
+  "fileName": "hero-breakfast.jpg",
+  "mime": "image/jpeg",
+  "source": {
+    "system": "drupal",
+    "kind": "media",
+    "id": "21",
+    "bundle": "image",
+    "url": "http://localhost:8080/jsonapi/media/image/m0000000-0000-4000-8000-000000000021?resourceVersion=id%3A21"
+  },
+  "size": 106678,
+  "width": 1600,
+  "height": 800,
+  "alt": {
+    "de": "Eine Schüssel Müsli mit Beeren",
+    "en": "A bowl of cereal with berries"
+  }
+}

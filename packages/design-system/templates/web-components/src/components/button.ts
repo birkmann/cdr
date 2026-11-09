@@ -37,7 +37,7 @@ export class Button extends LitElement {
       }
       :host([uppercase]) .btn {
         text-transform: uppercase;
-        letter-spacing: 0.04em;
+        letter-spacing: var(--__P__-dim-0-04em);
       }
       :host([size='sm']) .btn {
         min-height: var(--__P__-size-sm);
@@ -123,6 +123,11 @@ export class Button extends LitElement {
       .icon {
         flex-shrink: 0;
       }
+      ::slotted(a) {
+        color: inherit;
+        text-decoration: none;
+        font: inherit;
+      }
     `,
   ]
   static override properties = {
@@ -135,6 +140,7 @@ export class Button extends LitElement {
     icon: { type: String },
     fullWidth: { type: Boolean, reflect: true, attribute: 'full-width' },
     uppercase: { type: Boolean, reflect: true },
+    linkSlot: { type: Boolean, reflect: true, attribute: 'link-slot' },
   }
   /** primary | secondary | tertiary | ghost | danger */
   declare kind: 'primary' | 'secondary' | 'tertiary' | 'ghost' | 'danger'
@@ -150,6 +156,8 @@ export class Button extends LitElement {
   declare icon?: IconName
   declare fullWidth: boolean
   declare uppercase: boolean
+  /** the label is a light-DOM anchor (`<a href>`): no inner link or button of its own, the markup holds the real link */
+  declare linkSlot: boolean
   readonly #internals = internalsOf(this)
 
   constructor() {
@@ -160,6 +168,7 @@ export class Button extends LitElement {
     this.disabled = false
     this.fullWidth = false
     this.uppercase = false
+    this.linkSlot = false
   }
 
   get form(): HTMLFormElement | null {
@@ -181,6 +190,7 @@ export class Button extends LitElement {
 
   override render() {
     const content = html`<slot></slot>${this.icon ? icon(this.icon, 16) : nothing}`
+    if (this.linkSlot) return html`<span class="btn" part="button">${content}</span>`
     if (this.href)
       return html`<a
         class="btn"

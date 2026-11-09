@@ -20,7 +20,7 @@ export class Tooltip extends LitElement {
         position: absolute;
         z-index: 20;
         width: max-content;
-        max-width: 18rem;
+        max-width: var(--__P__-dim-18rem);
         padding: var(--__P__-spacing-03) var(--__P__-spacing-05);
         border-radius: var(--__P__-radius-field);
         background: var(--__P__-background-inverse);
@@ -35,22 +35,22 @@ export class Tooltip extends LitElement {
       }
       :host(:not([align])) .tip,
       :host([align='top']) .tip {
-        bottom: calc(100% + 0.5rem);
+        bottom: calc(100% + var(--__P__-dim-0-5rem));
         left: 50%;
         transform: translateX(-50%);
       }
       :host([align='bottom']) .tip {
-        top: calc(100% + 0.5rem);
+        top: calc(100% + var(--__P__-dim-0-5rem));
         left: 50%;
         transform: translateX(-50%);
       }
       :host([align='left']) .tip {
-        right: calc(100% + 0.5rem);
+        right: calc(100% + var(--__P__-dim-0-5rem));
         top: 50%;
         transform: translateY(-50%);
       }
       :host([align='right']) .tip {
-        left: calc(100% + 0.5rem);
+        left: calc(100% + var(--__P__-dim-0-5rem));
         top: 50%;
         transform: translateY(-50%);
       }

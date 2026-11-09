@@ -1,0 +1,63 @@
+{
+  "id": "languageSwitcher",
+  "name": "Language switcher",
+  "selector": "div#block-demo-languageswitcher.language-switcher-language-url.block.block-language",
+  "kind": "chrome",
+  "template": "<div class=\"language-switcher-language-url block block-language block-language-blocklanguage-interface\" id=\"block-demo-languageswitcher\" role=\"navigation\" aria-label=\"{{t.languageSwitcher}}\">\n  <ul class=\"links language-switcher__links\">{{#each links}}<li hreflang=\"{{this.locale}}\" class=\"{{this.locale}} {{#if this.active}}is-active{{/if}}\"{{#if this.active}} aria-current=\"page\"{{/if}}><a href=\"{{this.url}}\" class=\"language-link {{#if this.active}}is-active{{/if}}\" hreflang=\"{{this.locale}}\">{{this.label}}</a></li>{{/each}}</ul>\n</div>",
+  "props": [
+    {
+      "name": "links",
+      "type": "list",
+      "ccmField": "translations",
+      "itemFields": {
+        "label": "text",
+        "url": "link",
+        "locale": "text",
+        "active": "boolean"
+      }
+    },
+    {
+      "name": "t.languageSwitcher",
+      "type": "text",
+      "i18n": {
+        "de": "Sprachumschalter",
+        "en": "Language switcher"
+      }
+    }
+  ],
+  "exampleHtml": "<div class=\"language-switcher-language-url block block-language block-language-blocklanguage-interface\" id=\"block-demo-languageswitcher\" role=\"navigation\" aria-label=\"Language switcher\">\n  <ul class=\"links language-switcher__links\"><li hreflang=\"en\" data-drupal-link-system-path=\"<front>\" class=\"en is-active\" aria-current=\"page\"><a href=\"/\" class=\"language-link is-active\" hreflang=\"en\" data-drupal-link-system-path=\"<front>\">English</a></li><li hreflang=\"de\" data-drupal-link-system-path=\"<front>\" class=\"de\"><a href=\"/de\" class=\"language-link\" hreflang=\"de\" data-drupal-link-system-path=\"<front>\">Deutsch</a></li></ul>\n</div>",
+  "exampleProps": {
+    "links": [
+      {
+        "label": "English",
+        "url": "/",
+        "locale": "en",
+        "active": true
+      },
+      {
+        "label": "Deutsch",
+        "url": "/de",
+        "locale": "de",
+        "active": false
+      }
+    ],
+    "t": {
+      "languageSwitcher": "Language switcher"
+    }
+  },
+  "source": "heuristic",
+  "instances": 6,
+  "pages": [
+    "/",
+    "/about-us",
+    "/de",
+    "/de/news/gesundes-fruehstueck",
+    "/de/ueber-uns",
+    "/news/healthy-breakfast"
+  ],
+  "locales": [
+    "de",
+    "en"
+  ],
+  "verified": true
+}

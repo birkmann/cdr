@@ -20,7 +20,7 @@ export class Tag extends LitElement {
         display: inline-flex;
         align-items: center;
         gap: var(--__P__-spacing-02);
-        min-height: 1.5rem;
+        min-height: var(--__P__-dim-1-5rem);
         padding: 0 var(--__P__-spacing-03);
         border-radius: var(--__P__-radius-pill);
         background: var(--__P__-layer-accent-01);
@@ -28,7 +28,7 @@ export class Tag extends LitElement {
         white-space: nowrap;
       }
       :host([size='sm']) .tag {
-        min-height: 1.125rem;
+        min-height: var(--__P__-dim-1-125rem);
         padding: 0 var(--__P__-spacing-02);
       }
       :host([type='error']) .tag {
@@ -54,8 +54,8 @@ export class Tag extends LitElement {
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        width: 1.25rem;
-        height: 1.25rem;
+        width: var(--__P__-dim-1-25rem);
+        height: var(--__P__-dim-1-25rem);
         margin-right: calc(-1 * var(--__P__-spacing-02));
         padding: 0;
         border: 0;

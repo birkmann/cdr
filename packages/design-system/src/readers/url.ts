@@ -102,6 +102,30 @@ export function nameFromUrl(url: string): string {
   }
 }
 
+/**
+ * The brand reading of a captured page: no browser and no network, the same `brandFoundations` path as `readUrl`, so
+ * the same snapshot always gives the same `brand.json`. `snapshot` is the widest capture of the page.
+ */
+export function specFromSnapshot(
+  snapshot: unknown,
+  o: { name?: string; url?: string } = {},
+): Partial<BrandSpec> {
+  const snap = snapshot as { url?: string };
+  const url = o.url ?? snap.url ?? "";
+  const screens = pageScreens([{ width: 1440, minWidth: 0, snap: snapshot as never }], undefined, {
+    flow: false,
+  }).screens;
+  const name = o.name?.trim() || nameFromUrl(url);
+  const ds: SceneDesignSystem = { version: 1, name, tokens: { ...DEFAULT_TOKENS }, componentSets: [] };
+  const f = brandFoundations(screens, ds);
+  const spec = specFromFoundations(f, name);
+  spec.notes = [
+    `Read from the captured snapshot of ${url} (no live page was contacted).`,
+    ...(spec.notes ?? []),
+  ];
+  return spec;
+}
+
 export interface UrlReading {
   spec: Partial<BrandSpec>;
   finalUrl: string;

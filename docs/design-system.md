@@ -2,17 +2,18 @@
 
 CDR can build a complete design system in the spirit of IBM Carbon from a web page or from a few images: screenshots, mockups or a mood board. The result is an npm workspace you own:
 
-| Package | Contents |
-| --- | --- |
-| `@<prefix>-ds/tokens` | Palettes, semantic tokens in four themes (`light`, `light-alt`, `dark`, `darkest`), type, spacing, sizes, radii, elevation, motion, breakpoints and grid. Exported as CSS variables, SCSS, JS/TS, DTCG JSON and a Tailwind preset. Comes with a contrast report |
-| `@<prefix>-ds/web-components` | 25 accessible components as Lit custom elements (`<acme-button>` …). They follow the WAI-ARIA patterns, support the keyboard, take part in forms (`ElementInternals`) and are themed only by tokens |
-| `@<prefix>-ds/react` | Typed React components over the web components (`@lit/react`), with `onChange`, `onDismiss` and so on |
-| `@<prefix>-ds/angular` | Standalone directives with typed inputs and outputs, and `ControlValueAccessor`s for `ngModel` and reactive forms (built with ng-packagr) |
-| `docs` | A docs site: foundations, every component with its props and events, a theme switcher, and code for Lit, React and Angular |
+| Package                       | Contents                                                                                                                                                                                                                                                        |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@<prefix>-ds/tokens`         | Palettes, semantic tokens in four themes (`light`, `light-alt`, `dark`, `darkest`), type, spacing, sizes, radii, elevation, motion, breakpoints and grid. Exported as CSS variables, SCSS, JS/TS, DTCG JSON and a Tailwind preset. Comes with a contrast report |
+| `@<prefix>-ds/web-components` | 25 accessible components as Lit custom elements (`<acme-button>` …). They follow the WAI-ARIA patterns, support the keyboard, take part in forms (`ElementInternals`) and are themed only by tokens                                                             |
+| `@<prefix>-ds/react`          | Typed React components over the web components (`@lit/react`), with `onChange`, `onDismiss` and so on                                                                                                                                                           |
+| `@<prefix>-ds/angular`        | Standalone directives with typed inputs and outputs, and `ControlValueAccessor`s for `ngModel` and reactive forms (built with ng-packagr)                                                                                                                       |
+| `docs`                        | A docs site: foundations, every component with its props and events, a theme switcher, and code for Lit, React and Angular                                                                                                                                      |
 
 ## In a chat
 
 Ask for it, for example:
+
 - "Create a design system like Carbon from https://example.com"
 - "Build a component library from these screenshots", with images attached
 
@@ -38,16 +39,17 @@ Each colour gets a ten-step palette (10 lightest, 100 darkest) in OKLCH. The bra
 
 Semantic tokens such as `interactive`, `text-secondary`, `layer-01`, `button-primary` and `support-error` take their values from the palettes in each of the four themes. Contrast is checked, not assumed:
 
-| Pairs | Minimum |
-| --- | --- |
-| Text, links and button labels | 4.5:1 |
-| Focus, borders, icons and status colours | 3:1 |
+| Pairs                                    | Minimum |
+| ---------------------------------------- | ------- |
+| Text, links and button labels            | 4.5:1   |
+| Focus, borders, icons and status colours | 3:1     |
 
 A colour that fails moves along its palette until it passes. The primary button keeps the brand colour whenever black or white text reads on it. `packages/tokens/contrast.json` lists every pair, and the tokens package's test fails if any pair is below its minimum.
 
 ## The components
 
 These are the 25 elements:
+
 - **Actions:** button, icon button, link
 - **Forms:** text input, textarea, select, dropdown (listbox), checkbox, radio group with radio, toggle, search
 - **Content:** tag, accordion with item, tile, icon
@@ -56,6 +58,7 @@ These are the 25 elements:
 - **Data:** data table
 
 Every element:
+
 - uses token variables only, so a new theme changes no component code
 - reflects its state in ARIA
 - shows a visible `:focus-visible` ring
@@ -70,11 +73,40 @@ The React and Angular packages wrap the same elements, so all three frameworks l
 ```jsonc
 {
   "designSystem": {
-    "model": "anthropic/claude-sonnet-5-5" // vision model for image readings (default: the executor)
+    "model": "anthropic/claude-sonnet-5-5", // vision model for image readings (default: the executor)
   },
-  "recreate": { "allowLocal": false, "respectRobots": true } // also apply to URL readings
+  "recreate": { "allowLocal": false, "respectRobots": true }, // also apply to URL readings
 }
 ```
+
+## From the command line
+
+`cdr design-system` builds a design system without a chat, from a page or from an earlier `recreate` run of this project:
+
+```bash
+cdr design-system https://example.com --out ./ds --yes
+cdr design-system --run <recreate-run-id> --out ./ds --frameworks react,angular --name "Acme" --prefix acme --yes
+```
+
+It runs the rebuild pipeline up to its `components` stage, reads the brand from the captured snapshot (`brandFoundations`, so the same snapshot gives the same `brand.json`), writes the workspace, then really runs `npm install`, `npm run build`, `npm test` and `npm run docs:build`, and checks the docs at phone and desktop width in `light` and `darkest`. The exit code is 0 only when every check passes. `--yes` gives the consent the capture needs; it is recorded as `auto`.
+
+`design-system/report.json` holds the brand reading with the source of each value, the contrast table, the commands and their results, and the preview reports.
+
+| Check                                                     | Passes when                                                                                                    |
+| --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `npm.install`, `npm.build`, `npm.test`, `npm.docs`, `tsc` | the command exits 0                                                                                            |
+| `contrast.pairs`                                          | every pair meets its minimum in every theme                                                                    |
+| `css.rawValues`                                           | component CSS holds no raw colour or size (zero, percentages, viewport units and 1 to 3 px hairlines excepted) |
+| `elements.registered`, `elements.reactWrappers`           | every element is registered once and has a React wrapper                                                       |
+| `docs.preview`                                            | the docs render at phone and desktop in light and darkest with no console error and no overflow                |
+
+## The page's own components
+
+A workspace built from a page has one more package, `@<prefix>-ds/site`: the components the page actually uses (header, hero, bands, cards, footer), from the rebuild pipeline's `components` stage. Fixed component dimensions are named in `--<prefix>-dim-*`, measured values in `packages/site/src/styles/site-tokens.css` as `--<prefix>-site-*`, and colours that equal a design token use that token, so the component CSS itself holds tokens only.
+
+The docs of such a workspace have two more pages: `site.html`, a catalogue of these components, each cloned from its first live instance on the captured page at the current window width, and `page.html`, the captured page composed from the package. Only `cdr design-system` builds this package; the chat tool `design_system { url }` reads the brand and emits the primitives only.
+
+Sets that map to a primitive (a button, a link, a tag) carry both renderings, chosen by `src/swaps.ts`. The replica turns a primitive on where it keeps the section's parity; see [recreate.md](recreate.md#replica).
 
 ## Development
 

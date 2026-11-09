@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useApp } from "@web/app-state";
 import { Popover } from "@web/components/Pickers";
+import { deleteAllChats, deleteAllNote, deleteAllPrompt, planDeleteAll } from "@web/delete-chats";
 import type { SessionInfo } from "@harness/client";
 import {
   ago,
@@ -116,6 +117,8 @@ export function ConversationList({ approvals, onSettings }: { approvals: Approva
   );
   const projects = useMemo(() => projectChoices(sessions), [sessions]);
   const orphans = useMemo(() => orphanConversations(sessions), [sessions]);
+  const deletePlan = useMemo(() => planDeleteAll(sessions), [sessions]);
+  const [deleting, setDeleting] = useState(false);
   const running = sessions.filter(isActive);
   const stoppable = running.filter((s) => !s.externalRun);
   const selected = st.sessionId ? sessions.find((s) => s.id === st.sessionId) : undefined;
@@ -192,6 +195,20 @@ export function ConversationList({ approvals, onSettings }: { approvals: Approva
     );
     if (!ok) return;
     for (const s of orphans) await st.attempt(() => client.deleteSession(s.id));
+    void refreshSessions();
+  };
+
+  const deleteAll = async () => {
+    if (!client) return;
+    const { title, message } = deleteAllPrompt(deletePlan);
+    if (!(await confirmDialog(`${title} ${message}`, { danger: true, ok: "Delete all" }))) return;
+    setDeleting(true);
+    const result = await deleteAllChats(client, deletePlan.chats);
+    setDeleting(false);
+    if (st.sessionId && result.deleted.includes(st.sessionId)) st.setSessionId(null);
+    for (const id of result.deleted) st.closeTab(`chat:${id}`);
+    const note = deleteAllNote(result);
+    if (note) st.toast(note);
     void refreshSessions();
   };
 
@@ -428,6 +445,16 @@ export function ConversationList({ approvals, onSettings }: { approvals: Approva
         >
           <ISettings size={16} />
         </button>
+        {deletePlan.chats.length > 0 && (
+          <button
+            className="ghost tiny danger"
+            disabled={deleting}
+            title="Delete every conversation that isn't running"
+            onClick={() => void deleteAll()}
+          >
+            <IX size={11} /> {deleting ? "Deleting…" : "Delete all"}
+          </button>
+        )}
       </div>
     </div>
   );

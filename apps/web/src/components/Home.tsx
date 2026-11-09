@@ -126,9 +126,9 @@ export function Home({ projectPath }: { projectPath?: string }) {
           placeholder={project ? "What should CDR do in this project?" : "What would you like to build?"}
           onSend={start}
           skills={skills}
-          onRecreate={async (url) => {
+          onRecreate={async (url, mode) => {
             setError(undefined);
-            await startRecreate(url, { projectPath: project || undefined });
+            await startRecreate(url, { projectPath: project || undefined }, mode);
           }}
           left={
             <>

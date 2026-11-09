@@ -1,0 +1,30 @@
+{
+  "/sites/default/files/2024-05/hero-breakfast.jpg": {
+    "assetId": "drupal-media-21-715131892a",
+    "ccmId": "drupal:media:21",
+    "url": "https://images.ctfassets.net/fake-space/drupal-media-21-715131892a/e5838b76a0cc25a07582f9cf9bde2dca/hero-breakfast.jpg",
+    "fileName": "hero-breakfast.jpg",
+    "contentType": "image/jpeg"
+  },
+  "/sites/default/files/2024-05/oats.jpg": {
+    "assetId": "drupal-media-22-703fea8d57",
+    "ccmId": "drupal:media:22",
+    "url": "https://images.ctfassets.net/fake-space/drupal-media-22-703fea8d57/18d4193aefa456d78d92848c2c29c32f/oats.jpg",
+    "fileName": "oats.jpg",
+    "contentType": "image/jpeg"
+  },
+  "/sites/default/files/2024-05/fruit.jpg": {
+    "assetId": "drupal-media-23-315b163fbc",
+    "ccmId": "drupal:media:23",
+    "url": "https://images.ctfassets.net/fake-space/drupal-media-23-315b163fbc/3d2264eea1195b4fcb6c7766ace6542d/fruit.jpg",
+    "fileName": "fruit.jpg",
+    "contentType": "image/jpeg"
+  },
+  "/sites/default/files/logo.svg": {
+    "assetId": "drupal-media-24-437825a6bf",
+    "ccmId": "drupal:media:24",
+    "url": "https://images.ctfassets.net/fake-space/drupal-media-24-437825a6bf/7aee51eedee218869905588e409d27c8/logo.svg",
+    "fileName": "logo.svg",
+    "contentType": "image/svg+xml"
+  }
+}

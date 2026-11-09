@@ -11,6 +11,7 @@ import {
   type RepairOutcome,
   type RepairTask,
 } from "@harness/recreate";
+import type { HostComplete, MirrorHost } from "@harness/mirror";
 import { flowLint, REPAIR_RULES, sectionClasses } from "@harness/measure";
 import { resolveInProject } from "../tools/paths.js";
 import type { ToolContext } from "../tools/types.js";
@@ -255,5 +256,41 @@ export function recreateHost(
         }
       : {}),
     sectionChecks: o.sectionChecks,
+  };
+}
+
+const dataUrl = /^data:([^;,]+);base64,(.*)$/s;
+
+/** A MirrorHost for a tool call or a session run: the fix loop's model calls go through the repair role. */
+export function mirrorHost(ctx: ToolContext, o: { consentArgs?: unknown; yes?: boolean } = {}): MirrorHost {
+  const cfg = ctx.config.recreate ?? {};
+  const role = cfg.models?.repair ?? "executor";
+  const complete: HostComplete | undefined = ctx.complete
+    ? async (messages, opts) => {
+        let usage = { input: 0, output: 0, cost: 0 };
+        const chat: ChatMessage[] = messages.map((m) => {
+          if (m.role !== "user") return { role: m.role, content: m.content };
+          const images = (m.images ?? []).flatMap((u) => {
+            const p = dataUrl.exec(u);
+            return p ? [{ mimeType: p[1], data: p[2] }] : [];
+          });
+          return { role: "user", content: m.content, ...(images.length ? { images } : {}) };
+        });
+        const text = await ctx.complete!(role, chat, {
+          maxTokens: opts.maxTokens ?? 16_000,
+          onUsage: (u) => (usage = u),
+        });
+        return { text, promptTokens: usage.input, completionTokens: usage.output, costUsd: usage.cost };
+      }
+    : undefined;
+  return {
+    projectRoot: ctx.projectRoot,
+    config: cfg,
+    signal: ctx.signal,
+    secretEnv: ctx.secretEnv,
+    progress: (e) => ctx.emit(e as EventBody),
+    log: (m) => ctx.emit({ type: "log", level: "debug", message: `recreate: ${m}` }),
+    consent: ({ reason }) => askConsent(ctx, o.consentArgs ?? {}, reason, o.yes),
+    ...(complete ? { complete } : {}),
   };
 }

@@ -1,0 +1,61 @@
+{
+  "id": "main",
+  "name": "Main navigation",
+  "items": [
+    {
+      "id": "drupal:menu_link_content:1",
+      "label": {
+        "de": "Startseite",
+        "en": "Home"
+      },
+      "ref": {
+        "kind": "entry",
+        "id": "drupal:node:1"
+      },
+      "weight": 0,
+      "children": []
+    },
+    {
+      "id": "drupal:menu_link_content:2",
+      "label": {
+        "de": "Über uns",
+        "en": "About us"
+      },
+      "ref": {
+        "kind": "entry",
+        "id": "drupal:node:2"
+      },
+      "weight": 1,
+      "children": []
+    },
+    {
+      "id": "drupal:menu_link_content:3",
+      "label": {
+        "de": "News",
+        "en": "News"
+      },
+      "href": "/news",
+      "weight": 2,
+      "children": [
+        {
+          "id": "drupal:menu_link_content:4",
+          "label": {
+            "de": "Gesundes Frühstück",
+            "en": "Healthy breakfast"
+          },
+          "ref": {
+            "kind": "entry",
+            "id": "drupal:node:3"
+          },
+          "weight": 0,
+          "children": []
+        }
+      ]
+    }
+  ],
+  "source": {
+    "system": "drupal",
+    "kind": "menu",
+    "id": "main"
+  }
+}

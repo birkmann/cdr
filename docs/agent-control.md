@@ -106,6 +106,7 @@ With the defaults, one top-level run can have at most 3 helpers, and each writin
 | Pause, discard or merge a goal | The Goals section of the chat view's project column (Ctrl+Shift+J) | `cdr goal merge` / `discard` |
 | Undo an agent's file changes | "Restore files to here" on any message | `/rewind` |
 | Delete a conversation | × on its row in the chat view's list. Conversations whose folder was deleted are listed under "Folder deleted". | Web app sidebar, or `DELETE /sessions/:id[?folder=true]` |
+| Delete every conversation | "Delete all" at the bottom of the chat view's list. Running conversations are kept. | "Delete all" on the web app's Conversations page |
 | Stop everything | "Stop all", or quit the app. The harness server is killed with it. | Ctrl+C in the terminal |
 
 Deleting a conversation also deletes its subagents' logs, removes their worktrees, and deletes their branches once they are merged. A worktree with uncommitted changes and an unmerged branch are kept, and the app says so. For a sandbox conversation the app then asks whether to delete the sandbox folder and its checkpoints too; it only offers this when no other conversation uses the folder, and never for a folder outside `~/.harness/sandboxes`. A running conversation cannot be deleted.

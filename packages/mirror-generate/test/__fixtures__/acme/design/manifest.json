@@ -1,0 +1,170 @@
+{
+ "baseUrl": "http://localhost:4401",
+ "stylesheets": [
+  "styles/css_agg0.css"
+ ],
+ "scripts": [
+  {
+   "src": "scripts/jquery.min.js",
+   "placement": "head",
+   "original": "/core/assets/vendor/jquery/jquery.min.js?v=4.0.0",
+   "role": "jquery"
+  }
+ ],
+ "components": [
+  {
+   "id": "dsuComponentPageComponents",
+   "file": "components/dsuComponentPageComponents.json"
+  },
+  {
+   "id": "sectionCText",
+   "file": "components/sectionCText.json"
+  },
+  {
+   "id": "siteHeader",
+   "file": "components/siteHeader.json"
+  },
+  {
+   "id": "siteHeaderV2",
+   "file": "components/siteHeaderV2.json"
+  }
+ ],
+ "templates": [
+  {
+   "contentType": "dsuComponentPage",
+   "file": "templates/dsuComponentPage.json"
+  }
+ ],
+ "layouts": [
+  {
+   "id": "default",
+   "file": "layouts/default.json"
+  }
+ ],
+ "assetSets": {
+  "home": {
+   "id": "home",
+   "pages": [
+    "/"
+   ],
+   "settings": "drupal/settings-home.json",
+   "stylesheets": [
+    {
+     "href": "styles/css_agg0.css",
+     "original": "/sites/default/files/css/css_agg0.css?delta=0&language=en&theme=da_vinci_code",
+     "media": "all",
+     "role": "aggregate"
+    },
+    {
+     "href": "styles/darkmode.css",
+     "original": "/themes/custom/da_vinci_code/css/darkmode.css?tnamkk",
+     "media": "all",
+     "attrs": {
+      "class": "darkreader darkmode-css"
+     },
+     "role": "darkmode"
+    },
+    {
+     "href": "styles/seckit.no_body.css",
+     "original": "/modules/contrib/seckit/css/seckit.no_body.css",
+     "media": "all",
+     "attrs": {
+      "id": "seckit-clickjacking-no-body"
+     }
+    },
+    {
+     "href": "styles/seckit.noscript_tag.css",
+     "original": "/modules/contrib/seckit/css/seckit.noscript_tag.css",
+     "media": "all",
+     "attrs": {
+      "id": "seckit-clickjacking-noscript-tag"
+     }
+    }
+   ],
+   "scripts": [
+    {
+     "src": "drupal/settings-home.json",
+     "placement": "head",
+     "original": "drupal-settings-json",
+     "role": "settings",
+     "type": "application/json",
+     "attrs": {
+      "data-drupal-selector": "drupal-settings-json"
+     }
+    },
+    {
+     "src": "scripts/jquery.min.js",
+     "placement": "head",
+     "original": "/core/assets/vendor/jquery/jquery.min.js?v=4.0.0",
+     "role": "jquery"
+    },
+    {
+     "src": "scripts/js_NLxQ.js",
+     "placement": "head",
+     "original": "/sites/default/files/js/js_NLxQ.js?scope=header&delta=1&language=en",
+     "role": "aggregate"
+    },
+    {
+     "src": "scripts/tracker-stub.js",
+     "placement": "head",
+     "original": "(excluded tracker loaders)",
+     "role": "tracker-stub"
+    },
+    {
+     "src": "scripts/seckit.document_write.js",
+     "placement": "head",
+     "original": "/modules/contrib/seckit/js/seckit.document_write.js?v=2.0.3",
+     "role": "security"
+    },
+    {
+     "src": "scripts/popper.js",
+     "placement": "body",
+     "original": "http://localhost:4401/__ext/unpkg.com/@popperjs/core@2.11.6/dist/umd/popper.js",
+     "role": "vendor"
+    },
+    {
+     "src": "scripts/inline-a1b2c3.js",
+     "placement": "body",
+     "original": "inline",
+     "role": "inline"
+    },
+    {
+     "src": "scripts/searchstudio-ux-js.iife.js",
+     "placement": "body",
+     "original": "/themes/custom/da_vinci_code/node_modules/%40searchstax-inc/searchstudio-ux-js/dist/%40searchstax-inc/searchstudio-ux-js.iife.js?v=1.x",
+     "role": "search"
+    }
+   ]
+  }
+ },
+ "pages": {
+  "/": {
+   "contentType": "dsuComponentPage",
+   "locale": "en",
+   "bodyClass": "hide-default-heading home path-frontpage page-node-type-dsu-component-page has-glyphicons",
+   "components": {},
+   "assetSet": "home"
+  }
+ },
+ "contentTypes": {
+  "dsuComponentPage": {
+   "assetSet": "home",
+   "examplePath": "/"
+  }
+ },
+ "preload": [
+  {
+   "href": "assets/themes/custom/da_vinci_code/fonts/Acme_Text-Book.woff2",
+   "as": "font",
+   "type": "font/woff2",
+   "crossorigin": "anonymous"
+  }
+ ],
+ "excluded": [
+  {
+   "original": "/modules/contrib/google_tag/js/gtm.js?tnamkk",
+   "reason": "tracker/analytics loader (replaced by scripts/tracker-stub.js)",
+   "placement": "head"
+  }
+ ]
+}

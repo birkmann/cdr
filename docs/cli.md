@@ -14,9 +14,12 @@ cdr models --remote                   # configured roles + models the providers 
 cdr init                              # cdr.config.json + AGENTS.md for this project
 cdr eval --model deepseek/deepseek-flash
 cdr recreate https://example.com/ --to static,react-vite   # 1:1 recreation (asks for consent)
+cdr recreate https://example.com/ --mirror                 # re-serve the page's own files from a generated app
 ```
 
 `cdr recreate` is described in [recreate.md](recreate.md).
+
+`cdr autopilot <freeze|run|inspect|fix|verify|loop|status|report|rules|diff|clean>` runs the self-improving matrix (`pnpm autopilot` after `pnpm build`). See [autopilot.md](autopilot.md).
 
 Useful flags: `-m provider/model` (all roles), `--executor/--planner/--reviewer`, `--mode ask|auto|yolo`, `--no-plan`, `--commit` (commit on a `harness/<slug>` branch), `--json` (JSONL events on stdout), `--skill <name>` (give the agent a skill, repeatable), `-v`.
 

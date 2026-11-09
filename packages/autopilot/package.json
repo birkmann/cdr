@@ -1,0 +1,39 @@
+{
+  "name": "@harness/autopilot",
+  "version": "0.3.1",
+  "private": true,
+  "description": "Self-improving matrix: URL to mirror to design system to 1:1 replica, with findings, fixers and guards.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/birkmann/cdr.git",
+    "directory": "packages/autopilot"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@harness/protocol": "workspace:*",
+    "@harness/core": "workspace:*",
+    "@harness/recreate": "workspace:*",
+    "@harness/mirror": "workspace:*",
+    "@harness/mirror-core": "workspace:*",
+    "@harness/mirror-replay": "workspace:*",
+    "@harness/mirror-verify": "workspace:*",
+    "@harness/mirror-fix": "workspace:*",
+    "@harness/design-system": "workspace:*",
+    "yaml": "^2.6.0"
+  }
+}

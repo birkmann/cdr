@@ -232,7 +232,8 @@ export class Renderer {
         break;
       case "recreate.started":
         this.line(
-          c.bold(`⧉ recreate ${e.url}`) + c.dim(`  run ${e.runId} · ${e.targets.join(", ")} · ${e.dir}`),
+          c.bold(`⧉ ${e.mode === "mirror" ? "mirror" : "recreate"} ${e.url}`) +
+            c.dim(`  run ${e.runId} · ${e.targets.join(", ")} · ${e.dir}`),
         );
         break;
       case "recreate.consent":
@@ -275,6 +276,19 @@ export class Renderer {
           this.line(
             `    ${g.pass ? c.green("✓") : c.red("✗")} ${g.name}` + c.dim(g.detail ? `  ${g.detail}` : ""),
           );
+        break;
+      case "recreate.verify":
+        if (!e.pass)
+          this.line(
+            `    ${e.advisory ? c.yellow("▲") : c.red("✗")} ${e.gate}` +
+              c.dim(`  ${e.value ?? ""}${e.threshold !== undefined ? ` (limit ${e.threshold})` : ""}`),
+          );
+        break;
+      case "recreate.fix":
+        this.line(
+          `    ${e.accepted ? c.green("▪ kept") : c.dim("▪ rolled back")} ${e.handler}` +
+            c.dim(`  ${e.target}: ${e.reason}`),
+        );
         break;
       case "recreate.components":
         this.line(

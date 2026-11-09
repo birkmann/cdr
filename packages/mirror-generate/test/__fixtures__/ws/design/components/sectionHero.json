@@ -1,0 +1,56 @@
+{
+  "id": "sectionHero",
+  "name": "Section Hero",
+  "selector": "div.paragraph.paragraph--type--hero.paragraph--view-mode--default",
+  "kind": "section",
+  "ccmType": "sectionHero",
+  "template": "<div class=\"paragraph paragraph--type--hero paragraph--view-mode--default\">\n  <div class=\"hero__media\">{{#if image}}<div class=\"field field--name-field-image field--type-entity-reference field--label-hidden field__item\"><article class=\"media media--type-image media--view-mode-default\">\n  <div class=\"field field--name-field-media-image field--type-image field--label-hidden field__item\">  <img loading=\"eager\" src=\"{{image.url}}\" width=\"{{image.width}}\" height=\"{{image.height}}\" alt=\"{{image.alt}}\">\n</div>\n</article>\n</div>{{/if}}</div>\n  <div class=\"hero__content container\">\n    <h2 class=\"hero__title field field--name-field-title field--type-string field--label-hidden field__item\">{{title}}</h2>\n    <div class=\"hero__subtitle field field--name-field-subtitle field--type-string-long field--label-hidden field__item\">{{subtitle}}</div>\n    <div class=\"hero__cta field field--name-field-cta field--type-link field--label-hidden field__item\"><a href=\"{{cta.url}}\" class=\"button button--primary\">{{cta.label}}</a></div>\n  </div>\n</div>",
+  "props": [
+    {
+      "name": "image",
+      "type": "asset",
+      "ccmField": "image"
+    },
+    {
+      "name": "title",
+      "type": "text",
+      "ccmField": "title"
+    },
+    {
+      "name": "subtitle",
+      "type": "text",
+      "ccmField": "subtitle"
+    },
+    {
+      "name": "cta",
+      "type": "link",
+      "ccmField": "cta"
+    }
+  ],
+  "exampleHtml": "<div class=\"paragraph paragraph--type--hero paragraph--view-mode--default\" data-paragraph-id=\"101\">\n  <div class=\"hero__media\"><div class=\"field field--name-field-image field--type-entity-reference field--label-hidden field__item\"><article class=\"media media--type-image media--view-mode-default\">\n  <div class=\"field field--name-field-media-image field--type-image field--label-hidden field__item\">  <img loading=\"eager\" src=\"/sites/default/files/2024-05/hero-breakfast.jpg\" width=\"1600\" height=\"800\" alt=\"A bowl of cereal with berries\">\n</div>\n</article>\n</div></div>\n  <div class=\"hero__content container\">\n    <h2 class=\"hero__title field field--name-field-title field--type-string field--label-hidden field__item\">Start your day right</h2>\n    <div class=\"hero__subtitle field field--name-field-subtitle field--type-string-long field--label-hidden field__item\">Simple breakfast ideas that keep you going.</div>\n    <div class=\"hero__cta field field--name-field-cta field--type-link field--label-hidden field__item\"><a href=\"/news/healthy-breakfast\" class=\"button button--primary\">Read our tips</a></div>\n  </div>\n</div>",
+  "exampleProps": {
+    "image": {
+      "url": "/sites/default/files/2024-05/hero-breakfast.jpg",
+      "alt": "A bowl of cereal with berries",
+      "width": "1600",
+      "height": "800"
+    },
+    "title": "Start your day right",
+    "subtitle": "Simple breakfast ideas that keep you going.",
+    "cta": {
+      "url": "/news/healthy-breakfast",
+      "label": "Read our tips"
+    }
+  },
+  "source": "heuristic",
+  "instances": 2,
+  "pages": [
+    "/",
+    "/de"
+  ],
+  "locales": [
+    "de",
+    "en"
+  ],
+  "verified": true
+}

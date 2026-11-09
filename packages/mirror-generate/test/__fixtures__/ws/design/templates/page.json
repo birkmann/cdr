@@ -1,0 +1,26 @@
+{
+  "contentType": "page",
+  "layout": "default",
+  "chrome": [
+    "siteHeader",
+    "siteFooter",
+    "cookieBanner"
+  ],
+  "slots": [
+    {
+      "component": "pageTitle",
+      "field": "title",
+      "region": "contentAbove",
+      "props": {
+        "visuallyHidden": false
+      }
+    },
+    {
+      "component": "pageBody",
+      "region": "content"
+    }
+  ],
+  "bodyClass": "path-node page-node-type-page",
+  "wrapperHtml": "<div id=\"main-wrapper\" class=\"layout-main-wrapper layout-container\">\n            <div id=\"main\" class=\"layout-main\">\n              <main role=\"main\" class=\"main-content\">\n                <a id=\"main-content\" tabindex=\"-1\"></a>\n                <div class=\"region region--content-above container container--narrow\">{{{regions.contentAbove}}}</div>\n                <div class=\"region region--content\" id=\"content\">\n                  <div data-drupal-messages-fallback=\"\" class=\"hidden messages-list\"></div>\n                  <div id=\"block-demo-content\" class=\"block block-system block-system-main-block\">{{{regions.content}}}</div>\n                </div>\n              </main>\n            </div>\n          </div>",
+  "examplePath": "/about-us"
+}

@@ -134,6 +134,9 @@ ${strips}
 <nav>${tabs.map((t, i) => `<button data-tab="${t.id}"${i === 0 ? ' class="on"' : ""}>${esc(t.label)}</button>`).join("")}</nav>
 ${panels}
 <script>
+// a mirror run's real app, when the opener has one running (?app=http://127.0.0.1:<port>/…)
+const app = new URLSearchParams(location.search).get('app');
+if (app && /^http:\\/\\/127\\.0\\.0\\.1:\\d+\\//.test(app)) document.querySelectorAll('iframe[data-src]').forEach((f) => (f.dataset.src = app));
 const show = (id) => { document.querySelectorAll('.panel').forEach((p) => (p.hidden = p.id !== id)); document.querySelectorAll('nav button').forEach((b) => b.classList.toggle('on', b.dataset.tab === id)); };
 document.querySelectorAll('nav button').forEach((b) => b.addEventListener('click', () => show(b.dataset.tab)));
 document.querySelectorAll('.panel').forEach((p) => {

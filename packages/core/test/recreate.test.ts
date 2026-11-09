@@ -58,7 +58,7 @@ describe("consent gate", () => {
 });
 
 describe("recreate tools and skill", () => {
-  it("registers the six tools unless recreate.enabled is false; capture is self-gated", () => {
+  it("registers its tools unless recreate.enabled is false; capture is self-gated", () => {
     const names = recreateTools().map((t) => t.name);
     expect(names).toEqual([
       "recreate_capture",
@@ -67,6 +67,7 @@ describe("recreate tools and skill", () => {
       "recreate_components",
       "recreate_convert",
       "recreate_section",
+      "recreate_mirror",
     ]);
     expect(recreateTools(false)).toEqual([]);
     expect(recreateTools().find((t) => t.name === "recreate_capture")!.selfGated).toBe(true);
@@ -455,9 +456,11 @@ describe("recreate evals", () => {
       "31-recreate-fluid",
       "32-recreate-repair-honest",
       "33-plain-brief-no-copy",
+      "34-mirror-fixture",
     ]);
     // every recreation task requires the gates that hold at every width
-    for (const t of tasks.filter((x) => x.id.startsWith("3") && x.id !== "33-plain-brief-no-copy"))
+    const rebuilds = tasks.filter((x) => /^3[0-2]-/.test(x.id));
+    for (const t of rebuilds)
       expect(t.checks.find((c) => c.type === "recreateGate")).toMatchObject({
         gates: expect.arrayContaining(["responsive", "flow"]),
       });

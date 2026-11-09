@@ -46,7 +46,7 @@ export class Dropdown extends FormControl {
         margin: 0;
         padding: 0;
         list-style: none;
-        max-height: 16rem;
+        max-height: var(--__P__-dim-16rem);
         overflow: auto;
         background: var(--__P__-layer-01);
         box-shadow: var(--__P__-shadow-02);

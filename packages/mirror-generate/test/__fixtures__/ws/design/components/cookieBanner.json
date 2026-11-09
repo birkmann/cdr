@@ -1,0 +1,56 @@
+{
+  "id": "cookieBanner",
+  "name": "Cookie banner",
+  "selector": "div#cookie-banner.cookie-banner",
+  "kind": "chrome",
+  "template": "<div id=\"cookie-banner\" class=\"cookie-banner\" role=\"dialog\" aria-live=\"polite\" aria-label=\"Cookies\" hidden>\n      <div class=\"cookie-banner__inner container\">\n        <p class=\"cookie-banner__text\">{{t.weUseCookiesTo}}</p>\n        <div class=\"cookie-banner__actions\">\n          <button type=\"button\" class=\"button button--primary cookie-banner__accept\" data-cookie-choice=\"accept\">{{t.accept}}</button>\n          <button type=\"button\" class=\"button button--secondary cookie-banner__decline\" data-cookie-choice=\"decline\">{{t.decline}}</button>\n        </div>\n      </div>\n    </div>",
+  "props": [
+    {
+      "name": "t.weUseCookiesTo",
+      "type": "text",
+      "i18n": {
+        "de": "Wir verwenden Cookies, um dein Erlebnis zu verbessern und den Datenverkehr zu analysieren. Du kannst deine Wahl jederzeit ändern.",
+        "en": "We use cookies to improve your experience and to analyse traffic. You can change your choice at any time."
+      }
+    },
+    {
+      "name": "t.accept",
+      "type": "text",
+      "i18n": {
+        "de": "Akzeptieren",
+        "en": "Accept"
+      }
+    },
+    {
+      "name": "t.decline",
+      "type": "text",
+      "i18n": {
+        "de": "Ablehnen",
+        "en": "Decline"
+      }
+    }
+  ],
+  "exampleHtml": "<div id=\"cookie-banner\" class=\"cookie-banner\" role=\"dialog\" aria-live=\"polite\" aria-label=\"Cookies\" hidden>\n      <div class=\"cookie-banner__inner container\">\n        <p class=\"cookie-banner__text\">We use cookies to improve your experience and to analyse traffic. You can change your choice at any time.</p>\n        <div class=\"cookie-banner__actions\">\n          <button type=\"button\" class=\"button button--primary cookie-banner__accept\" data-cookie-choice=\"accept\">Accept</button>\n          <button type=\"button\" class=\"button button--secondary cookie-banner__decline\" data-cookie-choice=\"decline\">Decline</button>\n        </div>\n      </div>\n    </div>",
+  "exampleProps": {
+    "t": {
+      "weUseCookiesTo": "We use cookies to improve your experience and to analyse traffic. You can change your choice at any time.",
+      "accept": "Accept",
+      "decline": "Decline"
+    }
+  },
+  "source": "heuristic",
+  "instances": 6,
+  "pages": [
+    "/",
+    "/about-us",
+    "/de",
+    "/de/news/gesundes-fruehstueck",
+    "/de/ueber-uns",
+    "/news/healthy-breakfast"
+  ],
+  "locales": [
+    "de",
+    "en"
+  ],
+  "verified": true
+}

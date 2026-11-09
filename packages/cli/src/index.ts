@@ -52,6 +52,9 @@ Usage:
   cdr init                    write cdr.config.json + AGENTS.md for this project
   cdr eval                    run the eval task set (evals/; --suite apps for app building)
   cdr recreate <url>          recreate a live page 1:1 (asks for consent; see docs/recreate.md)
+  cdr design-system <url>     generate a design system from a page (see docs/design-system.md)
+  cdr autopilot <command>     run the self-improving URL → mirror → design system → replica matrix (see docs/autopilot.md)
+                              --mirror re-serves the page's own files from a generated app
       [--widths 390,768,1440] [--to static,react-vite,ds-react] [--style tailwind|css-modules|vanilla]
       [--out ./site] [--repair] [--no-checks] [--build] [--from <stage> --run <id>] [--json] [--yes]
   cdr mcp recreate            the recreate stages as an MCP server on stdio (capture needs consent: true; --yes)
@@ -129,6 +132,9 @@ interface Flags {
   run?: string;
   repair?: boolean;
   "no-repair"?: boolean;
+  mirror?: boolean;
+  "no-fix"?: boolean;
+  pages?: string;
   "no-checks"?: boolean;
   build?: boolean;
   help?: boolean;
@@ -184,6 +190,9 @@ function parse(argv: string[]) {
       run: { type: "string" },
       repair: { type: "boolean" },
       "no-repair": { type: "boolean" },
+      mirror: { type: "boolean" },
+      "no-fix": { type: "boolean" },
+      pages: { type: "string" },
       "no-checks": { type: "boolean" },
       build: { type: "boolean" },
       help: { type: "boolean", short: "h" },
@@ -280,6 +289,15 @@ function findEvalsDir(start: string): string | null {
 export async function main(argv: string[], ctx: CliContext = {}): Promise<number> {
   const out = ctx.stdout ?? process.stdout;
   const err = ctx.stderr ?? process.stderr;
+  // These two parse their own flags; loaded on first use, since only they need the mirror and design-system stacks.
+  if (argv[0] === "autopilot") {
+    const { autopilotMain } = await import("@harness/autopilot");
+    return autopilotMain(argv.slice(1), { cwd: process.cwd(), out });
+  }
+  if (argv[0] === "design-system") {
+    const { designSystemCommand } = await import("./design-system-command.js");
+    return designSystemCommand(argv.slice(1), { cwd: process.cwd(), out, harness: ctx.harness });
+  }
   let parsed;
   try {
     parsed = parse(argv);
@@ -652,6 +670,9 @@ async function recreateCommand(
     .filter(Boolean);
   if (f.style && !(STYLES as readonly string[]).includes(f.style))
     throw new Error(`--style must be ${STYLES.join(", ")}`);
+  const pages = f.pages === undefined ? undefined : Number(f.pages);
+  if (pages !== undefined && (!Number.isInteger(pages) || pages < 1 || pages > 50))
+    throw new Error("--pages must be a whole number from 1 to 50");
   const session = createSession(harness, cwd, f, undefined, `recreate ${url ?? f.run}`);
   if (session.config.recreate?.enabled === false)
     throw new Error("recreate is disabled in this project's config");
@@ -663,6 +684,9 @@ async function recreateCommand(
       session,
       {
         url: url ?? "",
+        ...(f.mirror ? { mode: "mirror" as const } : {}),
+        ...(f["no-fix"] ? { fix: false } : {}),
+        ...(pages ? { pages } : {}),
         ...(widths ? { widths } : {}),
         ...(to.length ? { to } : {}),
         ...(f.style ? { style: f.style as (typeof STYLES)[number] } : {}),

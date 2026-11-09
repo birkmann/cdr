@@ -65,6 +65,7 @@ import {
   isGoalRunning,
   parseModelRef,
   keySource,
+  openRecreateApp,
   recreateInSession,
   resolveInProject,
   workingTreeDiff,
@@ -222,6 +223,11 @@ const RECREATE_STAGES = [
   "repair",
 ];
 const RUN_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+const RUN_PATH = /^\.harness\/recreate\/([^/]+)(?:\/(.*))?$/;
+/** The static copy of a mirror run, which cannot run code the page loads at runtime. */
+const MIRROR_SNAPSHOT = "out/preview/index.html";
+const isLoopbackRequest = (url: string) =>
+  ["127.0.0.1", "localhost", "[::1]"].includes(new URL(url).hostname);
 
 /** Validate a POST /sessions/:id/recreate body; returns the request or an error message. */
 export function parseRecreateRequest(raw: unknown): RecreateRequest | string {
@@ -257,6 +263,19 @@ export function parseRecreateRequest(raw: unknown): RecreateRequest | string {
       return "style must be tailwind, css-modules or vanilla";
     out.style = r.style as RecreateRequest["style"];
   }
+  if (r.mode !== undefined) {
+    if (r.mode !== "rebuild" && r.mode !== "mirror") return "mode must be rebuild or mirror";
+    out.mode = r.mode;
+  }
+  if (r.fix !== undefined) {
+    if (typeof r.fix !== "boolean") return "fix must be a boolean";
+    out.fix = r.fix;
+  }
+  if (r.pages !== undefined) {
+    if (typeof r.pages !== "number" || !Number.isInteger(r.pages) || r.pages < 1 || r.pages > 50)
+      return "pages must be a whole number from 1 to 50";
+    out.pages = r.pages;
+  }
   if (r.repair !== undefined) {
     if (typeof r.repair !== "boolean") return "repair must be a boolean";
     out.repair = r.repair;
@@ -286,10 +305,17 @@ export function parseRecreateRequest(raw: unknown): RecreateRequest | string {
   return out;
 }
 
-/** Run ids this session has started (only those run folders are served through its preview key). */
+/** Run ids this session started or published a page of (only those run folders are served through its preview key). */
 function sessionRunIds(s: Session): Set<string> {
   const ids = new Set<string>();
-  for (const e of s.events) if (e.type === "recreate.started") ids.add(e.runId);
+  for (const e of s.events) {
+    if (e.type === "recreate.started") ids.add(e.runId);
+    // a conversation can also show the output of a run from another conversation in the project
+    if (e.type === "preview.ready") {
+      const published = /^\.harness\/recreate\/([^/]+)\//.exec(e.path);
+      if (published) ids.add(published[1]);
+    }
+  }
   return ids;
 }
 
@@ -348,7 +374,7 @@ export function createApp(opts: ServerOptions = {}): { app: Hono; harness: Harne
   };
 
   // Live preview of project files (HTML/JS/CSS/images) – authorised by the signed path, not the bearer token.
-  app.get("/preview/:key/*", (c) => {
+  app.get("/preview/:key/*", async (c) => {
     const key = c.req.param("key");
     const id = key.split("~")[0];
     if (!safeEqual(key, previewKey(id))) return c.text("not found", 404);
@@ -363,17 +389,37 @@ export function createApp(opts: ServerOptions = {}): { app: Hono; harness: Harne
     if (relPath === LIVE_VERSION_FILE || relPath.endsWith(`/${LIVE_VERSION_FILE}`)) {
       let dir: string | undefined;
       try {
-        dir = resolvePreviewPath(s, relPath.slice(0, -LIVE_VERSION_FILE.length) || ".");
+        const folder = relPath.slice(0, -LIVE_VERSION_FILE.length) || ".";
+        const runFolder = RUN_PATH.exec(folder);
+        dir = runFolder ? resolveRunPath(s, runFolder[1], runFolder[2] ?? "") : resolvePreviewPath(s, folder);
       } catch {
         return c.text("forbidden", 403);
       }
       if (!dir) return c.text("not found", 404);
-      return c.json({ version: folderVersion(dir) }, 200, { "cache-control": "no-store" });
+      return c.json({ version: folderVersion(dir) }, 200, {
+        "cache-control": "no-store",
+        // polled from a sandboxed page (opaque origin)
+        "access-control-allow-origin": "*",
+      });
     }
     // 1:1 recreation run folders (.harness/recreate/<runId>/…): read-only, only runs of this session, confined to
     // the run folder, so the compare page and the growing output work in the preview iframe.
-    const run = /^\.harness\/recreate\/([^/]+)(?:\/(.*))?$/.exec(relPath);
-    if (run) return serveRunFile(c, s, run[1], run[2] ?? "");
+    const run = RUN_PATH.exec(relPath);
+    if (run) {
+      // Opened directly in a tab, the snapshot of a mirror run leads to the real app. Only a whole-page navigation
+      // does: a frame must not start a process, and the pane asks for the app itself and frames this page as fallback.
+      if (
+        run[2] === MIRROR_SNAPSHOT &&
+        c.req.header("sec-fetch-dest") === "document" &&
+        isLoopbackRequest(c.req.url) &&
+        RUN_ID.test(run[1]) &&
+        sessionRunIds(s).has(run[1])
+      ) {
+        const opened = await openRecreateApp(s, run[1]).catch(() => undefined);
+        if (opened) return c.redirect(opened.url);
+      }
+      return serveRunFile(c, s, run[1], run[2] ?? "");
+    }
     let abs: string | undefined;
     try {
       abs = resolvePreviewPath(s, relPath);
@@ -399,19 +445,24 @@ export function createApp(opts: ServerOptions = {}): { app: Hono; harness: Harne
     });
   });
 
-  const serveRunFile = (c: Context, s: Session, runId: string, rest: string) => {
-    if (!RUN_ID.test(runId) || !sessionRunIds(s).has(runId)) return c.text("not found", 404);
+  /** A path in a run of this session, confined to its folder. Undefined for other runs; throws for paths outside. */
+  const resolveRunPath = (s: Session, runId: string, rest: string): string | undefined => {
+    if (!RUN_ID.test(runId) || !sessionRunIds(s).has(runId)) return undefined;
     const runRoot = join(s.projectRoot, ".harness", "recreate", runId);
-    if (!existsSync(runRoot)) return c.text("not found", 404);
-    let abs: string;
+    if (!existsSync(runRoot)) return undefined;
+    return resolveInProject(runRoot, rest || ".");
+  };
+
+  const serveRunFile = (c: Context, s: Session, runId: string, rest: string) => {
+    let abs: string | undefined;
     try {
-      abs = resolveInProject(runRoot, rest || ".");
-      if (existsSync(abs) && statSync(abs).isDirectory())
-        abs = resolveInProject(runRoot, join(abs, "index.html"));
+      abs = resolveRunPath(s, runId, rest);
+      if (abs && existsSync(abs) && statSync(abs).isDirectory())
+        abs = resolveRunPath(s, runId, join(rest, "index.html"));
     } catch {
       return c.text("forbidden", 403);
     }
-    if (!existsSync(abs) || statSync(abs).isDirectory()) return c.text("not found", 404);
+    if (!abs || !existsSync(abs) || statSync(abs).isDirectory()) return c.text("not found", 404);
     const extension = extname(abs).toLowerCase();
     const contents = readFileSync(abs);
     const body =
@@ -781,6 +832,20 @@ export function createApp(opts: ServerOptions = {}): { app: Hono; harness: Harne
         : s.chat(req.text, attachments, { skills: skillNames });
     p.catch((e) => s.emit({ type: "error", message: (e as Error).message, recoverable: true }));
     return c.json({ accepted: true, mode: req.mode ?? "chat" }, 202);
+  });
+
+  // The generated app of a finished mirror run, on its own loopback port: only a browser on this machine can reach it.
+  app.post("/sessions/:id/recreate/:run/app", async (c) => {
+    const s = session(c);
+    const runId = c.req.param("run");
+    if (!RUN_ID.test(runId) || !sessionRunIds(s).has(runId)) throw new HttpError(404, "not found");
+    if (!isLoopbackRequest(c.req.url))
+      throw new HttpError(409, "The generated app can only be opened on the machine that runs the server.");
+    try {
+      return c.json(await openRecreateApp(s, runId));
+    } catch (e) {
+      throw new HttpError(409, (e as Error).message);
+    }
   });
 
   /** Start a 1:1 recreation run in this session; consent arrives as permission.request. */

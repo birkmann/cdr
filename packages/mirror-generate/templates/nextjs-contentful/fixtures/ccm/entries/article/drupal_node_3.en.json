@@ -1,0 +1,153 @@
+{
+  "ccmId": "drupal:node:3",
+  "type": "article",
+  "locale": "en",
+  "status": "published",
+  "fields": {
+    "title": "Five tips for a healthy breakfast",
+    "created": "2024-05-20T08:00:00.000Z",
+    "body": {
+      "type": "doc",
+      "children": [
+        {
+          "type": "paragraph",
+          "children": [
+            {
+              "type": "text",
+              "value": "Breakfast does not have to be complicated."
+            }
+          ]
+        },
+        {
+          "type": "list",
+          "ordered": true,
+          "children": [
+            {
+              "type": "listItem",
+              "children": [
+                {
+                  "type": "paragraph",
+                  "children": [
+                    {
+                      "type": "text",
+                      "value": "Add fruit"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "children": [
+                {
+                  "type": "paragraph",
+                  "children": [
+                    {
+                      "type": "text",
+                      "value": "Choose whole grains"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "children": [
+                {
+                  "type": "paragraph",
+                  "children": [
+                    {
+                      "type": "text",
+                      "value": "Drink water"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "children": [
+                {
+                  "type": "paragraph",
+                  "children": [
+                    {
+                      "type": "text",
+                      "value": "Include protein"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "children": [
+                {
+                  "type": "paragraph",
+                  "children": [
+                    {
+                      "type": "text",
+                      "value": "Take your time"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "blockquote",
+          "children": [
+            {
+              "type": "paragraph",
+              "children": [
+                {
+                  "type": "text",
+                  "value": "Breakfast is the most important meal of the day."
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "image": {
+      "kind": "asset",
+      "id": "drupal:media:22"
+    },
+    "tags": [
+      {
+        "kind": "term",
+        "id": "drupal:taxonomy_term:1"
+      },
+      {
+        "kind": "term",
+        "id": "drupal:taxonomy_term:2"
+      }
+    ]
+  },
+  "sourceChangedAt": "2024-06-03T10:00:00.000Z",
+  "source": {
+    "system": "drupal",
+    "kind": "node",
+    "id": "3",
+    "bundle": "article",
+    "url": "http://localhost:8080/jsonapi/node/article/n0000000-0000-4000-8000-000000000003?resourceVersion=id%3A3"
+  },
+  "path": "/news/healthy-breakfast",
+  "slug": "healthy-breakfast",
+  "meta": {
+    "title": "Five tips for a healthy breakfast | Nestle Demo Kitchen",
+    "description": "Quick wins for your morning routine.",
+    "canonical": "/news/healthy-breakfast",
+    "hreflang": [
+      {
+        "locale": "de",
+        "href": "/de/news/gesundes-fruehstueck"
+      },
+      {
+        "locale": "en",
+        "href": "/news/healthy-breakfast"
+      }
+    ]
+  }
+}

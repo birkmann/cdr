@@ -1,0 +1,106 @@
+{
+  "baseUrl": "http://localhost:4400",
+  "viewports": [
+    {
+      "name": "mobile",
+      "width": 375,
+      "height": 812
+    },
+    {
+      "name": "tablet",
+      "width": 768,
+      "height": 1024
+    },
+    {
+      "name": "desktop",
+      "width": 1440,
+      "height": 900
+    }
+  ],
+  "mask": [
+    "#cookie-banner",
+    "#sliding-popup",
+    ".eu-cookie-compliance-banner",
+    "#onetrust-banner-sdk",
+    "#CybotCookiebotDialog"
+  ],
+  "pages": [
+    {
+      "path": "/",
+      "id": "root",
+      "status": 200,
+      "manifest": "raw/html/pages/root.json",
+      "requested": [
+        "/"
+      ]
+    },
+    {
+      "path": "/about-us",
+      "id": "about-us",
+      "status": 200,
+      "manifest": "raw/html/pages/about-us.json",
+      "requested": [
+        "/about-us"
+      ]
+    },
+    {
+      "path": "/de",
+      "id": "de",
+      "status": 200,
+      "manifest": "raw/html/pages/de.json",
+      "requested": [
+        "/de"
+      ]
+    },
+    {
+      "path": "/de/news/gesundes-fruehstueck",
+      "id": "de_news_gesundes-fruehstueck",
+      "status": 200,
+      "manifest": "raw/html/pages/de_news_gesundes-fruehstueck.json",
+      "requested": [
+        "/de/news/gesundes-fruehstueck"
+      ]
+    },
+    {
+      "path": "/de/ueber-uns",
+      "id": "de_ueber-uns",
+      "status": 200,
+      "manifest": "raw/html/pages/de_ueber-uns.json",
+      "requested": [
+        "/de/ueber-uns"
+      ]
+    },
+    {
+      "path": "/news/healthy-breakfast",
+      "id": "news_healthy-breakfast",
+      "status": 200,
+      "manifest": "raw/html/pages/news_healthy-breakfast.json",
+      "requested": [
+        "/news/healthy-breakfast"
+      ]
+    }
+  ],
+  "redirects": [
+    {
+      "from": "/de/node/2",
+      "to": "/de/ueber-uns",
+      "status": 301
+    },
+    {
+      "from": "/de/node/3",
+      "to": "/de/news/gesundes-fruehstueck",
+      "status": 301
+    },
+    {
+      "from": "/node/2",
+      "to": "/about-us",
+      "status": 301
+    },
+    {
+      "from": "/node/3",
+      "to": "/news/healthy-breakfast",
+      "status": 301
+    }
+  ],
+  "failed": []
+}

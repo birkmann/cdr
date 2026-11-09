@@ -1,0 +1,79 @@
+{
+  "ccmId": "drupal:paragraph:102",
+  "type": "sectionText",
+  "locale": "de",
+  "status": "published",
+  "fields": {
+    "body": {
+      "type": "doc",
+      "children": [
+        {
+          "type": "heading",
+          "level": 2,
+          "children": [
+            {
+              "type": "text",
+              "value": "Warum Frühstück wichtig ist"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "children": [
+            {
+              "type": "text",
+              "value": "Ein ausgewogenes Frühstück gibt dir "
+            },
+            {
+              "type": "text",
+              "value": "Energie",
+              "marks": [
+                "bold"
+              ]
+            },
+            {
+              "type": "text",
+              "value": " und hilft dir, dich zu "
+            },
+            {
+              "type": "text",
+              "value": "konzentrieren",
+              "marks": [
+                "italic"
+              ]
+            },
+            {
+              "type": "text",
+              "value": ". Mehr "
+            },
+            {
+              "type": "link",
+              "ref": {
+                "kind": "entry",
+                "id": "drupal:node:2"
+              },
+              "children": [
+                {
+                  "type": "text",
+                  "value": "über uns"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": "."
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "sourceChangedAt": "2024-06-01T10:00:00.000Z",
+  "source": {
+    "system": "drupal",
+    "kind": "paragraph",
+    "id": "102",
+    "bundle": "text",
+    "url": "http://localhost:8080/de/jsonapi/paragraph/text/p0000000-0000-4000-8000-000000000102?resourceVersion=id%3A102"
+  }
+}

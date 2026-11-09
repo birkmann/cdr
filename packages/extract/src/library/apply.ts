@@ -180,7 +180,11 @@ export function mergeRetry(plan: NamingPlan, again: NamingPlan): NamingPlan {
  */
 export function fallbackNames(ds: SceneDesignSystem): NamingPlan {
   const sets = ds.componentSets ?? [];
-  const taken = new Set(sets.filter((d) => !isBuiltInName(d.name)).map((d) => d.name));
+  // compared without case: a component is a folder and a file, and macOS and Windows treat `CardX` and `Cardx` as one
+  const taken = new Set(sets.filter((d) => !isBuiltInName(d.name)).map((d) => d.name.toLowerCase()));
+  // 1 → A … 26 → Z, 27 → AA: a large site runs out of single letters
+  const letters = (n: number): string =>
+    n > 0 ? letters(Math.floor((n - 1) / 26)) + String.fromCharCode(65 + ((n - 1) % 26)) : "";
   const changes: NamingPlan["sets"] = [];
   const pascal = (s: string) =>
     transliterate(s)
@@ -217,11 +221,11 @@ export function fallbackNames(ds: SceneDesignSystem): NamingPlan {
     let k = 0;
     const base = name;
     const words = traits(d).filter((w) => !base.includes(w));
-    while (taken.has(name)) {
+    while (taken.has(name.toLowerCase())) {
       const w = words[k++];
-      name = w ? `${w}${base}` : `${base}${String.fromCharCode(64 + k)}`;
+      name = w ? `${w}${base}` : `${base}${letters(k)}`;
     }
-    taken.add(name);
+    taken.add(name.toLowerCase());
     changes.push({ id: d.id, from: d.name, name, props: [] });
   }
   return { sets: changes, order: null, rejected: [] };

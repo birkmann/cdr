@@ -2,6 +2,7 @@ import { elements, reactEventName, type ElementInfo } from "../components/regist
 import { contrast } from "../tokens/color.js";
 import { STEPS, THEMES, THEME_LABELS, type TokenSystem } from "../tokens/system.js";
 import { fill, type PackageNames } from "./packages.js";
+import type { SiteMeta } from "./site.js";
 import { tokensCss, type FileMap } from "./tokens.js";
 
 const esc = (s: string) =>
@@ -190,7 +191,218 @@ function snippets(e: ElementInfo, p: string, n: PackageNames) {
 
 /* ------------------------------------------------------------------ docs app */
 
-export function docsApp(t: TokenSystem, n: PackageNames): FileMap {
+/** One link per captured page, to the page composed from the site package. */
+const pageLinks = (site: SiteMeta): string[] =>
+  Object.keys(site.pages)
+    .filter((f) => f.endsWith(".tsx"))
+    .map((f) => f.slice(0, -".tsx".length))
+    .sort()
+    .map(
+      (x) =>
+        `<a class="back" href="page.html?page=${encodeURIComponent(x)}">${esc(x.replace(/([a-z])([A-Z])/g, "$1 $2"))}</a>`,
+    );
+
+/**
+ * The docs of the page's own components. They take a breakpoint look and the page's props, so examples written here would
+ * be guesses: the catalogue renders the captured page once and shows the first live instance of each `data-ds` root.
+ */
+function siteDocs(t: TokenSystem, n: PackageNames, site: SiteMeta): FileMap {
+  const p = t.spec.prefix;
+  const v = (x: string) => `var(--${p}-${x})`;
+  const siteName = `${n.scope}/site`;
+  const pageNames = Object.keys(site.pages)
+    .filter((f) => f.endsWith(".tsx"))
+    .map((f) => f.slice(0, -".tsx".length))
+    .sort();
+  const pagesTs = `${pageNames.map((x) => `import ${x} from './pages/${x}'`).join("\n")}
+export const PAGES: Record<string, () => JSX.Element> = { ${pageNames.join(", ")} }
+`;
+  const assetsTs = `// The page's images are root-relative; the docs can be served from any folder.
+const local = (u: string) => (u.startsWith('/') && !u.startsWith('//') ? new URL('.' + u, document.baseURI).href : u)
+const localSet = (s: string) => s.split(',').map((c) => { const [u, ...d] = c.trim().split(/\\s+/); return [local(u ?? ''), ...d].join(' ') }).join(', ')
+export function localAssets(root: ParentNode): void {
+  for (const el of root.querySelectorAll<HTMLElement>('[src], [srcset], [poster], [style*="url("]')) {
+    for (const a of ['src', 'poster']) { const x = el.getAttribute(a); if (x && x !== local(x)) el.setAttribute(a, local(x)) }
+    const set = el.getAttribute('srcset')
+    if (set) el.setAttribute('srcset', localSet(set))
+    const style = el.getAttribute('style')
+    if (style?.includes('url(')) el.setAttribute('style', style.replace(/url\\((['"]?)(\\/[^/'")][^'")]*)\\1\\)/g, (_m, q: string, u: string) => 'url(' + q + local(u) + q + ')'))
+  }
+}
+`;
+  const catalogTs = `import '${n.tokens}/tokens.css'
+import '${siteName}/styles.css'
+import './catalog.css'
+import { flushSync } from 'react-dom'
+import { createRoot } from 'react-dom/client'
+import { localAssets } from './assets'
+import { PAGES } from './site-pages'
+
+const ALL: string[] = ${JSON.stringify([...new Set([...site.sections, ...site.components])].sort())}
+const params = new URLSearchParams(location.search)
+const theme = params.get('theme')
+if (theme) document.documentElement.setAttribute('data-${p}-theme', theme)
+
+const source = document.getElementById('source')!
+const root = createRoot(source)
+flushSync(() => root.render(Object.values(PAGES).map((Page, i) => <Page key={i} />)))
+localAssets(source)
+
+const shown = (el: Element) => el.getClientRects().length > 0
+/** What the component sits on in the page: light text stays readable in its specimen. */
+const backdrop = (el: Element): string => {
+  for (let e: Element | null = el; e; e = e.parentElement) {
+    const c = getComputedStyle(e).backgroundColor
+    if (c !== 'rgba(0, 0, 0, 0)' && c !== 'transparent') return c
+  }
+  return ''
+}
+const first = new Map<string, HTMLElement>()
+const uses = new Map<string, number>()
+for (const el of source.querySelectorAll<HTMLElement>('[data-ds], [data-ds-set]')) {
+  const name = (el.dataset.ds ?? el.dataset.dsSet)!
+  if (shown(el)) uses.set(name, (uses.get(name) ?? 0) + 1)
+  const had = first.get(name)
+  if (!had || (!shown(had) && shown(el))) first.set(name, el)
+}
+
+const list = document.getElementById('list')!
+const nav = document.getElementById('nav')!
+const addGroup = (title: string, names: string[]) => {
+  if (!names.length) return
+  const h = document.createElement('h2')
+  h.textContent = title + ' (' + names.length + ')'
+  nav.append(h)
+  for (const name of names) {
+    const a = document.createElement('a')
+    a.href = '#' + name
+    a.textContent = name
+    a.dataset.name = name
+    nav.append(a)
+    const box = document.createElement('section')
+    box.id = name
+    box.className = 'item'
+    box.dataset.name = name
+    const head = document.createElement('h3')
+    head.textContent = name
+    const meta = document.createElement('p')
+    meta.className = 'meta'
+    const code = document.createElement('code')
+    code.textContent = "import { " + name + " } from '${siteName}'"
+    meta.append(code, ' · ' + (uses.get(name) ?? 0) + '× at this width')
+    const stage = document.createElement('div')
+    stage.className = 'stage'
+    const frame = document.createElement('div')
+    frame.dataset.screen = name
+    const live = first.get(name)
+    if (live && shown(live)) {
+      // the specimen keeps the size it has on the page; the stage scrolls when that is wider than the docs' column
+      const rect = live.getBoundingClientRect()
+      const clone = live.cloneNode(true) as HTMLElement
+      if (getComputedStyle(live).position !== 'static') {
+        clone.style.position = 'relative'
+        clone.style.inset = 'auto'
+      }
+      frame.style.width = rect.width + 'px'
+      frame.style.minHeight = rect.height + 'px'
+      stage.style.background = backdrop(live)
+      frame.append(clone)
+    } else if (live) frame.textContent = 'Used at other window widths only. Resize the window and reload to see it.'
+    else frame.textContent = 'Not on the captured page in its resting state (it opens on interaction).'
+    stage.append(frame)
+    box.append(head, meta, stage)
+    list.append(box)
+  }
+}
+const kind = (name: string) => first.get(name)?.dataset.dsKind
+addGroup('Sections', ALL.filter((x) => kind(x) === 'section'))
+addGroup('Components', ALL.filter((x) => kind(x) !== 'section'))
+root.unmount()
+source.remove()
+
+// a specimen shows the component, it does not leave the docs
+list.addEventListener('click', (e) => { if ((e.target as Element).closest('a, button')) e.preventDefault() })
+list.addEventListener('submit', (e) => e.preventDefault())
+document.getElementById('filter')!.addEventListener('input', (e) => {
+  const q = (e.target as HTMLInputElement).value.trim().toLowerCase()
+  for (const el of document.querySelectorAll<HTMLElement>('[data-name]')) el.hidden = !el.dataset.name!.toLowerCase().includes(q)
+})
+`;
+  const pageTs = `import '${n.tokens}/tokens.css'
+import '${siteName}/styles.css'
+import { createRoot } from 'react-dom/client'
+import { useInteractions } from '${siteName}'
+import { localAssets } from './assets'
+import { PAGES } from './site-pages'
+
+const params = new URLSearchParams(location.search)
+const theme = params.get('theme')
+if (theme) document.documentElement.setAttribute('data-${p}-theme', theme)
+const Page = PAGES[params.get('page') ?? ''] ?? Object.values(PAGES)[0]!
+function App() {
+  useInteractions()
+  return <Page />
+}
+const el = document.getElementById('root')!
+new MutationObserver(() => localAssets(el)).observe(el, { childList: true, subtree: true })
+createRoot(el).render(<App />)
+`;
+  const head = (title: string) => `<!doctype html>
+<html lang="en" data-${p}-theme="${t.defaultTheme}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${esc(t.spec.name)} — ${title}</title>
+</head>`;
+  const count = new Set([...site.sections, ...site.components]).size;
+  return {
+    "site.html": `${head("page components")}
+<body>
+<div class="catalog">
+<nav aria-label="Components"><a class="back" href="index.html">← ${esc(t.spec.name)} design system</a>${pageLinks(site).join("")}<input id="filter" type="search" aria-label="Filter components" placeholder="Filter ${count} components"><div id="nav"></div></nav>
+<div class="content"><h1>Page components</h1><p class="lead">Every component found on the captured page, each rendered from the page's own first instance at this width. They respond to the window width.</p><div id="list"></div></div>
+</div>
+<div id="source" aria-hidden="true"></div>
+<script type="module" src="./site-main.tsx"></script>
+</body>
+</html>
+`,
+    "page.html": `${head("full page")}
+<body>
+<div id="root"></div>
+<script type="module" src="./page-main.tsx"></script>
+</body>
+</html>
+`,
+    "assets.ts": assetsTs,
+    "site-pages.tsx": pagesTs,
+    "site-main.tsx": catalogTs,
+    "page-main.tsx": pageTs,
+    ...Object.fromEntries(Object.entries(site.pages).map(([f, c]) => [`pages/${f}`, c])),
+    "catalog.css": `body { margin: 0; font-family: ${v("font-sans")}; background: ${v("background")}; color: ${v("text-primary")}; }
+.catalog { display: grid; grid-template-columns: 17rem minmax(0, 1fr); min-height: 100vh; }
+.catalog > nav { position: sticky; top: 0; height: 100vh; overflow: auto; padding: 1.5rem 1rem; background: ${v("layer-01")}; border-right: 1px solid ${v("border-subtle-01")}; }
+.catalog > nav h2 { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: ${v("text-secondary")}; margin: 1.25rem 0 0.5rem; }
+.catalog > nav a { display: block; padding: 0.25rem 0.5rem; color: ${v("text-primary")}; text-decoration: none; font-size: 0.875rem; overflow-wrap: anywhere; }
+.catalog > nav a[hidden], .item[hidden] { display: none; }
+.catalog > nav a.back { font-weight: 600; }
+.catalog > nav input { width: 100%; margin-top: 0.75rem; padding: 0.5rem; font: inherit; font-size: 0.875rem; box-sizing: border-box; }
+.content { padding: 2rem clamp(1rem, 3vw, 2.5rem) 6rem; min-width: 0; }
+.content > h1 { margin: 0 0 0.5rem; font-weight: 400; font-size: 2.5rem; }
+.lead { color: ${v("text-secondary")}; max-width: 44rem; margin: 0; }
+.item { padding: 2rem 0; border-top: 1px solid ${v("border-subtle-01")}; margin-top: 2rem; min-width: 0; }
+.item h3 { margin: 0; font-size: 1.25rem; font-weight: 600; overflow-wrap: anywhere; }
+.meta { margin: 0.25rem 0 1rem; font-size: 0.8125rem; color: ${v("text-secondary")}; overflow-wrap: anywhere; }
+.meta code { font-family: ${v("font-mono")}; }
+.stage { overflow: auto; padding: 1rem; background: ${v("layer-01")}; border: 1px solid ${v("border-subtle-01")}; }
+.stage > [data-screen] { position: relative; transform: translate(0); max-width: none; }
+#source { position: absolute; left: 0; right: 0; height: 0; overflow: hidden; visibility: hidden; }
+@media (max-width: 800px) { .catalog { grid-template-columns: minmax(0, 1fr); } .catalog > nav { position: static; height: auto; max-height: 40vh; } }
+`,
+  };
+}
+
+export function docsApp(t: TokenSystem, n: PackageNames, site?: SiteMeta): FileMap {
   const p = t.spec.prefix;
   const els = elements();
   const shown = els.filter((e) => !e.child);
@@ -232,7 +444,12 @@ ${propRows ? `<div class="table-wrap"><table class="api"><thead><tr><th>Attribut
 ${eventRows ? `<div class="table-wrap"><table class="api"><thead><tr><th>Event</th><th>React</th><th>Description</th></tr></thead><tbody>${eventRows}</tbody></table></div>` : ""}
 </section>`;
   });
+  const siteCount = site ? new Set([...site.sections, ...site.components]).size : 0;
+  const siteNav = site
+    ? `<h2>From the site</h2><a href="site.html">Page components (${siteCount})</a>${pageLinks(site).join("")}`
+    : "";
   const nav = `<h1>${esc(t.spec.name)}</h1>
+${siteNav}
 <h2>Foundations</h2>${["colors:Colour", "themes:Themes", "contrast:Contrast", "type:Type", "spacing:Spacing"].map((x) => `<a href="#${x.split(":")[0]}">${x.split(":")[1]}</a>`).join("")}
 ${groups
   .map(
@@ -246,7 +463,7 @@ ${groups
   const body = `<div class="docs">
 <nav class="side" aria-label="Contents">${nav}</nav>
 <main>
-<div class="top"><div><h1>${esc(t.spec.name)}</h1><p class="lead">Tokens, ${shown.length} components for Lit, React and Angular, and the foundations they are built on.</p></div>
+<div class="top"><div><h1>${esc(t.spec.name)}</h1><p class="lead">Tokens, ${shown.length} components for Lit, React and Angular, and the foundations they are built on.${site ? ` <a href="site.html">${siteCount} more components</a> come from the page itself.` : ""}</p></div>
 <${p}-select label="Theme" id="theme-select" style="min-width:12rem">${THEMES.map((th) => `<option value="${th}"${th === t.defaultTheme ? " selected" : ""}>${THEME_LABELS[th]}</option>`).join("")}</${p}-select></div>
 ${foundationsHtml(t)}
 ${sections.join("\n")}
@@ -308,7 +525,11 @@ if (table) {
         version: n.version,
         type: "module",
         scripts: { dev: "vite", build: "vite build", preview: "vite preview" },
-        dependencies: { [n.tokens]: n.version, [n.wc]: n.version },
+        dependencies: {
+          [n.tokens]: n.version,
+          [n.wc]: n.version,
+          ...(site ? { [`${n.scope}/site`]: n.version, react: "^18.3.1", "react-dom": "^18.3.1" } : {}),
+        },
         devDependencies: { vite: "^6.3.5", typescript: "^5.9.3" },
       },
       null,
@@ -329,8 +550,9 @@ ${body}
 `,
     "main.ts": main,
     "docs.css": `${docsCss(p)}\n`,
-    "vite.config.ts": `import { defineConfig } from 'vite'\n\n// relative asset paths: dist/index.html also opens from the file system and in CDR's preview\nexport default defineConfig({ base: './' })\n`,
+    "vite.config.ts": `import { defineConfig } from 'vite'\n\n// relative asset paths: dist/index.html also opens from the file system and in CDR's preview\nexport default defineConfig({ base: './'${site ? `, publicDir: '../packages/site/public', esbuild: { jsx: 'automatic' }, build: { rollupOptions: { input: ['index.html', 'site.html', 'page.html'] } }` : ""} })\n`,
     "tsconfig.json": `${JSON.stringify({ compilerOptions: { target: "ES2022", module: "ESNext", moduleResolution: "Bundler", lib: ["ES2022", "DOM", "DOM.Iterable"], strict: true, noEmit: true, skipLibCheck: true, types: ["vite/client"] }, include: ["main.ts"] }, null, 2)}\n`,
     "foundations.html": foundationsPage(t),
+    ...(site ? siteDocs(t, n, site) : {}),
   };
 }

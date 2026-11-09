@@ -1,0 +1,12 @@
+version: 1
+source: drupal
+contentTypes:
+  article:
+    name: Article
+    kind: document
+    source: { drupal: node.article }
+    fields:
+      title: { source: title, type: text, transform: text, localized: true, required: true, cardinality: 1, sourceType: string }
+      body: { source: body, type: text, transform: richText, localized: true, required: false, cardinality: 1, sourceType: text_with_summary }
+      tags: { source: field_tags, type: reference, transform: termRefs(vocabulary=tags), localized: false, required: false, cardinality: -1, allowedTypes: [ term:tags ], sourceType: entity_reference }
+ignored: []

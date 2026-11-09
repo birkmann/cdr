@@ -1,0 +1,141 @@
+{
+ "contentTypes": [
+  {
+   "id": "dsuComponentPage",
+   "name": "Dsu component page",
+   "kind": "document",
+   "fields": [
+    {
+     "required": true,
+     "localized": true,
+     "cardinality": 1,
+     "id": "title",
+     "name": "Title",
+     "type": "text",
+     "sourceMeta": {
+      "drupalField": "title"
+     }
+    },
+    {
+     "required": false,
+     "localized": false,
+     "cardinality": -1,
+     "id": "lnNComponents",
+     "name": "Ln ncomponents",
+     "type": "componentList",
+     "allowedTypes": [
+      "sectionAccordion",
+      "sectionAiSearchComponent",
+      "sectionBrandPortfolio",
+      "sectionCSpacer",
+      "sectionCText",
+      "sectionCardGrid",
+      "sectionCareersSearchBanner",
+      "sectionDownloads",
+      "sectionDsuCView",
+      "sectionHalfHalfColorBlock",
+      "sectionLnCEntityslider",
+      "sectionQuickFactsComponent",
+      "sectionStatementComponent"
+     ],
+     "sourceMeta": {
+      "drupalField": "field_ln_n_components",
+      "drupalType": "entity-reference-revisions"
+     }
+    },
+    {
+     "required": false,
+     "localized": true,
+     "cardinality": 1,
+     "id": "titleHtml",
+     "name": "Title (HTML)",
+     "type": "text",
+     "sourceMeta": {
+      "inferred": true,
+      "inlineMarkup": true
+     }
+    },
+    {
+     "required": false,
+     "localized": false,
+     "cardinality": 1,
+     "id": "image",
+     "name": "Image",
+     "type": "reference",
+     "allowedTypes": [
+      "asset"
+     ],
+     "sourceMeta": {
+      "drupalField": "field_image",
+      "drupalType": "image"
+     }
+    },
+    {
+     "required": false,
+     "localized": false,
+     "cardinality": 1,
+     "id": "imageSources",
+     "name": "Image responsive sources",
+     "type": "json",
+     "sourceMeta": {
+      "responsive": true
+     }
+    }
+   ],
+   "sourceMeta": {
+    "system": "html",
+    "bundle": "dsu_component_page"
+   },
+   "displayField": "title"
+  },
+  {
+   "id": "sectionCText",
+   "name": "Section ctext",
+   "kind": "component",
+   "fields": [
+    {
+     "required": false,
+     "localized": true,
+     "cardinality": 1,
+     "id": "cText",
+     "name": "C text",
+     "type": "richText",
+     "sourceMeta": {
+      "drupalField": "field_c_text",
+      "drupalType": "text-long"
+     }
+    },
+    {
+     "required": false,
+     "localized": false,
+     "cardinality": -1,
+     "id": "ctaButtonItem",
+     "name": "Cta button item",
+     "type": "componentList",
+     "allowedTypes": [
+      "sectionDsuCCtaButton"
+     ],
+     "sourceMeta": {
+      "drupalField": "field_cta_button_item",
+      "drupalType": "entity-reference-revisions"
+     }
+    },
+    {
+     "required": false,
+     "localized": false,
+     "cardinality": 1,
+     "id": "classes",
+     "name": "CSS classes",
+     "type": "text",
+     "sourceMeta": {
+      "inferred": true
+     }
+    }
+   ],
+   "sourceMeta": {
+    "system": "html",
+    "paragraphType": "c_text"
+   }
+  }
+ ]
+}

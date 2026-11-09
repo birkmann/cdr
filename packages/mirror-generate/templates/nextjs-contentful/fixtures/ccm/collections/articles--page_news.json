@@ -1,0 +1,23 @@
+{
+  "id": "articles--page_news",
+  "name": "Articles: News page",
+  "type": "article",
+  "filters": [],
+  "sort": [
+    {
+      "field": "created",
+      "direction": "desc"
+    }
+  ],
+  "pagination": {
+    "pageSize": 10
+  },
+  "manual": false,
+  "source": {
+    "system": "drupal",
+    "kind": "view_display",
+    "id": "articles.page_news",
+    "bundle": "page",
+    "url": "/news"
+  }
+}

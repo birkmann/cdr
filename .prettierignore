@@ -1,2 +1,11 @@
 packages/capture/src/generated.ts
 packages/codegen/src/export/generated.ts
+packages/mirror-core/src/**
+packages/mirror-transforms/src/**
+packages/mirror-capture/src/**
+packages/mirror-design/src/**
+packages/mirror-generate/src/**
+packages/mirror-verify/src/**
+packages/mirror-fix/src/**
+packages/mirror/src/report.ts
+packages/design-system/src/templates.generated.ts

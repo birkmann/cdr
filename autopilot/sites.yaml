@@ -1,0 +1,20 @@
+# The matrix (docs/plans/autopilot-self-improving-pipeline.md §3.2).
+sites:
+  bvg:
+    url: https://www.bvg.de/de
+    framework: nextjs
+    viewports: [mobile, tablet, desktop]
+  vw:
+    url: https://www.vw.de/
+    framework: nextjs
+  ibm:
+    url: https://www.ibm.com/us-en
+    framework: nextjs
+  bmw:
+    url: https://www.bmw.de/de/index.html
+    framework: nextjs
+    freeze: { wayback: true }
+holdout:
+  - fixture: acme
+  - fixture: fluid
+  - url: https://www.deutschebahn.com/de

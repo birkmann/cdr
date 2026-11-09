@@ -1,0 +1,38 @@
+{
+  "id": "embeddedMedia",
+  "name": "Embedded media (rich text)",
+  "selector": "article.align-center.media.media--type-image",
+  "kind": "section",
+  "template": "<article class=\"align-{{align}} media media--type-image media--view-mode-default\">\n  <div class=\"field field--name-field-media-image field--type-image field--label-hidden field__item\">  <img loading=\"lazy\" src=\"{{image.url}}\" width=\"{{image.width}}\" height=\"{{image.height}}\" alt=\"{{image.alt}}\">\n</div>\n</article>",
+  "props": [
+    {
+      "name": "align",
+      "type": "text"
+    },
+    {
+      "name": "image",
+      "type": "asset"
+    }
+  ],
+  "exampleHtml": "<article class=\"align-center media media--type-image media--view-mode-default\">\n  <div class=\"field field--name-field-media-image field--type-image field--label-hidden field__item\">  <img loading=\"lazy\" src=\"/sites/default/files/2024-05/oats.jpg\" width=\"800\" height=\"600\" alt=\"Rolled oats\">\n</div>\n</article>",
+  "exampleProps": {
+    "align": "center",
+    "image": {
+      "url": "/sites/default/files/2024-05/oats.jpg",
+      "alt": "Rolled oats",
+      "width": "800",
+      "height": "600"
+    }
+  },
+  "source": "heuristic",
+  "instances": 2,
+  "pages": [
+    "/about-us",
+    "/de/ueber-uns"
+  ],
+  "locales": [
+    "de",
+    "en"
+  ],
+  "verified": true
+}

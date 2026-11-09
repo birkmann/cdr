@@ -1,0 +1,24 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": [
+    "src"
+  ],
+  "exclude": [
+    "src/**/*.test.ts"
+  ],
+  "references": [
+    {
+      "path": "../mirror-core"
+    },
+    {
+      "path": "../mirror-capture"
+    },
+    {
+      "path": "../mirror-transforms"
+    }
+  ]
+}

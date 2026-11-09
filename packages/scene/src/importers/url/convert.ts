@@ -135,6 +135,8 @@ interface Ctx {
   idOf: Map<number, string>;
   /** fixed / sticky boxes that stay in place while the page scrolls (pinnedBoxes) */
   pinned: Set<number>;
+  /** elements of `position: sticky` boxes */
+  sticky: WeakSet<SceneElement>;
   /** slider arrows (SnapElement.carousel) to link to their scrolling frame once the tree is built */
   controls: SnapElement[];
   /** boxes inside a scrolling frame (SnapElement.scroller): past the page edge is scrolled out of view, not off-page */
@@ -864,7 +866,27 @@ function clampOf(
  * centres / ends on the content box like CSS put it (hard line breaks when the source wrapped earlier than the width
  * requires, e.g. text-wrap: balance); otherwise one element per rendered line piece (exact positions).
  */
+const HEADINGS = new WeakMap<Ctx, Set<number>>();
+function headingsOf(ctx: Ctx): Set<number> {
+  let seen = HEADINGS.get(ctx);
+  if (!seen) HEADINGS.set(ctx, (seen = new Set()));
+  return seen;
+}
+
 function paragraphItems(ctx: Ctx, items: InlineItem[], block: SnapElement): Item[] {
+  const out = paragraphItemsOf(ctx, items, block);
+  // the element the page wrote the text in: `h2` stays `h2` whatever it looks like (one heading in spans is one heading)
+  for (const it of out) {
+    const h = block.heading;
+    if (it.el.type !== "text" || !h) continue;
+    const first = !headingsOf(ctx).has(h.id);
+    if (first) headingsOf(ctx).add(h.id);
+    it.el.meta = { ...it.el.meta, textTag: first ? h.tag : "p" };
+  }
+  return out;
+}
+
+function paragraphItemsOf(ctx: Ctx, items: InlineItem[], block: SnapElement): Item[] {
   const out: Item[] = [];
   const runs: RunIn[] = [];
   // <br>s after a run: two in a row leave a blank line (vw.com's "…so much more.<br><br>The 2027 …")
@@ -1423,11 +1445,40 @@ function addMargin(ctx: Ctx, el: SceneElement, m: number[] | undefined) {
   ctx.marginOf.set(el, cur ? cur.map((v, i) => Math.max(v, m[i] ?? 0)) : [...m]);
 }
 
-function convertElement(ctx: Ctx, n: SnapElement): Item[] {
+/**
+ * CSS columns with a width: the computed width holds for this capture only (`33vw` is a length by then), so the frozen
+ * value fits more columns further up the range. No more than the page shows at any measured width of this layout.
+ */
+function withColumnCap(ctx: Ctx, n: SnapElement): SnapElement {
+  const cols = n.layout?.columns;
+  if (!cols?.width || cols.count || !n.children) return n;
+  const columns = (b: SnapElement) =>
+    new Set(
+      (b.children ?? []).flatMap((c) => (c.kind !== "text" && c.rect.w > 0 ? [Math.round(c.rect.x)] : [])),
+    ).size;
+  const count = Math.max(columns(n), ...altBoxes(ctx.snap, n.id).map(columns));
+  return count > 0 ? { ...n, layout: { ...n.layout!, columns: { ...cols, count } } } : n;
+}
+
+function convertElement(ctx: Ctx, element: SnapElement): Item[] {
+  const n = withColumnCap(ctx, element);
   const items = convertNode(ctx, n);
   // the box itself (its kind's element, a kept frame) or the one item a collapsed wrapper left: its margins and display
   if (items.length === 1) {
-    addMargin(ctx, items[0]!.el, n.layout?.margin);
+    // a padded link that collapsed into its text: the padding was room around that text, as its margin is
+    const pad = ctx.flow && !n.kind && items[0]!.el.type === "text" ? n.layout?.padding : undefined;
+    addMargin(
+      ctx,
+      items[0]!.el,
+      pad ? [0, 1, 2, 3].map((i) => (n.layout?.margin?.[i] ?? 0) + (pad[i] ?? 0)) : n.layout?.margin,
+    );
+    // an icon enlarged by a transform: its measured box starts before the place it holds in its row
+    const scale = /^matrix\(([\d.]+), 0, 0, \1,/.exec(n.style?.transform ?? "");
+    if (ctx.flow && n.kind === "svg" && scale && Number(scale[1]) > 1) {
+      const grown = (n.rect.w * (1 - 1 / Number(scale[1]))) / 2;
+      const m = ctx.marginOf.get(items[0]!.el) ?? [0, 0, 0, 0];
+      ctx.marginOf.set(items[0]!.el, [m[0]!, m[1]!, m[2]!, m[3]! - grown]);
+    }
     // CSS columns of a wrapper that collapsed into its one box: that box's content flows down them (multiColumn)
     if (ctx.flow && n.layout?.columns && items[0]!.el.type === "frame") {
       const c = ctx.css.get(items[0]!.el);
@@ -1452,10 +1503,61 @@ function convertElement(ctx: Ctx, n: SnapElement): Item[] {
   // a header / bar pinned to the viewport keeps its place while the prototype scrolls (a collapsed wrapper: its layers)
   if (ctx.pinned.has(n.id))
     for (const it of items) it.el.layout = { ...it.el.layout, scrollBehavior: "fixed" };
+  if (n.layout?.position === "sticky") for (const it of items) ctx.sticky.add(it.el);
   return items;
 }
 
-function convertNode(ctx: Ctx, n: SnapElement): Item[] {
+/** A closed `<details>`: Chrome still lays out what it hides, just below the box, where nothing paints it. */
+function withoutClosedDetails(n: SnapElement): SnapElement {
+  if (n.tag !== "details" || !n.children) return n;
+  const bottom = n.rect.y + n.rect.h;
+  const hidden = (c: SnapNode) => c.kind !== "text" && c.tag !== "summary" && c.rect.y >= bottom - 2;
+  return n.children.some(hidden) ? { ...n, children: n.children.filter((c) => !hidden(c)) } : n;
+}
+
+const escapeHtml = (s: string) =>
+  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+const SAFE_HREF = /^(https?:|mailto:|tel:|\/|#)/i;
+const SR_ONLY_CSS =
+  "position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0";
+
+/** Markup of content the page has but does not draw, built here from text and links only (never the page's own HTML). */
+export function hiddenMarkupOf(
+  n: Pick<SnapElement, "tag" | "attrs" | "srText" | "hiddenLinks">,
+): string | null {
+  if (n.hiddenLinks?.length) {
+    const links = n.hiddenLinks
+      .filter((l) => SAFE_HREF.test(l.href))
+      .map((l) => `<a href="${escapeHtml(l.href)}" tabindex="-1">${escapeHtml(l.text)}</a>`)
+      .join("");
+    return links ? `<nav aria-hidden="true" style="display:none">${links}</nav>` : null;
+  }
+  if (!n.srText) return null;
+  const href = n.tag === "a" && n.attrs?.href && SAFE_HREF.test(n.attrs.href) ? n.attrs.href : undefined;
+  const tag = href ? "a" : /^(h[1-6]|p)$/.test(n.tag) ? n.tag : "span";
+  return `<${tag}${href ? ` href="${escapeHtml(href)}"` : ""} style="${SR_ONLY_CSS}">${escapeHtml(n.srText)}</${tag}>`;
+}
+
+function hiddenItem(ctx: Ctx, n: SnapElement, markup: string): Item {
+  const el: SceneElement = {
+    id: nid(ctx),
+    type: "frame",
+    name: n.hiddenLinks ? "Hidden navigation" : `Hidden · ${nameFromText(n.srText ?? "", 24)}`,
+    layout: { position: "absolute", width: 1, height: 1 },
+    meta: { tag: n.tag, hiddenMarkup: markup },
+  };
+  ctx.css.set(el, { display: "block", ...n.layout, position: "absolute" });
+  ctx.sizes.set(el, { w: 1, h: 1 });
+  const abs = { x: Math.max(0, n.rect.x), y: Math.max(0, n.rect.y), w: 1, h: 1 };
+  return { el, abs, tier: 1, z: 0, order: ctx.order++ };
+}
+
+function convertNode(ctx: Ctx, element: SnapElement): Item[] {
+  const n = withoutClosedDetails(element);
+  if (n.srText || n.hiddenLinks) {
+    const markup = hiddenMarkupOf(n);
+    return markup ? [hiddenItem(ctx, n, markup)] : [];
+  }
   const page = ctx.snap.page;
   if (
     !n.contents &&
@@ -1792,7 +1894,7 @@ function convertNode(ctx: Ctx, n: SnapElement): Item[] {
   if (button) {
     el.variant = "ghost";
     el.style = { background: "transparent", radius: 0, ...style, shadows: style.shadows ?? [] };
-    if (n.attrs?.href && /^https?:/.test(n.attrs.href))
+    if (n.attrs?.href && /^(https?:|mailto:|tel:)/.test(n.attrs.href))
       el.interaction = { onTap: "open-url", url: n.attrs.href };
     if (style.background && !isTransparent(style.background)) bump(ctx.buttonBg, style.background);
   }
@@ -2114,7 +2216,8 @@ function inputItems(ctx: Ctx, n: SnapElement): Item[] {
     const cb = contentBox(n);
     const f = { ...inp.font, color: inp.value ? inp.font.color : inp.placeholderColor };
     const LH = f.lineHeight ?? Math.round(f.size * 1.2);
-    const y = inp.multiline ? cb.y : n.rect.y + n.rect.h / 2 - LH / 2;
+    // (centred in the content box: a floating label's control keeps its value below the label with a top padding)
+    const y = inp.multiline ? cb.y : cb.y + cb.h / 2 - LH / 2;
     const centered = inp.type === "button" || f.align === "center";
     const t = textElement(
       ctx,
@@ -2792,6 +2895,11 @@ function multiColumn(ctx: Ctx, frame: SceneElement, flow: Box[]): boolean {
     const { margin: _m, ...rest } = b.el.layout ?? {};
     b.el.layout = { ...rest, width: "fill", ...(mb > 0 ? { margin: [0, 0, r2(mb), 0] } : {}) };
   }
+  // the columns are filled in reading order; the frame's children are in paint order
+  const reading = [...flow].sort((a, b) => (Math.abs(a.x - b.x) < 2 ? a.y - b.y : a.x - b.x));
+  const inFlow = new Set(flow.map((b) => b.el));
+  let next = 0;
+  frame.children = frame.children?.map((k) => (inFlow.has(k) ? reading[next++]!.el : k));
   const pad = ctx.css.get(frame)?.padding ?? [0, 0, 0, 0];
   frame.layout = {
     ...frame.layout,
@@ -3035,11 +3143,15 @@ function inlineBlocks(ctx: Ctx, frame: SceneElement, flow: Box[]): SnapLayout | 
 function cssWrapRow(
   ctx: Ctx,
   frame: SceneElement,
-  flow: Box[],
+  painted: Box[],
   inner: { w: number; h: number },
   under: SceneElement[],
   over: SceneElement[],
 ): boolean {
+  // the lines run in reading order; the frame's children are in paint order (boxes before text)
+  const flow = [...painted].sort((a, b) =>
+    Math.abs(a.y + a.h / 2 - b.y - b.h / 2) < Math.min(a.h, b.h) / 2 ? a.x - b.x : a.y - b.y,
+  );
   const css = inlineBlocks(ctx, frame, flow) ?? ctx.css.get(frame);
   if (
     !css ||
@@ -3581,6 +3693,7 @@ export function snapshotToScreen(input: Snapshot, opts: UrlImportOptions = {}): 
     keep: new Set(opts.keep ?? []),
     idOf: new Map(),
     pinned: pinnedBoxes(snap),
+    sticky: new WeakSet(),
     controls: [],
     scrolled: scrolledBoxes(snap),
     css: new WeakMap(),
@@ -3619,6 +3732,22 @@ export function snapshotToScreen(input: Snapshot, opts: UrlImportOptions = {}): 
   // flow first: the page's own blocks (header, main, footer) stack in its flow too, so the page is as tall as they are
   if (opts.autoLayout !== false && ctx.flow && root.children?.length) {
     root.layout = { ...root.layout, position: "absolute", x: 0, y: 0 };
+    // a sticky bar lifted to the page by its z-index lies over the page's content: it is no block of the page's flow
+    const span = (e: SceneElement) => {
+      const y = typeof e.layout?.y === "number" ? e.layout.y : 0;
+      return [y, y + (ctx.sizes.get(e)?.h ?? 0)] as const;
+    };
+    for (const k of root.children)
+      if (
+        ctx.sticky.has(k) &&
+        root.children.some((o) => {
+          if (o === k || ctx.outOfFlow.has(o)) return false;
+          const [a0, a1] = span(k);
+          const [b0, b1] = span(o);
+          return a0 < b1 && b0 < a1;
+        })
+      )
+        ctx.outOfFlow.add(k);
     tryAutoLayout(ctx, root);
     // the page keeps its measured height as a number (the measured widths' heights are read from it); the export
     // lets it follow its flowing content

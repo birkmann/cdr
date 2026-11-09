@@ -46,7 +46,11 @@ export interface ToolContext {
   /** True when the session answers permission requests itself (`autoApprove.permissions`, `cdr run --yes`). */
   autoApprovesPermissions?(): boolean;
   /** One model call with a role ("executor", "planner"…) or a model ref; returns the text answer. */
-  complete?(role: string, messages: ChatMessage[], o?: { maxTokens?: number }): Promise<string>;
+  complete?(
+    role: string,
+    messages: ChatMessage[],
+    o?: { maxTokens?: number; onUsage?(u: { input: number; output: number; cost: number }): void },
+  ): Promise<string>;
 }
 
 export interface SpawnAgentRequest {

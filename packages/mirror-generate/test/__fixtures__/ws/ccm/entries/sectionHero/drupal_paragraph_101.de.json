@@ -1,0 +1,29 @@
+{
+  "ccmId": "drupal:paragraph:101",
+  "type": "sectionHero",
+  "locale": "de",
+  "status": "published",
+  "fields": {
+    "cta": {
+      "ref": {
+        "kind": "entry",
+        "id": "drupal:node:3"
+      },
+      "label": "Zu unseren Tipps"
+    },
+    "image": {
+      "kind": "asset",
+      "id": "drupal:media:21"
+    },
+    "subtitle": "Einfache Frühstücksideen, die dich fit halten.",
+    "title": "Starte richtig in den Tag"
+  },
+  "sourceChangedAt": "2024-06-01T10:00:00.000Z",
+  "source": {
+    "system": "drupal",
+    "kind": "paragraph",
+    "id": "101",
+    "bundle": "hero",
+    "url": "http://localhost:8080/de/jsonapi/paragraph/hero/p0000000-0000-4000-8000-000000000101?resourceVersion=id%3A101"
+  }
+}

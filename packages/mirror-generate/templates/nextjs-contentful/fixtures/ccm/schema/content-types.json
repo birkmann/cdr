@@ -1,0 +1,362 @@
+{
+  "contentTypes": [
+    {
+      "id": "article",
+      "name": "Article",
+      "kind": "document",
+      "displayField": "title",
+      "fields": [
+        {
+          "id": "title",
+          "name": "Title",
+          "type": "text",
+          "required": true,
+          "localized": true,
+          "cardinality": 1,
+          "sourceMeta": {
+            "drupal": "node.article.title",
+            "drupalType": "string (base field)",
+            "transform": "text"
+          }
+        },
+        {
+          "id": "created",
+          "name": "Published",
+          "type": "date",
+          "required": false,
+          "localized": false,
+          "cardinality": 1,
+          "sourceMeta": {
+            "drupal": "node.article.created",
+            "drupalType": "created (base field)",
+            "transform": "date"
+          }
+        },
+        {
+          "id": "body",
+          "name": "Body",
+          "type": "richText",
+          "required": false,
+          "localized": true,
+          "cardinality": 1,
+          "sourceMeta": {
+            "drupal": "node.article.body",
+            "drupalType": "text_with_summary",
+            "transform": "richText"
+          }
+        },
+        {
+          "id": "image",
+          "name": "Image",
+          "type": "reference",
+          "required": false,
+          "localized": false,
+          "cardinality": 1,
+          "allowedTypes": [
+            "asset"
+          ],
+          "sourceMeta": {
+            "drupal": "node.article.field_image",
+            "drupalType": "entity_reference",
+            "transform": "assetRef"
+          }
+        },
+        {
+          "id": "tags",
+          "name": "Tags",
+          "type": "reference",
+          "required": false,
+          "localized": false,
+          "cardinality": -1,
+          "allowedTypes": [
+            "term:tags"
+          ],
+          "sourceMeta": {
+            "drupal": "node.article.field_tags",
+            "drupalType": "entity_reference",
+            "transform": "termRefs(vocabulary=tags)"
+          }
+        }
+      ],
+      "sourceMeta": {
+        "drupal": "node.article"
+      }
+    },
+    {
+      "id": "landingPage",
+      "name": "Landing page",
+      "kind": "document",
+      "displayField": "title",
+      "fields": [
+        {
+          "id": "title",
+          "name": "Title",
+          "type": "text",
+          "required": true,
+          "localized": true,
+          "cardinality": 1,
+          "sourceMeta": {
+            "drupal": "node.landing_page.title",
+            "drupalType": "string (base field)",
+            "transform": "text"
+          }
+        },
+        {
+          "id": "sections",
+          "name": "Sections",
+          "type": "componentList",
+          "required": false,
+          "localized": false,
+          "cardinality": -1,
+          "allowedTypes": [
+            "sectionHero",
+            "sectionTeaserList",
+            "sectionText"
+          ],
+          "sourceMeta": {
+            "drupal": "node.landing_page.field_sections",
+            "drupalType": "entity_reference_revisions",
+            "transform": "componentList"
+          }
+        }
+      ],
+      "sourceMeta": {
+        "drupal": "node.landing_page"
+      }
+    },
+    {
+      "id": "page",
+      "name": "Basic page",
+      "kind": "document",
+      "displayField": "title",
+      "fields": [
+        {
+          "id": "title",
+          "name": "Title",
+          "type": "text",
+          "required": true,
+          "localized": true,
+          "cardinality": 1,
+          "sourceMeta": {
+            "drupal": "node.page.title",
+            "drupalType": "string (base field)",
+            "transform": "text"
+          }
+        },
+        {
+          "id": "body",
+          "name": "Body",
+          "type": "richText",
+          "required": false,
+          "localized": true,
+          "cardinality": 1,
+          "sourceMeta": {
+            "drupal": "node.page.body",
+            "drupalType": "text_with_summary",
+            "transform": "richText"
+          }
+        }
+      ],
+      "sourceMeta": {
+        "drupal": "node.page"
+      }
+    },
+    {
+      "id": "sectionHero",
+      "name": "Hero",
+      "kind": "component",
+      "displayField": "title",
+      "fields": [
+        {
+          "id": "cta",
+          "name": "Call to action",
+          "type": "link",
+          "required": false,
+          "localized": true,
+          "cardinality": 1,
+          "sourceMeta": {
+            "drupal": "paragraph.hero.field_cta",
+            "drupalType": "link",
+            "transform": "link"
+          }
+        },
+        {
+          "id": "image",
+          "name": "Image",
+          "type": "reference",
+          "required": false,
+          "localized": false,
+          "cardinality": 1,
+          "allowedTypes": [
+            "asset"
+          ],
+          "sourceMeta": {
+            "drupal": "paragraph.hero.field_image",
+            "drupalType": "entity_reference",
+            "transform": "assetRef"
+          }
+        },
+        {
+          "id": "subtitle",
+          "name": "Subtitle",
+          "type": "text",
+          "required": false,
+          "localized": true,
+          "cardinality": 1,
+          "sourceMeta": {
+            "drupal": "paragraph.hero.field_subtitle",
+            "drupalType": "string",
+            "transform": "text"
+          }
+        },
+        {
+          "id": "title",
+          "name": "Title",
+          "type": "text",
+          "required": true,
+          "localized": true,
+          "cardinality": 1,
+          "sourceMeta": {
+            "drupal": "paragraph.hero.field_title",
+            "drupalType": "string",
+            "transform": "text"
+          }
+        }
+      ],
+      "sourceMeta": {
+        "drupal": "paragraph.hero"
+      }
+    },
+    {
+      "id": "sectionTeaserList",
+      "name": "Teaser list",
+      "kind": "component",
+      "displayField": "heading",
+      "fields": [
+        {
+          "id": "heading",
+          "name": "Heading",
+          "type": "text",
+          "required": false,
+          "localized": true,
+          "cardinality": 1,
+          "sourceMeta": {
+            "drupal": "paragraph.teaser_list.field_heading",
+            "drupalType": "string",
+            "transform": "text"
+          }
+        },
+        {
+          "id": "collection",
+          "name": "View",
+          "type": "json",
+          "required": false,
+          "localized": false,
+          "cardinality": 1,
+          "sourceMeta": {
+            "drupal": "paragraph.teaser_list.field_view",
+            "drupalType": "viewsreference",
+            "transform": "collectionRef"
+          }
+        }
+      ],
+      "sourceMeta": {
+        "drupal": "paragraph.teaser_list"
+      }
+    },
+    {
+      "id": "sectionText",
+      "name": "Text",
+      "kind": "component",
+      "fields": [
+        {
+          "id": "body",
+          "name": "Body",
+          "type": "richText",
+          "required": true,
+          "localized": true,
+          "cardinality": 1,
+          "sourceMeta": {
+            "drupal": "paragraph.text.field_body",
+            "drupalType": "text_long",
+            "transform": "richText"
+          }
+        }
+      ],
+      "sourceMeta": {
+        "drupal": "paragraph.text"
+      }
+    },
+    {
+      "id": "siteSettings",
+      "name": "Site settings",
+      "kind": "settings",
+      "displayField": "baseUrl",
+      "description": "Singleton mirroring CCM SiteSettings (ccm/settings/site.json)",
+      "fields": [
+        {
+          "id": "siteName",
+          "name": "Site name",
+          "type": "json",
+          "required": false,
+          "localized": false,
+          "cardinality": 1
+        },
+        {
+          "id": "baseUrl",
+          "name": "Base URL",
+          "type": "text",
+          "required": true,
+          "localized": false,
+          "cardinality": 1
+        },
+        {
+          "id": "logo",
+          "name": "Logo",
+          "type": "reference",
+          "required": false,
+          "localized": false,
+          "cardinality": 1,
+          "allowedTypes": [
+            "asset"
+          ]
+        },
+        {
+          "id": "footerText",
+          "name": "Footer text",
+          "type": "json",
+          "required": false,
+          "localized": false,
+          "cardinality": 1
+        },
+        {
+          "id": "seoDefaults",
+          "name": "SEO defaults",
+          "type": "json",
+          "required": false,
+          "localized": false,
+          "cardinality": 1
+        },
+        {
+          "id": "scripts",
+          "name": "Scripts",
+          "type": "json",
+          "required": false,
+          "localized": false,
+          "cardinality": 1
+        },
+        {
+          "id": "extra",
+          "name": "Extra",
+          "type": "json",
+          "required": false,
+          "localized": false,
+          "cardinality": 1
+        }
+      ],
+      "sourceMeta": {
+        "drupal": "system.site + theme settings + footer block"
+      }
+    }
+  ]
+}

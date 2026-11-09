@@ -1773,11 +1773,25 @@
     }
   }
 
+  const headingIds = new Map()
+
+  /** no box of its own on the page (display: none, invisible, a sliver, or off the page) */
+  function undrawn(el, cs) {
+    if (cs.display === 'none' || cs.visibility !== 'visible' || Number(cs.opacity) === 0) return true
+    const r = el.getBoundingClientRect()
+    return r.width <= 2 || r.height <= 2 || r.right <= 0 || r.bottom + window.scrollY <= 0
+  }
+
   function walk(el, clip, shift) {
     if (++count > MAX) return null
     const tag = el.localName
     if (SKIP.has(tag)) return null
     const cs = getComputedStyle(el)
+    // a navigation the page marks as not for visitors and does not draw (a crawler's copy of the menu): its links are kept
+    if (tag === 'nav' && el.getAttribute('aria-hidden') === 'true' && undrawn(el, cs)) {
+      const links = [...el.querySelectorAll('a[href]')].slice(0, 400).map((a) => ({ href: a.getAttribute('href'), text: (a.textContent || '').replace(/\s+/g, ' ').trim() })).filter((l) => l.href && l.text)
+      return links.length ? { id: nextId++, tag, rect: { x: 0, y: 0, w: 1, h: 1 }, layout: { display: 'none', position: 'absolute' }, attrs: {}, style: {}, children: [], hiddenLinks: links } : null
+    }
     if (cs.display === 'none') return null
     if (Number(cs.opacity) === 0) return null
     // the consent tool's own layer (OneTrust's reopen badge floating over every page): consent UI, not the site's design
@@ -1790,10 +1804,23 @@
     const myShift = shift || fixedShift(el, cs, r)
     const rect = rectOf(r)
     rect.y = round(rect.y + myShift)
-    // screen-reader-only and collapsed boxes
-    if (cs.display !== 'contents' && (cs.overflow !== 'visible' || cs.clip !== 'auto') && rect.w <= 2 && rect.h <= 2) return null
+    // screen-reader-only boxes keep their text (no pixels, still the page's content); collapsed ones are dropped
+    if (cs.display !== 'contents' && (cs.overflow !== 'visible' || cs.clip !== 'auto') && rect.w <= 2 && rect.h <= 2) {
+      const text = rect.w >= 1 && rect.h >= 1 ? (el.textContent || '').replace(/\s+/g, ' ').trim() : ''
+      if (!text || text.length > 300) return null
+      const href = tag === 'a' ? el.getAttribute('href') : null
+      // (at the corner of its parent: a clipped box is often parked at the top of the page, out of its section)
+      const pr = el.parentElement ? rectOf(el.parentElement.getBoundingClientRect()) : rect
+      return { id: nextId++, tag, rect: { x: pr.x, y: round(pr.y + myShift), w: 1, h: 1 }, layout: layoutInfo(cs, el), attrs: href ? { href } : {}, style: {}, children: [], srText: text }
+    }
     if (cs.display !== 'contents' && cs.position !== 'static' && rect.w > 0 && !intersects(rect, clip) && !el.querySelector('*')) return null
     const node = { id: nextId++, tag, rect, layout: layoutInfo(cs, el), attrs: attrsOf(el), style: {}, children: [] }
+    // the heading this box is (part of): a heading's text often sits in spans of its own
+    const headingEl = el.closest('h1,h2,h3,h4,h5,h6')
+    if (headingEl) {
+      if (!headingIds.has(headingEl)) headingIds.set(headingEl, headingIds.size + 1)
+      node.heading = { tag: headingEl.localName, id: headingIds.get(headingEl) }
+    }
     if (el.hasAttribute('data-figcap-menu')) tagged.push([el.getAttribute('data-figcap-menu'), node.id])
     if (el.hasAttribute('data-figcap-ctl')) for (const k of el.getAttribute('data-figcap-ctl').split(' ')) ctlIds.set(Number(k), node.id)
     // the page's own walk: every box remembers its id (a widget state names its region by it)

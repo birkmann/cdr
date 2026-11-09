@@ -4,7 +4,7 @@ import { base, type } from '../base.js'
 /**
  * Navigates to another page or place. Disabled links are not focusable and do not navigate.
  * @element __P__-link
- * @slot - the link text
+ * @slot - the link text, or a light-DOM anchor (`<a href>`) when `href` is not set: the markup then holds the real link
  * @csspart link - the native link
  */
 export class Link extends LitElement {
@@ -42,6 +42,14 @@ export class Link extends LitElement {
         outline: 1px solid var(--__P__-focus);
         outline-offset: 1px;
       }
+      .wrap {
+        display: inline;
+      }
+      ::slotted(a) {
+        color: inherit;
+        text-decoration: inherit;
+        font: inherit;
+      }
       a[aria-disabled='true'] {
         color: var(--__P__-text-disabled);
         text-decoration: none;
@@ -74,6 +82,7 @@ export class Link extends LitElement {
     this.size = 'md'
   }
   override render() {
+    if (!this.href) return html`<span class="wrap" part="link"><slot></slot></span>`
     return html`<a
       part="link"
       href=${this.disabled ? nothing : this.href}

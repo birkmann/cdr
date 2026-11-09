@@ -19,6 +19,38 @@ export function findUrl(text: string): string | undefined {
   }
 }
 
+/** A message that is nothing but a web address (`ibm.com`, `www.ibm.com/us-en`, a full URL) → the URL. */
+export function bareAddress(text: string): string | undefined {
+  const t = text.trim();
+  if (!t || /\s/.test(t)) return;
+  if (/^https?:\/\//i.test(t)) return findUrl(t);
+  return /^[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}(?:[/?#]\S*)?$/i.test(t) ? `https://${t}` : undefined;
+}
+
+/** The run of a mirror run's static snapshot. The snapshot cannot run what the page loads at runtime; the run's app can. */
+export function mirrorSnapshotRun(path: string): string | undefined {
+  return /^\.harness\/recreate\/([^/]+)\/out\/preview\/index\.html$/.exec(path)?.[1];
+}
+
+/** The real app behind a mirror snapshot. No URL (and not starting) means: show the snapshot. */
+export function useMirrorApp(sessionId: string, runId: string | undefined, nonce = 0) {
+  const { client } = useApp();
+  const [app, setApp] = useState<{ runId: string; url?: string }>();
+  useEffect(() => {
+    if (!client || !runId) return;
+    let cancelled = false;
+    client
+      .recreateApp(sessionId, runId)
+      .then((r) => !cancelled && setApp({ runId, url: r.url }))
+      .catch(() => !cancelled && setApp({ runId }));
+    return () => {
+      cancelled = true;
+    };
+  }, [client, sessionId, runId, nonce]);
+  const current = app?.runId === runId ? app : undefined;
+  return { url: current?.url, starting: !!runId && !!client && !current };
+}
+
 /** `/recreate <url>` → the URL; undefined when the text is not the command; "" when the URL is missing. */
 export function parseRecreateCommand(text: string): string | undefined {
   const m = /^\/recreate(?:\s+([\s\S]*))?$/i.exec(text.trim());
@@ -48,7 +80,11 @@ export async function postRecreate(
 export function useStartRecreate() {
   const { client, settings, navigate, refreshSessions, rememberProject } = useApp();
   return useCallback(
-    async (url: string, target: { sessionId?: string; projectPath?: string } = {}) => {
+    async (
+      url: string,
+      target: { sessionId?: string; projectPath?: string } = {},
+      mode: "mirror" | "rebuild" = "mirror",
+    ) => {
       if (!client) throw new Error("Not connected");
       let id = target.sessionId;
       if (!id) {
@@ -71,7 +107,7 @@ export function useStartRecreate() {
         if (target.projectPath) rememberProject(info.projectPath);
         id = info.id;
       }
-      await postRecreate(settings.server, settings.token, id, { url });
+      await postRecreate(settings.server, settings.token, id, { url, mode });
       if (!target.sessionId) navigate({ name: "chat", id, preview: true });
       void refreshSessions();
     },

@@ -458,8 +458,8 @@ export function ChatView({
             skills={skills}
             onRecreate={
               recreateEnabled && !s.externalRun
-                ? async (url) => {
-                    await startRecreate(url, { sessionId: id });
+                ? async (url, mode) => {
+                    await startRecreate(url, { sessionId: id }, mode);
                   }
                 : undefined
             }

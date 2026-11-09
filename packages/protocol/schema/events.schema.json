@@ -2493,6 +2493,10 @@
             "finalUrl": {
               "type": "string"
             },
+            "mode": {
+              "$ref": "#/definitions/RecreateMode",
+              "description": "how the page is reproduced; absent means \"rebuild\""
+            },
             "runId": {
               "type": "string"
             },
@@ -2853,6 +2857,145 @@
         {
           "additionalProperties": false,
           "properties": {
+            "advisory": {
+              "description": "reported, but not part of the run's result",
+              "type": "boolean"
+            },
+            "check": {
+              "type": "string"
+            },
+            "drift": {
+              "description": "pages whose source changed since the crawl (judged against the crawl-time capture)",
+              "type": "number"
+            },
+            "gate": {
+              "type": "string"
+            },
+            "issues": {
+              "type": "number"
+            },
+            "pass": {
+              "type": "boolean"
+            },
+            "runId": {
+              "type": "string"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "stage": {
+              "enum": [
+                "verify",
+                "reverify"
+              ],
+              "type": "string"
+            },
+            "threshold": {
+              "type": [
+                "string",
+                "number"
+              ]
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "recreate.verify",
+              "description": "one gate of mirror mode's verify suite",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            },
+            "value": {
+              "type": [
+                "string",
+                "number"
+              ]
+            }
+          },
+          "required": [
+            "advisory",
+            "check",
+            "gate",
+            "issues",
+            "pass",
+            "runId",
+            "seq",
+            "sessionId",
+            "stage",
+            "ts",
+            "type",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "accepted": {
+              "type": "boolean"
+            },
+            "after": {
+              "type": "number"
+            },
+            "before": {
+              "type": "number"
+            },
+            "handler": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string"
+            },
+            "runId": {
+              "type": "string"
+            },
+            "seq": {
+              "description": "Monotonic per session, starting at 1. Used as SSE id.",
+              "type": "number"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "target": {
+              "type": "string"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "type": {
+              "const": "recreate.fix",
+              "description": "one attempt of mirror mode's fix loop, kept or rolled back",
+              "type": "string"
+            },
+            "v": {
+              "const": 1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "accepted",
+            "handler",
+            "reason",
+            "runId",
+            "seq",
+            "sessionId",
+            "target",
+            "ts",
+            "type",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
             "lint": {
               "additionalProperties": false,
               "properties": {
@@ -3134,6 +3277,13 @@
       ],
       "type": "object"
     },
+    "RecreateMode": {
+      "enum": [
+        "rebuild",
+        "mirror"
+      ],
+      "type": "string"
+    },
     "RecreateSetSummary": {
       "additionalProperties": false,
       "properties": {
@@ -3180,7 +3330,17 @@
         "system",
         "convert",
         "ds-export",
-        "repair"
+        "repair",
+        "crawl",
+        "ccm",
+        "design",
+        "generate",
+        "appbuild",
+        "serve",
+        "verify",
+        "fix",
+        "reverify",
+        "report"
       ],
       "type": "string"
     },

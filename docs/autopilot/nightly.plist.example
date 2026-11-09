@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  A nightly autopilot cycle under launchd. Replace /path/to/cdr and the PATH, then:
+    cp docs/autopilot/nightly.plist.example ~/Library/LaunchAgents/dev.cdr.autopilot-nightly.plist
+    launchctl load ~/Library/LaunchAgents/dev.cdr.autopilot-nightly.plist
+  It runs at 02:00 if the machine is awake; launchd runs a missed job when it wakes. Put the provider key in
+  ~/.harness/.env so the job can read it.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>dev.cdr.autopilot-nightly</string>
+  <key>WorkingDirectory</key>
+  <string>/path/to/cdr</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-lc</string>
+    <string>git pull --ff-only &amp;&amp; pnpm build &amp;&amp; pnpm autopilot loop --max-cycles 1 --budget-usd 60</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>2</integer>
+    <key>Minute</key>
+    <integer>0</integer>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>/tmp/autopilot-nightly.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/autopilot-nightly.log</string>
+</dict>
+</plist>

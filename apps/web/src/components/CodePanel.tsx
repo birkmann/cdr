@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { UseSessionResult } from "@harness/react";
 import { useApp } from "../app-state";
+import { mirrorSnapshotRun, useMirrorApp } from "../recreate";
 import { DiffLines, parseDiff, type FileDiff } from "./Diff";
 import { highlight, langForPath } from "./Markdown";
 import {
@@ -293,7 +294,10 @@ export function Preview({
     setLoading(true);
     setUpdated(false);
   }, [path]);
-  const url = client && base && path && !preparing ? client.previewUrl(base, path) : "";
+  const mirror = useMirrorApp(sessionId, mirrorSnapshotRun(path), nonce);
+  const snapshot =
+    client && base && path && !preparing && !mirror.starting ? client.previewUrl(base, path) : "";
+  const url = mirror.url ?? snapshot;
   // An iframe shows a refused or missing file as a blank page: ask first, and explain instead.
   const [failed, setFailed] = useState<number>();
   useEffect(() => {
@@ -361,7 +365,7 @@ export function Preview({
         {url && (
           <a
             className="ghost-link"
-            href={`${url}?live=1`}
+            href={mirror.url ?? `${url}?live=1`}
             target="_blank"
             rel="noreferrer"
             title="Open in a new tab (reloads live as files change)"
@@ -406,14 +410,14 @@ export function Preview({
           activity={build.activity}
           onRevealed={onRevealed}
         />
-      ) : preparing ? (
+      ) : preparing || mirror.starting ? (
         <div className="preview-preparing" role="status">
           <span className="dots" aria-hidden="true">
             <i />
             <i />
             <i />
           </span>
-          <strong>Building your preview</strong>
+          <strong>{preparing ? "Building your preview" : "Starting the page"}</strong>
           <p>The page will appear here when it’s ready, with its styles and scripts.</p>
         </div>
       ) : url && failed ? (
@@ -443,8 +447,9 @@ export function Preview({
               setLoading(false);
               setUpdated(nonce > 0);
             }}
-            // opaque origin: the generated code cannot read the app's token or storage
-            sandbox="allow-scripts allow-forms allow-modals allow-pointer-lock allow-popups allow-downloads"
+            // opaque origin: the generated code cannot read the app's token or storage. A mirror app is on another
+            // port, so it keeps its own origin there: the page's cookies and storage work and the app's stay out of reach.
+            sandbox={`allow-scripts allow-forms allow-modals allow-pointer-lock allow-popups allow-downloads${mirror.url ? " allow-same-origin" : ""}`}
             allow="autoplay; fullscreen; gamepad"
           />
         </div>

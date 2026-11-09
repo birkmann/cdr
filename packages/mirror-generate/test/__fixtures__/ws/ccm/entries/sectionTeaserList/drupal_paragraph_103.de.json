@@ -1,0 +1,21 @@
+{
+  "ccmId": "drupal:paragraph:103",
+  "type": "sectionTeaserList",
+  "locale": "de",
+  "status": "published",
+  "fields": {
+    "heading": "Neueste Artikel",
+    "collection": {
+      "collection": "articles--block_latest",
+      "limit": 3
+    }
+  },
+  "sourceChangedAt": "2024-06-01T10:00:00.000Z",
+  "source": {
+    "system": "drupal",
+    "kind": "paragraph",
+    "id": "103",
+    "bundle": "teaser_list",
+    "url": "http://localhost:8080/de/jsonapi/paragraph/teaser_list/p0000000-0000-4000-8000-000000000103?resourceVersion=id%3A103"
+  }
+}

@@ -25,8 +25,8 @@ export class Radio extends LitElement {
         border-radius: 2px;
       }
       .dot {
-        width: 1.125rem;
-        height: 1.125rem;
+        width: var(--__P__-dim-1-125rem);
+        height: var(--__P__-dim-1-125rem);
         border: 1px solid var(--__P__-icon-primary);
         border-radius: 50%;
         display: grid;
@@ -35,8 +35,8 @@ export class Radio extends LitElement {
       }
       .dot::after {
         content: '';
-        width: 0.5rem;
-        height: 0.5rem;
+        width: var(--__P__-dim-0-5rem);
+        height: var(--__P__-dim-0-5rem);
         border-radius: 50%;
         background: var(--__P__-icon-primary);
         transform: scale(0);

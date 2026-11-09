@@ -1,0 +1,27 @@
+{
+ "id": "default",
+ "htmlAttrs": {
+  "lang": "{{locale}}",
+  "dir": "ltr"
+ },
+ "bodyAttrs": {
+  "class": "{{bodyClass}}"
+ },
+ "props": [],
+ "template": "        <noscript>\n        <div id=\"seckit-noscript-tag\">\n          Sorry, you need to enable JavaScript to visit this website.\n        </div>\n        </noscript>\n    <a href=\"#main-content\" class=\"visually-hidden focusable skip-link\" accesskey=\"1\">\n      Skip to main content\n    </a>\n    <div class=\"hidden\" aria-hidden=\"true\"><svg xmlns=\"http://www.w3.org/2000/svg\">\n<symbol id=\"arrow--right\" viewBox=\"0 0 12 14\"><path d=\"M5.2.3L11.92 7l-6.7 6.7-1.42-1.4L8.1 8H0V6h8.09l-4.3-4.3z\"></path></symbol>\n</svg>\n</div>\n    <noscript><iframe src=\"http://localhost:4401/__ext/data-eu.acme.com/ns.html?id=GTM-PWRZ37\" height=\"0\" width=\"0\" style=\"display:none;visibility:hidden\"></iframe></noscript>\n      <div class=\"dialog-off-canvas-main-canvas\" data-off-canvas-main-canvas=\"\">\n    <div class=\"page-wrapper\" id=\"main\">\n  <div class=\"container-fluid\">\n    <div class=\"row\">\n      <div class=\"col-md-12\">\n        {{{chrome.siteHeader}}}\n      </div>\n    </div>\n    <div class=\"row\">\n      {{{main}}}\n    </div>\n  </div>\n</div>\n<div class=\"nav-overlay hide\">\n  <div class=\"nav-overlay-inner\"></div>\n</div>\n  </div>\n",
+ "chrome": [
+  "siteHeader"
+ ],
+ "exampleProps": {},
+ "variants": [
+  {
+   "id": "v2",
+   "pages": [
+    "/about"
+   ],
+   "template": "        <noscript>\n        <div id=\"seckit-noscript-tag\">\n          Sorry, you need to enable JavaScript to visit this website.\n        </div>\n        </noscript>\n    <a href=\"#main-content\" class=\"visually-hidden focusable skip-link\" accesskey=\"1\">\n      Skip to main content\n    </a>\n    <div class=\"hidden\" aria-hidden=\"true\"><svg xmlns=\"http://www.w3.org/2000/svg\">\n<symbol id=\"arrow--right\" viewBox=\"0 0 12 14\"><path d=\"M5.2.3L11.92 7l-6.7 6.7-1.42-1.4L8.1 8H0V6h8.09l-4.3-4.3z\"></path></symbol>\n</svg>\n</div>\n    <noscript><iframe src=\"http://localhost:4401/__ext/data-eu.acme.com/ns.html?id=GTM-PWRZ37\" height=\"0\" width=\"0\" style=\"display:none;visibility:hidden\"></iframe></noscript>\n      <div class=\"dialog-off-canvas-main-canvas\" data-off-canvas-main-canvas=\"\">\n    <div class=\"page-wrapper page-wrapper--v2\" id=\"main\">\n  <div class=\"container-fluid\">\n    <div class=\"row\">\n      <div class=\"col-md-12\">\n        {{{chrome.siteHeader}}}\n      </div>\n    </div>\n    <div class=\"row\">\n      {{{main}}}\n    </div>\n  </div>\n</div>\n<div class=\"nav-overlay hide\">\n  <div class=\"nav-overlay-inner\"></div>\n</div>\n  </div>\n",
+   "props": [],
+   "exampleProps": {}
+  }
+ ]
+}

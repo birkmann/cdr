@@ -196,6 +196,12 @@ export interface SnapElement extends SnapBase {
   from?: number;
   /** display: contents */
   contents?: boolean;
+  /** the heading element this box is or sits in (`id` is the same for all of its boxes) */
+  heading?: { tag: string; id: number };
+  /** the text of a screen-reader-only box (drawn by nothing, part of the page's content) */
+  srText?: string;
+  /** the links of a navigation that is not drawn and is marked `aria-hidden` (a crawler's copy of the menu) */
+  hiddenLinks?: { href: string; text: string }[];
   hidden?: boolean;
   /**
    * px the box grew by in a viewport `Snapshot.viewportProbe` px taller at the same width (boxes as tall as the

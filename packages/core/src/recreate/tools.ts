@@ -7,7 +7,7 @@ import { decodePng, cropRows, encodePng } from "@harness/capture";
 import { formatReport, sectionBand, sectionClasses, type MeasureReport } from "@harness/measure";
 import type { Tool, ToolContext, ToolResult } from "../tools/types.js";
 import { attemptLines, measureRefusal, recordMeasure, resetAttempts, restoredMeasured } from "./attempts.js";
-import { recreateHost } from "./host.js";
+import { mirrorHost, recreateHost } from "./host.js";
 
 function needRun(ctx: ToolContext, run: unknown): { dir: RunDir; m: RunManifest } | ToolResult {
   if (typeof run !== "string" || !run)
@@ -86,8 +86,8 @@ async function runStages(
 export const recreateCaptureTool: Tool = {
   name: "recreate_capture",
   description:
-    "Capture a live web page for a 1:1 recreation: probes its layout ranges, captures it in headless Chrome at each device class (menus, sliders, widget states, fonts, images) and converts it to a scene with ordered sections. " +
-    "Only when the user explicitly asked to recreate / clone / copy a page exactly (load the recreate-url skill first). Always asks the user for consent. Returns the run id for the other recreate_* tools.",
+    "Capture a live web page to rebuild it as code the user owns: probes its layout ranges, captures it in headless Chrome at each device class (menus, sliders, widget states, fonts, images) and converts it to a scene with ordered sections. " +
+    "Only when the user explicitly asked for an exact copy as code they own, such as a clean page, a React project or a design system (load the recreate-url skill first); otherwise use recreate_mirror. Always asks the user for consent. Returns the run id for the other recreate_* tools.",
   parameters: {
     type: "object",
     properties: {
@@ -459,6 +459,53 @@ function sectionIssues(rep: MeasureReport, id: string, html: string): string[] {
   return out.slice(0, 30);
 }
 
+export const recreateMirrorTool: Tool = {
+  name: "recreate_mirror",
+  description:
+    "Mirror a live web page 1:1: copies its own markup, styles, scripts, images and fonts, re-serves them from a generated Next.js app and holds that app to the verify suite (visual parity, text fidelity, links, redirects, media, video playback), with a gate-verified fix loop. " +
+    "The default when the user explicitly asks to recreate / clone / copy a page exactly (load the recreate-url skill first). Always asks the user for consent. The whole chain runs in this one call and takes minutes.",
+  parameters: {
+    type: "object",
+    properties: {
+      url: { type: "string", description: "The page URL, with or without https://." },
+      pages: { type: "integer", description: "Pages to crawl by following the page's links (default 1)." },
+      fix: { type: "boolean", description: "Run the fix loop (default true)." },
+    },
+    required: ["url"],
+  },
+  readOnly: false,
+  selfGated: true,
+  risk: () => "high",
+  async execute(args: { url: string; pages?: number; fix?: boolean }, ctx) {
+    const { runMirror } = await import("@harness/mirror");
+    const r = await runMirror(
+      {
+        url: args.url,
+        mode: "mirror",
+        ...(args.pages ? { pages: args.pages } : {}),
+        ...(args.fix === false ? { fix: false } : {}),
+      },
+      mirrorHost(ctx, { consentArgs: args }),
+    );
+    const failing = r.manifest.gates.filter((g) => !g.pass).map((g) => `${g.name} ${g.detail ?? ""}`);
+    const built =
+      r.outputs.length > 0 && !Object.values(r.manifest.stages).some((st) => st?.status === "failed");
+    return {
+      ok: r.status === "success" || built,
+      output: [
+        `Run ${r.runId} (${r.dir}): ${r.summary}`,
+        stageLines(r),
+        failing.length ? `Failing gates: ${failing.join("; ")}` : "",
+        r.comparePath ? `Compare page: ${r.comparePath}` : "",
+        r.outputs.length ? `App: ${r.outputs[0].path} (next start with CCM_DIR=${r.dir}/ccm)` : "",
+        r.outputs.length ? `Preview (set_preview this): ${r.dir}/out/preview/index.html` : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    };
+  },
+};
+
 export function recreateTools(enabled = true): Tool[] {
   if (!enabled) return [];
   return [
@@ -468,5 +515,6 @@ export function recreateTools(enabled = true): Tool[] {
     recreateComponentsTool,
     recreateConvertTool,
     recreateSectionTool,
+    recreateMirrorTool,
   ];
 }

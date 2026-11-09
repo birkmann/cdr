@@ -1,5 +1,6 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useApp } from "@web/app-state";
+import { mirrorSnapshotRun } from "@web/recreate";
 import { useStudio } from "../store";
 import { previewTarget } from "../browser-preview";
 
@@ -19,6 +20,9 @@ export function useOpenInBrowser(): (path: string) => Promise<void> {
       return;
     }
     await st.attempt(async () => {
+      const run = mirrorSnapshotRun(target.path);
+      const app = run ? await client.recreateApp(target.sessionId, run).catch(() => undefined) : undefined;
+      if (app) return openUrl(app.url);
       const d = await client.getSession(target.sessionId, { events: false });
       await openUrl(`${client.previewUrl(d.previewBase, target.path)}?live=1`);
     });

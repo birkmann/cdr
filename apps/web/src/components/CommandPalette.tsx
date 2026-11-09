@@ -58,7 +58,7 @@ export function CommandPalette({ onClose, onSettings }: { onClose(): void; onSet
       ? current
         ? "In this conversation · asks for your consent first"
         : "In a new sandbox · asks for your consent first"
-      : "Paste a URL to rebuild the page from its live DOM",
+      : "Paste a URL to copy the page and check it against the original",
     icon: IconCopy,
     keepOpen: !url,
     always: true,

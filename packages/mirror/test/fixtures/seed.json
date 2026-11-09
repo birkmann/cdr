@@ -1,0 +1,98 @@
+{
+  "$comment": "Single source of truth for the local Drupal-like fixture site. fixtures/drupal-jsonapi (Drupal 10 JSON:API recordings) and fixtures/site (rendered HTML, Olivero-like theme) are BOTH derived from this file so content checks line up end-to-end.",
+  "site": { "name": { "en": "Acme Demo Kitchen", "de": "Acme Demo Küche" }, "slogan": { "en": "Good food, good life", "de": "Gutes Essen, gutes Leben" } },
+  "drupal": { "version": "10.3.6", "modules": ["node", "paragraphs", "media", "taxonomy", "menu_link_content", "path", "pathauto", "redirect", "metatag", "views", "language", "content_translation", "jsonapi", "webform"] },
+  "locales": [
+    { "code": "en", "name": "English", "default": true, "pathPrefix": "" },
+    { "code": "de", "name": "Deutsch", "fallback": "en", "pathPrefix": "de" }
+  ],
+  "taxonomies": [
+    { "vid": "tags", "name": "Tags", "terms": [
+      { "tid": 1, "uuid": "b1a1c1d1-0000-4000-8000-000000000001", "name": { "en": "Breakfast", "de": "Frühstück" }, "alias": { "en": "/tags/breakfast", "de": "/de/tags/fruehstueck" } },
+      { "tid": 2, "uuid": "b1a1c1d1-0000-4000-8000-000000000002", "name": { "en": "Nutrition", "de": "Ernährung" }, "alias": { "en": "/tags/nutrition", "de": "/de/tags/ernaehrung" } }
+    ]}
+  ],
+  "files": [
+    { "fid": 11, "mid": 21, "uuid": "f0000000-0000-4000-8000-000000000011", "media_uuid": "m0000000-0000-4000-8000-000000000021", "uri": "public://2024-05/hero-breakfast.jpg", "url": "/sites/default/files/2024-05/hero-breakfast.jpg", "mime": "image/jpeg", "width": 1600, "height": 800, "color": "#d98b3a", "alt": { "en": "A bowl of cereal with berries", "de": "Eine Schüssel Müsli mit Beeren" } },
+    { "fid": 12, "mid": 22, "uuid": "f0000000-0000-4000-8000-000000000012", "media_uuid": "m0000000-0000-4000-8000-000000000022", "uri": "public://2024-05/oats.jpg", "url": "/sites/default/files/2024-05/oats.jpg", "mime": "image/jpeg", "width": 800, "height": 600, "color": "#c9b38a", "alt": { "en": "Rolled oats", "de": "Haferflocken" } },
+    { "fid": 13, "mid": 23, "uuid": "f0000000-0000-4000-8000-000000000013", "media_uuid": "m0000000-0000-4000-8000-000000000023", "uri": "public://2024-05/fruit.jpg", "url": "/sites/default/files/2024-05/fruit.jpg", "mime": "image/jpeg", "width": 800, "height": 600, "color": "#c0392b", "alt": { "en": "Fresh fruit", "de": "Frisches Obst" } },
+    { "fid": 14, "mid": 24, "uuid": "f0000000-0000-4000-8000-000000000014", "media_uuid": "m0000000-0000-4000-8000-000000000024", "uri": "public://logo.svg", "url": "/sites/default/files/logo.svg", "mime": "image/svg+xml", "width": 160, "height": 40, "color": "#1f4e79", "alt": { "en": "Acme Demo Kitchen logo", "de": "Acme Demo Küche Logo" } }
+  ],
+  "nodes": [
+    {
+      "nid": 1, "uuid": "n0000000-0000-4000-8000-000000000001", "type": "landing_page", "changed": "2024-06-01T10:00:00+00:00", "status": true,
+      "translations": {
+        "en": { "title": "Home", "alias": "/", "metatag": { "title": "Acme Demo Kitchen | Good food, good life", "description": "Recipes and nutrition tips for a better breakfast." } },
+        "de": { "title": "Startseite", "alias": "/de", "metatag": { "title": "Acme Demo Küche | Gutes Essen, gutes Leben", "description": "Rezepte und Ernährungstipps für ein besseres Frühstück." } }
+      },
+      "field_sections": [
+        { "pid": 101, "uuid": "p0000000-0000-4000-8000-000000000101", "type": "hero", "fields": {
+          "field_title": { "en": "Start your day right", "de": "Starte richtig in den Tag" },
+          "field_subtitle": { "en": "Simple breakfast ideas that keep you going.", "de": "Einfache Frühstücksideen, die dich fit halten." },
+          "field_image": { "media": 21 },
+          "field_cta": { "en": { "title": "Read our tips", "uri": "entity:node/3" }, "de": { "title": "Zu unseren Tipps", "uri": "entity:node/3" } } } },
+        { "pid": 102, "uuid": "p0000000-0000-4000-8000-000000000102", "type": "text", "fields": {
+          "field_body": { "format": "basic_html", "en": "<h2>Why breakfast matters</h2><p>A balanced breakfast gives you <strong>energy</strong> and helps you <em>focus</em>. Learn more <a href=\"/node/2\">about us</a>.</p>", "de": "<h2>Warum Frühstück wichtig ist</h2><p>Ein ausgewogenes Frühstück gibt dir <strong>Energie</strong> und hilft dir, dich zu <em>konzentrieren</em>. Mehr <a href=\"/de/node/2\">über uns</a>.</p>" } } },
+        { "pid": 103, "uuid": "p0000000-0000-4000-8000-000000000103", "type": "teaser_list", "fields": {
+          "field_heading": { "en": "Latest articles", "de": "Neueste Artikel" },
+          "field_view": { "view": "articles", "display": "block_latest", "limit": 3 } } }
+      ]
+    },
+    {
+      "nid": 2, "uuid": "n0000000-0000-4000-8000-000000000002", "type": "page", "changed": "2024-06-02T10:00:00+00:00", "status": true,
+      "translations": {
+        "en": { "title": "About us", "alias": "/about-us", "metatag": { "title": "About us | Acme Demo Kitchen", "description": "Who we are and what we cook." },
+          "body": { "format": "full_html", "value": "<p>We are a small team of <strong>food lovers</strong>.</p><h2>Our values</h2><ul><li>Fresh ingredients</li><li>Simple recipes</li><li>Balanced nutrition</li></ul><drupal-media data-entity-type=\"media\" data-entity-uuid=\"m0000000-0000-4000-8000-000000000022\" data-align=\"center\"></drupal-media><h3>Opening hours</h3><table><thead><tr><th>Day</th><th>Hours</th></tr></thead><tbody><tr><td>Mon–Fri</td><td>8–18</td></tr><tr><td>Sat</td><td>9–14</td></tr></tbody></table><p>Read our article on <a href=\"/node/3\">healthy breakfast</a> or visit <a href=\"https://www.acme.com\">acme.com</a>.</p>" } },
+        "de": { "title": "Über uns", "alias": "/de/ueber-uns", "metatag": { "title": "Über uns | Acme Demo Küche", "description": "Wer wir sind und was wir kochen." },
+          "body": { "format": "full_html", "value": "<p>Wir sind ein kleines Team von <strong>Genießern</strong>.</p><h2>Unsere Werte</h2><ul><li>Frische Zutaten</li><li>Einfache Rezepte</li><li>Ausgewogene Ernährung</li></ul><drupal-media data-entity-type=\"media\" data-entity-uuid=\"m0000000-0000-4000-8000-000000000022\" data-align=\"center\"></drupal-media><h3>Öffnungszeiten</h3><table><thead><tr><th>Tag</th><th>Zeiten</th></tr></thead><tbody><tr><td>Mo–Fr</td><td>8–18</td></tr><tr><td>Sa</td><td>9–14</td></tr></tbody></table><p>Lies unseren Artikel über <a href=\"/de/node/3\">gesundes Frühstück</a> oder besuche <a href=\"https://www.acme.com\">acme.com</a>.</p>" } }
+      }
+    },
+    {
+      "nid": 3, "uuid": "n0000000-0000-4000-8000-000000000003", "type": "article", "changed": "2024-06-03T10:00:00+00:00", "created": "2024-05-20T08:00:00+00:00", "status": true,
+      "field_tags": [1, 2], "field_image": { "media": 22 },
+      "translations": {
+        "en": { "title": "Five tips for a healthy breakfast", "alias": "/news/healthy-breakfast", "metatag": { "title": "Five tips for a healthy breakfast | Acme Demo Kitchen", "description": "Quick wins for your morning routine." },
+          "body": { "format": "basic_html", "value": "<p>Breakfast does not have to be complicated.</p><ol><li>Add fruit</li><li>Choose whole grains</li><li>Drink water</li><li>Include protein</li><li>Take your time</li></ol><blockquote><p>Breakfast is the most important meal of the day.</p></blockquote>" } },
+        "de": { "title": "Fünf Tipps für ein gesundes Frühstück", "alias": "/de/news/gesundes-fruehstueck", "metatag": { "title": "Fünf Tipps für ein gesundes Frühstück | Acme Demo Küche", "description": "Schnelle Erfolge für deine Morgenroutine." },
+          "body": { "format": "basic_html", "value": "<p>Frühstück muss nicht kompliziert sein.</p><ol><li>Obst hinzufügen</li><li>Vollkorn wählen</li><li>Wasser trinken</li><li>Protein einbauen</li><li>Zeit nehmen</li></ol><blockquote><p>Das Frühstück ist die wichtigste Mahlzeit des Tages.</p></blockquote>" } }
+      }
+    },
+    {
+      "nid": 4, "uuid": "n0000000-0000-4000-8000-000000000004", "type": "article", "changed": "2024-06-04T10:00:00+00:00", "created": "2024-05-25T08:00:00+00:00", "status": true,
+      "field_tags": [2], "field_image": { "media": 23 },
+      "translations": {
+        "en": { "title": "Why fruit belongs on your plate", "alias": "/news/fruit", "metatag": { "title": "Why fruit belongs on your plate | Acme Demo Kitchen", "description": "Vitamins, fibre and taste." },
+          "body": { "format": "basic_html", "value": "<p>Fruit adds <strong>vitamins</strong> and fibre.</p><p><img src=\"/sites/default/files/2024-05/fruit.jpg\" alt=\"Fresh fruit\" width=\"800\" height=\"600\"></p>" } },
+        "de": { "title": "Warum Obst auf den Teller gehört", "alias": "/de/news/obst", "metatag": { "title": "Warum Obst auf den Teller gehört | Acme Demo Küche", "description": "Vitamine, Ballaststoffe und Geschmack." },
+          "body": { "format": "basic_html", "value": "<p>Obst liefert <strong>Vitamine</strong> und Ballaststoffe.</p><p><img src=\"/sites/default/files/2024-05/fruit.jpg\" alt=\"Frisches Obst\" width=\"800\" height=\"600\"></p>" } }
+      }
+    }
+  ],
+  "views": [
+    { "id": "articles", "display": "block_latest", "base": "node", "filters": [{ "field": "type", "op": "eq", "value": "article" }, { "field": "status", "op": "eq", "value": true }], "sort": [{ "field": "created", "direction": "desc" }], "limit": 3, "custom_code": false },
+    { "id": "articles", "display": "page_news", "path": "/news", "base": "node", "filters": [{ "field": "type", "op": "eq", "value": "article" }], "sort": [{ "field": "created", "direction": "desc" }], "pager": 10, "custom_code": false }
+  ],
+  "menus": [
+    { "id": "main", "name": "Main navigation", "links": [
+      { "id": "menu_link_content:1", "title": { "en": "Home", "de": "Startseite" }, "uri": "internal:/node/1", "weight": 0 },
+      { "id": "menu_link_content:2", "title": { "en": "About us", "de": "Über uns" }, "uri": "internal:/node/2", "weight": 1 },
+      { "id": "menu_link_content:3", "title": { "en": "News", "de": "News" }, "uri": "internal:/news", "weight": 2, "children": [
+        { "id": "menu_link_content:4", "title": { "en": "Healthy breakfast", "de": "Gesundes Frühstück" }, "uri": "internal:/node/3", "weight": 0 }
+      ]}
+    ]},
+    { "id": "footer", "name": "Footer", "links": [
+      { "id": "menu_link_content:10", "title": { "en": "Imprint", "de": "Impressum" }, "uri": "https://www.acme.com/imprint", "weight": 0 },
+      { "id": "menu_link_content:11", "title": { "en": "Contact", "de": "Kontakt" }, "uri": "internal:/node/2", "weight": 1 }
+    ]}
+  ],
+  "redirects": [
+    { "rid": 1, "from": "/old-about", "to": "internal:/node/2", "status": 301, "language": "en" },
+    { "rid": 2, "from": "/de/alt-ueber-uns", "to": "internal:/node/2", "status": 301, "language": "de" }
+  ],
+  "blocks": {
+    "footer_text": { "en": "© 2024 Acme Demo Kitchen. All rights reserved.", "de": "© 2024 Acme Demo Küche. Alle Rechte vorbehalten." },
+    "cookie_banner": { "selector": "#cookie-banner", "script": "/themes/custom/demo/js/cookies.js" },
+    "analytics": { "src": "https://www.googletagmanager.com/gtm.js?id=GTM-DEMO" }
+  },
+  "poc_urls": ["/", "/about-us", "/news/healthy-breakfast", "/de", "/de/ueber-uns"]
+}

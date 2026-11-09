@@ -1,0 +1,44 @@
+{
+ "id": "dsuComponentPageComponents",
+ "name": "Dsu Component Page Components",
+ "selector": "div.field-components-container.component-472961",
+ "kind": "document",
+ "ccmType": "dsuComponentPage",
+ "viewMode": "full",
+ "template": "<div class=\"field-components-container component-{{entityId}}\">\n  \n      <div class=\"field field--name-field-ln-n-components field--type-entity-reference-revisions field--label-hidden field--items\">\n              {{#each lnNComponents}}<div class=\"field--item\">{{{this.html}}}</div>{{/each}}\n          </div>\n  \n</div>",
+ "props": [
+  {
+   "name": "entityId",
+   "type": "text",
+   "derive": "ccmIdTail"
+  },
+  {
+   "name": "lnNComponents",
+   "type": "list",
+   "ccmField": "lnNComponents",
+   "itemFields": {
+    "html": "html",
+    "type": "text"
+   }
+  }
+ ],
+ "exampleProps": {},
+ "source": "heuristic",
+ "instances": 2,
+ "pages": [
+  "/",
+  "/about"
+ ],
+ "locales": [
+  "en"
+ ],
+ "verified": true,
+ "instanceKey": "path",
+ "instanceProps": {
+  "/": {
+   "entityId": "472961",
+   "lnNComponents": []
+  }
+ },
+ "instancesVerified": 2
+}

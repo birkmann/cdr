@@ -1,0 +1,77 @@
+{
+  "ccmId": "drupal:node:4",
+  "type": "article",
+  "locale": "en",
+  "status": "published",
+  "fields": {
+    "title": "Why fruit belongs on your plate",
+    "created": "2024-05-25T08:00:00.000Z",
+    "body": {
+      "type": "doc",
+      "children": [
+        {
+          "type": "paragraph",
+          "children": [
+            {
+              "type": "text",
+              "value": "Fruit adds "
+            },
+            {
+              "type": "text",
+              "value": "vitamins",
+              "marks": [
+                "bold"
+              ]
+            },
+            {
+              "type": "text",
+              "value": " and fibre."
+            }
+          ]
+        },
+        {
+          "type": "embeddedAsset",
+          "ref": {
+            "kind": "asset",
+            "id": "drupal:media:23"
+          }
+        }
+      ]
+    },
+    "image": {
+      "kind": "asset",
+      "id": "drupal:media:23"
+    },
+    "tags": [
+      {
+        "kind": "term",
+        "id": "drupal:taxonomy_term:2"
+      }
+    ]
+  },
+  "sourceChangedAt": "2024-06-04T10:00:00.000Z",
+  "source": {
+    "system": "drupal",
+    "kind": "node",
+    "id": "4",
+    "bundle": "article",
+    "url": "http://localhost:8080/jsonapi/node/article/n0000000-0000-4000-8000-000000000004?resourceVersion=id%3A4"
+  },
+  "path": "/news/fruit",
+  "slug": "fruit",
+  "meta": {
+    "title": "Why fruit belongs on your plate | Nestle Demo Kitchen",
+    "description": "Vitamins, fibre and taste.",
+    "canonical": "/news/fruit",
+    "hreflang": [
+      {
+        "locale": "de",
+        "href": "/de/news/obst"
+      },
+      {
+        "locale": "en",
+        "href": "/news/fruit"
+      }
+    ]
+  }
+}

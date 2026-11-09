@@ -1,0 +1,32 @@
+{
+  "name": "@harness/mirror-generate",
+  "version": "0.3.1",
+  "private": true,
+  "description": "Mirror mode: Next.js app generator and its template.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/birkmann/cdr.git",
+    "directory": "packages/mirror-generate"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "templates"
+  ],
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@harness/mirror-core": "workspace:*",
+    "yaml": "^2.6.0"
+  }
+}

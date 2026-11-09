@@ -94,6 +94,7 @@ import {
   type LayoutFacts,
   type MeasureReport,
 } from "@harness/measure";
+import { markHeadings } from "./replica.js";
 import {
   isRunId,
   joinInside,
@@ -160,6 +161,8 @@ export interface RecreateHost {
   repair?(task: RepairTask): Promise<boolean | RepairOutcome>;
   /** run `npm install && npm run build` in converted projects (needs the network) */
   runBuilds?(dir: string): Promise<{ ok: boolean; output: string }>;
+  /** widths to measure exactly when the page's own layout ranges are planned (each stands in for its range's capture) */
+  preferWidths?: number[];
   /** check every section against the live page while building (default true) */
   sectionChecks?: boolean;
 }
@@ -217,6 +220,36 @@ export async function mapLimit<T, R>(
   };
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
   if (failed) throw (failed as { e: unknown }).e;
+  return out;
+}
+
+/**
+ * The plan with a preferred width as the capture of the layout range it falls in, the range's old capture walked instead:
+ * the ranges stay complete, and the widths a later check compares at are measured, not interpolated. The first preferred
+ * width of a range wins.
+ */
+export function preferCaptureWidths<T extends { width: number; minWidth: number; alt?: number[] }>(
+  plans: T[],
+  prefer: readonly number[],
+): T[] {
+  const out = plans.map((p) => ({ ...p }));
+  const taken = new Set<number>();
+  for (const w of [...prefer].sort((a, b) => a - b)) {
+    if (out.some((p) => p.width === w)) {
+      const hit = out.findIndex((p) => p.width === w);
+      taken.add(hit);
+      continue;
+    }
+    const sorted = [...out].sort((a, b) => a.minWidth - b.minWidth);
+    const plan = [...sorted].reverse().find((p) => p.minWidth <= w);
+    if (!plan) continue;
+    const i = out.indexOf(plan);
+    if (taken.has(i)) continue;
+    taken.add(i);
+    const was = plan.width;
+    plan.width = w;
+    plan.alt = [...new Set([...(plan.alt ?? []), was])].filter((x) => x !== w).sort((a, b) => a - b);
+  }
   return out;
 }
 
@@ -475,7 +508,10 @@ class Runner {
     // one variant per layout range of the page (every range measured: no width between captures shows a layout the
     // page does not have there), or one per device class (`recreate.capturePlan: "devices"`: quicker on pages with
     // many switches; the ranges between devices are then reported as not captured)
-    const plans = this.cfg.capturePlan === "devices" ? devicePlan(switches) : planCaptures(switches);
+    const plans = preferCaptureWidths(
+      this.cfg.capturePlan === "devices" ? devicePlan(switches) : planCaptures(switches),
+      this.host.preferWidths ?? [],
+    );
     const sessions = planSessions(plans);
     this.m.sessions = sessions.map((s) => ({
       width: s.width,
@@ -599,6 +635,8 @@ class Runner {
     const ps = pageScreens(caps);
     const sections = pageSections(ps.screens);
     const tagged = tagSections(ps.screens, sections);
+    // the replica target keeps the page's h1 to h3 (its verify suite compares them with the original's)
+    if (this.m.request.to?.includes("replica-nextjs")) markHeadings(tagged, caps);
     this.dir.writeJson("scene/screens.json", tagged);
     this.dir.writeJson("scene/sections.json", sections);
     // the fitted geometry too, when the run may keep sections fitted (gates.fittedSections): the build falls back to it
@@ -1026,7 +1064,7 @@ class Runner {
   }
 
   // ------------------------------------------------------------------------------------------------ measure
-  async measure() {
+  async measure(o?: MeasureOverride) {
     const widths = (this.m.variants ?? []).map((v) => v.width);
     const live = widths
       .filter((w) => this.dir.exists(`capture/live/${w}.png`))
@@ -1036,12 +1074,14 @@ class Runner {
         ...this.dir.readJson<{ texts: string[]; overflowPx: number }>(`capture/live/${w}.json`),
       }));
     if (!live.length) return { status: "skipped" as const, detail: "no live shots were taken" };
-    const targets = this.m.outputs.filter((o) => o.target === "static");
+    const targets: { target: RecreateTarget; path: string }[] = o
+      ? [{ target: o.target, path: "" }]
+      : this.m.outputs.filter((x) => x.target === "static");
     // every measurement checks a few widths the ones before did not (the plan's rotating widths)
     const plan = this.plan(this.m.measures ?? 0);
     this.m.measures = (this.m.measures ?? 0) + 1;
     for (const t of targets) {
-      const page = pathToFileURL(this.dir.path(t.path, "index.html")).href;
+      const page = o?.page ?? pathToFileURL(this.dir.path(t.path, "index.html")).href;
       const sweep = await this.sweepOutput(page, plan);
       const captured: Record<number, string[]> = {};
       const expectations: Record<number, ReturnType<typeof liveExpectations>> = {};
@@ -1066,7 +1106,7 @@ class Runner {
         expectations,
         mask: Object.fromEntries(widths.map((w) => [w, this.mediaAt(w)])),
         gates: this.cfg.gates,
-        flow: this.flowInput(t.path),
+        flow: o ? o.flow : this.flowInput(t.path),
       });
       for (const img of images) {
         this.dir.write(`measure/${t.target}/${img.width}/live.png`, img.live);
@@ -1093,7 +1133,7 @@ class Runner {
         ...this.m.measurements.filter((x) => x.target !== t.target),
         { target: t.target, report: `measure/${t.target}/report.json`, pass: report.pass },
       ];
-      this.m.gates = report.gates.map((g) => ({ name: g.name, pass: g.pass, detail: g.detail }));
+      if (!o) this.m.gates = report.gates.map((g) => ({ name: g.name, pass: g.pass, detail: g.detail }));
       this.emit({
         type: "recreate.measured",
         runId: this.m.id,
@@ -1111,8 +1151,12 @@ class Runner {
       });
     }
     this.dir.write(
-      "compare/index.html",
-      comparePage(this.reports, { title: this.pageName(), sourceUrl: this.m.finalUrl ?? this.url }),
+      o?.compare ?? "compare/index.html",
+      comparePage(this.reports, {
+        title: this.pageName(),
+        sourceUrl: this.m.finalUrl ?? this.url,
+        ...(o?.outputPage ? { outputPage: () => o.outputPage! } : {}),
+      }),
     );
     return { detail: this.reports.map((r) => formatReport(r).split("\n")[0]).join("; ") };
   }
@@ -1415,6 +1459,8 @@ class Runner {
       ? this.dir.readJson<SceneScreen[]>("components/screens.json")
       : this.screens();
     for (const t of targets) {
+      // the replica's Next.js app is built by the autopilot from this run's scene and the design system's composites
+      if (t === "replica-nextjs") continue;
       const e = getEmitter(t);
       if (!e) {
         notes.push(`${t}: no such emitter`);
@@ -1503,6 +1549,18 @@ export function spliceFitted(flow: SceneScreen[], fitted: SceneScreen[], id: str
     return { ...s, root };
   });
   return swapped ? out : null;
+}
+
+/** How `measure` judges a target other than the static output (the replica app, served at a URL). */
+export interface MeasureOverride {
+  target: RecreateTarget;
+  /** the output's page URL */
+  page: string;
+  flow?: Parameters<typeof measure>[0]["flow"];
+  /** where the compare page goes (relative to the run folder) */
+  compare?: string;
+  /** what the compare page's live frame shows; default the output's index.html beside the run */
+  outputPage?: string;
 }
 
 /** One sweep of the output for the repair loop: per section its issues, per width the heights. */
@@ -1713,6 +1771,39 @@ export async function runRecreate(
     reports: r.reports,
     summary,
   };
+}
+
+/** The flow gate's input for CSS the run did not emit itself (the replica's composites, before their values became tokens). */
+export function appFlowInput(css: string, html: string, boundaries: number[]): MeasureOverride["flow"] {
+  const { sections, media } = sectionClasses(html);
+  const lint = flowLint({
+    css,
+    baseline: css,
+    scope: { ids: [...sections.keys()], classes: [...sections.values()].flatMap((c) => [...c]) },
+    mediaClasses: media,
+    boundaries,
+    exempt: [],
+  });
+  return { lint, gating: FLOW_GATING, outOfFlow: FLOW_OUT_OF_FLOW_GATES, fitted: [] };
+}
+
+/**
+ * Measures a finished output the run itself did not emit (the replica app, served at `page`) against the run's live
+ * captures: the same pixels, text, sweep and flow gates as the static output. Writes `measure/<target>/` and returns the
+ * report. Throws when the run has no captures.
+ */
+export async function measureRunOutput(
+  host: Pick<RecreateHost, "projectRoot" | "config" | "driver" | "signal" | "log">,
+  runId: string,
+  override: MeasureOverride,
+): Promise<MeasureReport> {
+  const manifest = new RunDir(host.projectRoot, runId).manifest();
+  const r = new Runner(host as RecreateHost, runId, manifest);
+  await r.measure(override);
+  const report = r.reports[0];
+  if (!report) throw new Error(`run ${runId} has no live captures to measure against`);
+  r.dir.saveManifest(r.m);
+  return report;
 }
 
 /** Width → viewport height used for every capture and shot (shared so tools can say it). */

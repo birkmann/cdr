@@ -1,0 +1,21 @@
+{
+  "ccmId": "drupal:media:22",
+  "src": "http://localhost:4400/sites/default/files/2024-05/oats.jpg",
+  "originalPath": "/sites/default/files/2024-05/oats.jpg",
+  "fileName": "oats.jpg",
+  "mime": "image/jpeg",
+  "source": {
+    "system": "drupal",
+    "kind": "media",
+    "id": "22",
+    "bundle": "image",
+    "url": "http://localhost:8080/jsonapi/media/image/m0000000-0000-4000-8000-000000000022?resourceVersion=id%3A22"
+  },
+  "size": 40012,
+  "width": 800,
+  "height": 600,
+  "alt": {
+    "de": "Haferflocken",
+    "en": "Rolled oats"
+  }
+}

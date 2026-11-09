@@ -1,0 +1,36 @@
+{
+  "name": "@harness/mirror-fix",
+  "version": "0.3.1",
+  "private": true,
+  "description": "Mirror mode: gate-verified fix loop.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/birkmann/cdr.git",
+    "directory": "packages/mirror-fix"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "prompts"
+  ],
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@harness/mirror-core": "workspace:*",
+    "@harness/mirror-design": "workspace:*",
+    "@harness/mirror-capture": "workspace:*",
+    "@harness/mirror-verify": "workspace:*",
+    "yaml": "^2.6.0",
+    "zod": "^4.1.0"
+  }
+}

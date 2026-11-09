@@ -1,0 +1,36 @@
+{
+ "mappingFile": "mapping/drupal.yaml",
+ "typesKey": "contentTypes",
+ "findings": [
+  { "rule": "MAP_COVERAGE_GAP", "path": "node.article.field_legacy_code", "message": "field node.article.field_legacy_code (string) is neither mapped nor ignored with a reason", "severity": "error", "ruleFix": false }
+ ],
+ "ruleFixesFromCcm": [],
+ "ccmIssues": [
+  { "code": "CCM_FIELD_TYPE", "ref": "ccm/entries/article/drupal_node_1.en.json", "message": "field \"body\": expected string, got object" }
+ ],
+ "types": {
+  "article": {
+   "kind": "document",
+   "source": { "drupal": "node.article" },
+   "fields": {
+    "title": { "type": "text", "cardinality": 1, "source": "title", "sourceType": "string", "transform": "text" },
+    "body": { "type": "text", "cardinality": 1, "source": "body", "sourceType": "text_with_summary", "transform": "richText" },
+    "tags": { "type": "reference", "cardinality": -1, "allowedTypes": ["term:tags"], "source": "field_tags", "sourceType": "entity_reference", "transform": "termRefs(vocabulary=tags)" }
+   }
+  }
+ },
+ "typeIds": ["article"],
+ "inventory": {
+  "contentTypes": [
+   { "bundle": "article", "ccmType": "article", "fields": [
+    { "name": "body", "type": "text_with_summary", "cardinality": 1, "translatable": true, "required": false, "usagePct": 100 },
+    { "name": "field_tags", "type": "entity_reference", "cardinality": -1, "translatable": false, "required": false, "usagePct": 80 },
+    { "name": "field_legacy_code", "type": "string", "cardinality": 1, "translatable": false, "required": false, "usagePct": 0 }
+   ] }
+  ],
+  "paragraphTypes": [],
+  "vocabularies": ["tags"]
+ },
+ "capabilities": { "target": "contentful", "maxFieldsPerType": 50 },
+ "previousAttempts": []
+}

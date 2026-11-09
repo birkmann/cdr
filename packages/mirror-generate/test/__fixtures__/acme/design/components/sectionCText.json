@@ -1,0 +1,54 @@
+{
+ "id": "sectionCText",
+ "name": "Section CText",
+ "selector": "div#section-334386.paragraph.paragraph--type--c-text.paragraph--view-mode--default",
+ "kind": "section",
+ "ccmType": "sectionCText",
+ "template": "<div id=\"section-{{entityId}}\" class=\"paragraph paragraph--type--c-text paragraph--view-mode--default\" style=\"background-image: url(&#x27;&#x27;);\">\n          <div class=\"component-paragraph-field\">\n        \n            <div class=\"field field--name-field-c-text field--type-text-long field--label-hidden field--item\">\n              {{{cText}}}\n            </div>\n      \n            <div class=\"field field--name-field-cta-button-item field--type-entity-reference-revisions field--label-hidden field--item\">{{#each ctaButtonItem}}{{{this.html}}}{{/each}}</div>\n      \n      </div>\n      </div>",
+ "props": [
+  {
+   "name": "entityId",
+   "type": "text",
+   "derive": "ccmIdTail"
+  },
+  {
+   "name": "cText",
+   "type": "richText",
+   "ccmField": "cText"
+  },
+  {
+   "name": "ctaButtonItem",
+   "type": "list",
+   "ccmField": "ctaButtonItem",
+   "itemComponent": "sectionDsuCCtaButton",
+   "itemFields": {
+    "html": "html",
+    "type": "text"
+   }
+  }
+ ],
+ "exampleProps": {
+  "entityId": "334386",
+  "cText": "<p>x</p>",
+  "ctaButtonItem": []
+ },
+ "source": "heuristic",
+ "instances": 5,
+ "pages": [
+  "/",
+  "/about"
+ ],
+ "locales": [
+  "en"
+ ],
+ "verified": true,
+ "instanceKey": "entityId",
+ "instanceProps": {
+  "334386": {
+   "entityId": "334386",
+   "cText": "<p>We work closely with farmers to equip them with the tools and knowledge to implement regenerative agriculture practices.</p>",
+   "ctaButtonItem": []
+  }
+ },
+ "instancesVerified": 5
+}

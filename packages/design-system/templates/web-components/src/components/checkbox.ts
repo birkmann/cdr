@@ -27,11 +27,11 @@ export class Checkbox extends FormControl {
       input {
         appearance: none;
         flex-shrink: 0;
-        width: 1rem;
-        height: 1rem;
-        margin: 0.125rem 0 0;
+        width: var(--__P__-dim-1rem);
+        height: var(--__P__-dim-1rem);
+        margin: var(--__P__-dim-0-125rem) 0 0;
         border: 1px solid var(--__P__-icon-primary);
-        border-radius: min(var(--__P__-radius-control), 4px);
+        border-radius: min(var(--__P__-radius-control), var(--__P__-dim-4px));
         background: transparent;
         display: grid;
         place-content: center;
@@ -39,8 +39,8 @@ export class Checkbox extends FormControl {
       }
       input::before {
         content: '';
-        width: 0.625rem;
-        height: 0.625rem;
+        width: var(--__P__-dim-0-625rem);
+        height: var(--__P__-dim-0-625rem);
         transform: scale(0);
         background: var(--__P__-icon-on-color);
         clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
@@ -81,7 +81,7 @@ export class Checkbox extends FormControl {
       .helper {
         ${type('helper-text-01')}
         color: var(--__P__-text-helper);
-        margin: var(--__P__-spacing-02) 0 0 calc(1rem + var(--__P__-spacing-03));
+        margin: var(--__P__-spacing-02) 0 0 calc(var(--__P__-dim-1rem) + var(--__P__-spacing-03));
       }
       :host([invalid]) .helper {
         color: var(--__P__-text-error);

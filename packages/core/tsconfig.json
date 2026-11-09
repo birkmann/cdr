@@ -19,6 +19,9 @@
       "path": "../recreate"
     },
     {
+      "path": "../mirror"
+    },
+    {
       "path": "../capture"
     },
     {

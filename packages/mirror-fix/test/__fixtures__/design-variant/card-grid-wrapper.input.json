@@ -1,0 +1,14 @@
+{
+ "component": {
+  "id": "sectionCardGridV2", "name": "Section Card Grid V2", "kind": "section", "ccmType": "sectionCardGrid", "instances": 1, "pages": 1,
+  "template": "<div class=\"paragraph paragraph--type--card-grid paragraph--view-mode--default card-grid--featured\">\n  <div class=\"container\">\n    <div class=\"card-grid__intro\"><h2 class=\"card-grid__heading\">{{heading}}</h2></div>\n    <div class=\"card-grid__items\">{{{items}}}</div>\n  </div>\n</div>"
+ },
+ "base": {
+  "id": "sectionCardGrid", "name": "Section Card Grid",
+  "template": "<div class=\"paragraph paragraph--type--card-grid paragraph--view-mode--default\">\n  <div class=\"container\">\n    <h2 class=\"card-grid__heading\">{{heading}}</h2>\n    <div class=\"card-grid__items\">{{{items}}}</div>\n  </div>\n</div>"
+ },
+ "issues": [ { "code": "COMPONENT_VARIANT", "message": "sectionCardGrid: 1 instance(s) on /about differ structurally from /about — variant sectionCardGridV2" } ],
+ "unboundProps": [ { "name": "heading", "type": "text" } ],
+ "ccmFields": [ { "id": "title", "type": "text" }, { "id": "items", "type": "componentList" }, { "id": "style", "type": "enum" } ],
+ "previousAttempts": []
+}

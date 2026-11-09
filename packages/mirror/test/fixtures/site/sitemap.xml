@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">
+  <url>
+    <loc>http://localhost:4400/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="http://localhost:4400/"/>
+    <xhtml:link rel="alternate" hreflang="de" href="http://localhost:4400/de"/>
+    <lastmod>2024-06-01T10:00:00+00:00</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>http://localhost:4400/de</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="http://localhost:4400/"/>
+    <xhtml:link rel="alternate" hreflang="de" href="http://localhost:4400/de"/>
+    <lastmod>2024-06-01T10:00:00+00:00</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>http://localhost:4400/about-us</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="http://localhost:4400/about-us"/>
+    <xhtml:link rel="alternate" hreflang="de" href="http://localhost:4400/de/ueber-uns"/>
+    <lastmod>2024-06-02T10:00:00+00:00</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>http://localhost:4400/de/ueber-uns</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="http://localhost:4400/about-us"/>
+    <xhtml:link rel="alternate" hreflang="de" href="http://localhost:4400/de/ueber-uns"/>
+    <lastmod>2024-06-02T10:00:00+00:00</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>http://localhost:4400/news/healthy-breakfast</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="http://localhost:4400/news/healthy-breakfast"/>
+    <xhtml:link rel="alternate" hreflang="de" href="http://localhost:4400/de/news/gesundes-fruehstueck"/>
+    <lastmod>2024-06-03T10:00:00+00:00</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>http://localhost:4400/de/news/gesundes-fruehstueck</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="http://localhost:4400/news/healthy-breakfast"/>
+    <xhtml:link rel="alternate" hreflang="de" href="http://localhost:4400/de/news/gesundes-fruehstueck"/>
+    <lastmod>2024-06-03T10:00:00+00:00</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>http://localhost:4400/news/fruit</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="http://localhost:4400/news/fruit"/>
+    <xhtml:link rel="alternate" hreflang="de" href="http://localhost:4400/de/news/obst"/>
+    <lastmod>2024-06-04T10:00:00+00:00</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>http://localhost:4400/de/news/obst</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="http://localhost:4400/news/fruit"/>
+    <xhtml:link rel="alternate" hreflang="de" href="http://localhost:4400/de/news/obst"/>
+    <lastmod>2024-06-04T10:00:00+00:00</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>http://localhost:4400/news</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="http://localhost:4400/news"/>
+    <xhtml:link rel="alternate" hreflang="de" href="http://localhost:4400/de/news"/>
+    <changefreq>weekly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>http://localhost:4400/de/news</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="http://localhost:4400/news"/>
+    <xhtml:link rel="alternate" hreflang="de" href="http://localhost:4400/de/news"/>
+    <changefreq>weekly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>http://localhost:4400/tags/breakfast</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="http://localhost:4400/tags/breakfast"/>
+    <xhtml:link rel="alternate" hreflang="de" href="http://localhost:4400/de/tags/fruehstueck"/>
+    <changefreq>weekly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>http://localhost:4400/de/tags/fruehstueck</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="http://localhost:4400/tags/breakfast"/>
+    <xhtml:link rel="alternate" hreflang="de" href="http://localhost:4400/de/tags/fruehstueck"/>
+    <changefreq>weekly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>http://localhost:4400/tags/nutrition</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="http://localhost:4400/tags/nutrition"/>
+    <xhtml:link rel="alternate" hreflang="de" href="http://localhost:4400/de/tags/ernaehrung"/>
+    <changefreq>weekly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>http://localhost:4400/de/tags/ernaehrung</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="http://localhost:4400/tags/nutrition"/>
+    <xhtml:link rel="alternate" hreflang="de" href="http://localhost:4400/de/tags/ernaehrung"/>
+    <changefreq>weekly</changefreq>
+    <priority>0.5</priority>
+  </url>
+</urlset>

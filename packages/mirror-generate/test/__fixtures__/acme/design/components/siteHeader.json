@@ -1,0 +1,24 @@
+{
+ "id": "siteHeader",
+ "name": "Site header",
+ "kind": "chrome",
+ "selector": "header.header-wrapper",
+ "template": "<header class=\"header-wrapper\">\n  <a class=\"logo\" href=\"/\" title=\"{{siteName}}\"><img src=\"/themes/custom/da_vinci_code/logo.svg\" alt=\"Home\"></a>\n  <span class=\"switch\">{{darkModeLabel}}</span>\n</header>",
+ "props": [
+  {
+   "name": "darkModeLabel",
+   "type": "text"
+  }
+ ],
+ "exampleProps": {
+  "darkModeLabel": "Dark mode"
+ },
+ "instanceKey": "path",
+ "instanceProps": {
+  "/": {
+   "darkModeLabel": "Dark mode"
+  }
+ },
+ "source": "heuristic",
+ "verified": true
+}

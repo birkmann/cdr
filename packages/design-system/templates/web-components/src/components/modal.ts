@@ -22,8 +22,8 @@ export class Modal extends LitElement {
         background: var(--__P__-layer-01);
         color: var(--__P__-text-primary);
         box-shadow: var(--__P__-shadow-03);
-        width: min(48rem, calc(100vw - 2rem));
-        max-height: calc(100vh - 4rem);
+        width: min(var(--__P__-dim-48rem), calc(100vw - var(--__P__-dim-2rem)));
+        max-height: calc(100vh - var(--__P__-dim-4rem));
         overflow: hidden;
         display: none;
         flex-direction: column;
@@ -35,20 +35,20 @@ export class Modal extends LitElement {
       @keyframes enter {
         from {
           opacity: 0;
-          transform: translateY(1.5rem);
+          transform: translateY(var(--__P__-dim-1-5rem));
         }
       }
       dialog::backdrop {
         background: var(--__P__-overlay);
       }
       :host([size='xs']) dialog {
-        width: min(24rem, calc(100vw - 2rem));
+        width: min(var(--__P__-dim-24rem), calc(100vw - var(--__P__-dim-2rem)));
       }
       :host([size='sm']) dialog {
-        width: min(32rem, calc(100vw - 2rem));
+        width: min(var(--__P__-dim-32rem), calc(100vw - var(--__P__-dim-2rem)));
       }
       :host([size='lg']) dialog {
-        width: min(64rem, calc(100vw - 2rem));
+        width: min(var(--__P__-dim-64rem), calc(100vw - var(--__P__-dim-2rem)));
       }
       header {
         display: flex;
@@ -70,8 +70,8 @@ export class Modal extends LitElement {
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        width: 3rem;
-        height: 3rem;
+        width: var(--__P__-dim-3rem);
+        height: var(--__P__-dim-3rem);
         margin: calc(-1 * var(--__P__-spacing-05)) calc(-1 * var(--__P__-spacing-05)) 0 0;
         border: 0;
         background: transparent;
@@ -97,7 +97,7 @@ export class Modal extends LitElement {
       footer button {
         ${type('body-compact-01')}
         flex: 1;
-        min-height: 4rem;
+        min-height: var(--__P__-dim-4rem);
         padding: var(--__P__-spacing-04) var(--__P__-spacing-05) var(--__P__-spacing-07);
         border: 0;
         text-align: left;

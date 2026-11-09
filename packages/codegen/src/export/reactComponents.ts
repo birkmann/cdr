@@ -1205,8 +1205,14 @@ export function sharedComponents(
     if (!runs.length) return;
     c.runs = runs;
     const inRun = (at: number[]) => runs.some((r) => inPath(at, r));
+    const movedIntoRuns = c.props.filter((p) => inRun(p.slot.at));
     c.props = c.props.filter((p) => !inRun(p.slot.at));
     c.aliases = c.aliases.filter((p) => !inRun(p.slot.at));
+    // a run took a prop whose copies also sit outside it: one of those copies keeps the prop alive
+    for (const p of movedIntoRuns) {
+      const i = c.aliases.findIndex((a) => a.name === p.name);
+      if (i >= 0) c.props.push(...c.aliases.splice(i, 1));
+    }
     for (const r of runs)
       if (r.varying)
         c.props.push({

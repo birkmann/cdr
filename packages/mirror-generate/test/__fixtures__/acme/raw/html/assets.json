@@ -1,0 +1,13 @@
+[
+ {
+  "url": "http://localhost:4401/themes/custom/da_vinci_code/images/icon-x.png",
+  "path": "/themes/custom/da_vinci_code/images/icon-x.png",
+  "file": "raw/html/assets/themes/custom/da_vinci_code/images/icon-x.png",
+  "kind": "image"
+ },
+ {
+  "url": "http://localhost:4401/__ext/unpkg.com/x.js",
+  "path": "/__ext/unpkg.com/x.js",
+  "kind": "script"
+ }
+]

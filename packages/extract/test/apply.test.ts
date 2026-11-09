@@ -42,6 +42,13 @@ describe("fallbackNames (W3 / W4)", () => {
     expect(names.d).toBeUndefined();
     for (const n of Object.values(names)) expect(n).not.toMatch(/\d/);
   });
+
+  it("stays letters only and unique without case when a site runs out of single letters", () => {
+    const sets = Array.from({ length: 70 }, (_, i) => set(`s${i}`, "Card / Teaser", "card"));
+    const names = fallbackNames(ds(sets)).sets.map((s) => s.name!);
+    for (const n of names) expect(n).toMatch(/^[A-Za-z]+$/);
+    expect(new Set(names.map((n) => n.toLowerCase())).size).toBe(70);
+  });
 });
 
 describe("applyNamingPlan", () => {

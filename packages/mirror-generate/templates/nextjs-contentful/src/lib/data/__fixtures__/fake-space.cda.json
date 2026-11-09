@@ -1,0 +1,2444 @@
+{
+ "format": "cmp-fake-contentful/1",
+ "note": "published (CDA) view of agent D fake space: pnpm migrate load fixture --target contentful-fake",
+ "locales": [
+  {
+   "code": "en",
+   "name": "English",
+   "default": true,
+   "fallbackCode": null
+  },
+  {
+   "code": "de",
+   "name": "Deutsch",
+   "default": false,
+   "fallbackCode": "en"
+  }
+ ],
+ "entries": [
+  {
+   "sys": {
+    "type": "Entry",
+    "id": "collection-articles--block_latest-ad476c3640",
+    "version": 2,
+    "createdAt": "2026-11-03T15:52:06.824Z",
+    "updatedAt": "2026-11-03T15:52:06.825Z",
+    "space": {
+     "sys": {
+      "type": "Link",
+      "linkType": "Space",
+      "id": "fake-space"
+     }
+    },
+    "environment": {
+     "sys": {
+      "type": "Link",
+      "linkType": "Environment",
+      "id": "migration-20261103"
+     }
+    },
+    "contentType": {
+     "sys": {
+      "type": "Link",
+      "linkType": "ContentType",
+      "id": "collectionDefinition"
+     }
+    },
+    "automationTags": [],
+    "publishedVersion": 1,
+    "publishedAt": "2026-11-03T15:52:06.825Z",
+    "firstPublishedAt": "2026-11-03T15:52:06.825Z",
+    "publishedCounter": 1
+   },
+   "fields": {
+    "title": {
+     "en": "Articles: Latest"
+    },
+    "collectionId": {
+     "en": "articles--block_latest"
+    },
+    "definition": {
+     "en": {
+      "id": "articles--block_latest",
+      "name": "Articles: Latest",
+      "type": "article",
+      "filters": [],
+      "sort": [
+       {
+        "field": "created",
+        "direction": "desc"
+       }
+      ],
+      "limit": 3,
+      "manual": false,
+      "source": {
+       "system": "drupal",
+       "kind": "view_display",
+       "id": "articles.block_latest",
+       "bundle": "block"
+      }
+     }
+    },
+    "ccmId": {
+     "en": "collection:articles--block_latest"
+    }
+   },
+   "metadata": {
+    "tags": []
+   }
+  },
+  {
+   "sys": {
+    "type": "Entry",
+    "id": "collection-articles--page_news-fe4777a8f0",
+    "version": 2,
+    "createdAt": "2026-11-03T15:52:06.825Z",
+    "updatedAt": "2026-11-03T15:52:06.825Z",
+    "space": {
+     "sys": {
+      "type": "Link",
+      "linkType": "Space",
+      "id": "fake-space"
+     }
+    },
+    "environment": {
+     "sys": {
+      "type": "Link",
+      "linkType": "Environment",
+      "id": "migration-20261103"
+     }
+    },
+    "contentType": {
+     "sys": {
+      "type": "Link",
+      "linkType": "ContentType",
+      "id": "collectionDefinition"
+     }
+    },
+    "automationTags": [],
+    "publishedVersion": 1,
+    "publishedAt": "2026-11-03T15:52:06.825Z",
+    "firstPublishedAt": "2026-11-03T15:52:06.825Z",
+    "publishedCounter": 1
+   },
+   "fields": {
+    "title": {
+     "en": "Articles: News page"
+    },
+    "collectionId": {
+     "en": "articles--page_news"
+    },
+    "definition": {
+     "en": {
+      "id": "articles--page_news",
+      "name": "Articles: News page",
+      "type": "article",
+      "filters": [],
+      "sort": [
+       {
+        "field": "created",
+        "direction": "desc"
+       }
+      ],
+      "pagination": {
+       "pageSize": 10
+      },
+      "manual": false,
+      "path": {
+       "en": "/news",
+       "de": "/de/news"
+      },
+      "source": {
+       "system": "drupal",
+       "kind": "view_display",
+       "id": "articles.page_news",
+       "bundle": "page",
+       "url": "/news"
+      }
+     }
+    },
+    "ccmId": {
+     "en": "collection:articles--page_news"
+    }
+   },
+   "metadata": {
+    "tags": []
+   }
+  },
+  {
+   "sys": {
+    "type": "Entry",
+    "id": "drupal-paragraph-101-7c9337acee",
+    "version": 2,
+    "createdAt": "2026-11-03T15:52:06.825Z",
+    "updatedAt": "2026-11-03T15:52:06.825Z",
+    "space": {
+     "sys": {
+      "type": "Link",
+      "linkType": "Space",
+      "id": "fake-space"
+     }
+    },
+    "environment": {
+     "sys": {
+      "type": "Link",
+      "linkType": "Environment",
+      "id": "migration-20261103"
+     }
+    },
+    "contentType": {
+     "sys": {
+      "type": "Link",
+      "linkType": "ContentType",
+      "id": "sectionHero"
+     }
+    },
+    "automationTags": [],
+    "publishedVersion": 1,
+    "publishedAt": "2026-11-03T15:52:06.825Z",
+    "firstPublishedAt": "2026-11-03T15:52:06.825Z",
+    "publishedCounter": 1
+   },
+   "fields": {
+    "cta": {
+     "en": {
+      "label": "Read our tips",
+      "ref": {
+       "kind": "entry",
+       "id": "drupal:node:3"
+      },
+      "entryId": "drupal-node-3-fc1006cba4",
+      "path": "/news/healthy-breakfast"
+     },
+     "de": {
+      "label": "Zu unseren Tipps",
+      "ref": {
+       "kind": "entry",
+       "id": "drupal:node:3"
+      },
+      "entryId": "drupal-node-3-fc1006cba4",
+      "path": "/de/news/gesundes-fruehstueck"
+     }
+    },
+    "image": {
+     "en": {
+      "sys": {
+       "type": "Link",
+       "linkType": "Asset",
+       "id": "drupal-media-21-715131892a"
+      }
+     }
+    },
+    "subtitle": {
+     "en": "Simple breakfast ideas that keep you going.",
+     "de": "Einfache Frühstücksideen, die dich fit halten."
+    },
+    "title": {
+     "en": "Start your day right",
+     "de": "Starte richtig in den Tag"
+    },
+    "ccmId": {
+     "en": "drupal:paragraph:101"
+    }
+   },
+   "metadata": {
+    "tags": []
+   }
+  },
+  {
+   "sys": {
+    "type": "Entry",
+    "id": "drupal-node-2-html-body-de-0-5895f6962b",
+    "version": 2,
+    "createdAt": "2026-11-03T15:52:06.825Z",
+    "updatedAt": "2026-11-03T15:52:06.825Z",
+    "space": {
+     "sys": {
+      "type": "Link",
+      "linkType": "Space",
+      "id": "fake-space"
+     }
+    },
+    "environment": {
+     "sys": {
+      "type": "Link",
+      "linkType": "Environment",
+      "id": "migration-20261103"
+     }
+    },
+    "contentType": {
+     "sys": {
+      "type": "Link",
+      "linkType": "ContentType",
+      "id": "htmlBlock"
+     }
+    },
+    "automationTags": [],
+    "publishedVersion": 1,
+    "publishedAt": "2026-11-03T15:52:06.825Z",
+    "firstPublishedAt": "2026-11-03T15:52:06.825Z",
+    "publishedCounter": 1
+   },
+   "fields": {
+    "title": {
+     "en": "page drupal:node:2 · body [de] #1 (table)"
+    },
+    "html": {
+     "en": "<table><thead><tr><th>Tag</th><th>Zeiten</th></tr></thead><tbody><tr><td>Mo–Fr</td><td>8–18</td></tr><tr><td>Sa</td><td>9–14</td></tr></tbody></table>"
+    },
+    "reason": {
+     "en": "table"
+    },
+    "ccmId": {
+     "en": "drupal:node:2#html:body:de:0"
+    }
+   },
+   "metadata": {
+    "tags": []
+   }
+  },
+  {
+   "sys": {
+    "type": "Entry",
+    "id": "drupal-node-2-html-body-en-0-b6815a6fc5",
+    "version": 2,
+    "createdAt": "2026-11-03T15:52:06.825Z",
+    "updatedAt": "2026-11-03T15:52:06.825Z",
+    "space": {
+     "sys": {
+      "type": "Link",
+      "linkType": "Space",
+      "id": "fake-space"
+     }
+    },
+    "environment": {
+     "sys": {
+      "type": "Link",
+      "linkType": "Environment",
+      "id": "migration-20261103"
+     }
+    },
+    "contentType": {
+     "sys": {
+      "type": "Link",
+      "linkType": "ContentType",
+      "id": "htmlBlock"
+     }
+    },
+    "automationTags": [],
+    "publishedVersion": 1,
+    "publishedAt": "2026-11-03T15:52:06.825Z",
+    "firstPublishedAt": "2026-11-03T15:52:06.825Z",
+    "publishedCounter": 1
+   },
+   "fields": {
+    "title": {
+     "en": "page drupal:node:2 · body [en] #1 (table)"
+    },
+    "html": {
+     "en": "<table><thead><tr><th>Day</th><th>Hours</th></tr></thead><tbody><tr><td>Mon–Fri</td><td>8–18</td></tr><tr><td>Sat</td><td>9–14</td></tr></tbody></table>"
+    },
+    "reason": {
+     "en": "table"
+    },
+    "ccmId": {
+     "en": "drupal:node:2#html:body:en:0"
+    }
+   },
+   "metadata": {
+    "tags": []
+   }
+  },
+  {
+   "sys": {
+    "type": "Entry",
+    "id": "drupal-taxonomy_term-1-04a4ff3186",
+    "version": 2,
+    "createdAt": "2026-11-03T15:52:06.825Z",
+    "updatedAt": "2026-11-03T15:52:06.825Z",
+    "space": {
+     "sys": {
+      "type": "Link",
+      "linkType": "Space",
+      "id": "fake-space"
+     }
+    },
+    "environment": {
+     "sys": {
+      "type": "Link",
+      "linkType": "Environment",
+      "id": "migration-20261103"
+     }
+    },
+    "contentType": {
+     "sys": {
+      "type": "Link",
+      "linkType": "ContentType",
+      "id": "taxonomyTerm"
+     }
+    },
+    "automationTags": [],
+    "publishedVersion": 1,
+    "publishedAt": "2026-11-03T15:52:06.825Z",
+    "firstPublishedAt": "2026-11-03T15:52:06.825Z",
+    "publishedCounter": 1
+   },
+   "fields": {
+    "name": {
+     "de": "Frühstück",
+     "en": "Breakfast"
+    },
+    "slug": {
+     "de": "fruehstueck",
+     "en": "breakfast"
+    },
+    "taxonomy": {
+     "en": "tags"
+    },
+    "weight": {
+     "en": 0
+    },
+    "ccmId": {
+     "en": "drupal:taxonomy_term:1"
+    }
+   },
+   "metadata": {
+    "tags": []
+   }
+  },
+  {
+   "sys": {
+    "type": "Entry",
+    "id": "drupal-taxonomy_term-2-a784c36d93",
+    "version": 2,
+    "createdAt": "2026-11-03T15:52:06.825Z",
+    "updatedAt": "2026-11-03T15:52:06.825Z",
+    "space": {
+     "sys": {
+      "type": "Link",
+      "linkType": "Space",
+      "id": "fake-space"
+     }
+    },
+    "environment": {
+     "sys": {
+      "type": "Link",
+      "linkType": "Environment",
+      "id": "migration-20261103"
+     }
+    },
+    "contentType": {
+     "sys": {
+      "type": "Link",
+      "linkType": "ContentType",
+      "id": "taxonomyTerm"
+     }
+    },
+    "automationTags": [],
+    "publishedVersion": 1,
+    "publishedAt": "2026-11-03T15:52:06.825Z",
+    "firstPublishedAt": "2026-11-03T15:52:06.825Z",
+    "publishedCounter": 1
+   },
+   "fields": {
+    "name": {
+     "de": "Ernährung",
+     "en": "Nutrition"
+    },
+    "slug": {
+     "de": "ernaehrung",
+     "en": "nutrition"
+    },
+    "taxonomy": {
+     "en": "tags"
+    },
+    "weight": {
+     "en": 1
+    },
+    "ccmId": {
+     "en": "drupal:taxonomy_term:2"
+    }
+   },
+   "metadata": {
+    "tags": []
+   }
+  },
+  {
+   "sys": {
+    "type": "Entry",
+    "id": "drupal-node-3-fc1006cba4",
+    "version": 2,
+    "createdAt": "2026-11-03T15:52:06.826Z",
+    "updatedAt": "2026-11-03T15:52:06.826Z",
+    "space": {
+     "sys": {
+      "type": "Link",
+      "linkType": "Space",
+      "id": "fake-space"
+     }
+    },
+    "environment": {
+     "sys": {
+      "type": "Link",
+      "linkType": "Environment",
+      "id": "migration-20261103"
+     }
+    },
+    "contentType": {
+     "sys": {
+      "type": "Link",
+      "linkType": "ContentType",
+      "id": "article"
+     }
+    },
+    "automationTags": [],
+    "publishedVersion": 1,
+    "publishedAt": "2026-11-03T15:52:06.826Z",
+    "firstPublishedAt": "2026-11-03T15:52:06.826Z",
+    "publishedCounter": 1
+   },
+   "fields": {
+    "title": {
+     "en": "Five tips for a healthy breakfast",
+     "de": "Fünf Tipps für ein gesundes Frühstück"
+    },
+    "created": {
+     "en": "2024-05-20T08:00:00.000Z"
+    },
+    "body": {
+     "en": {
+      "nodeType": "document",
+      "data": {},
+      "content": [
+       {
+        "nodeType": "paragraph",
+        "data": {},
+        "content": [
+         {
+          "nodeType": "text",
+          "value": "Breakfast does not have to be complicated.",
+          "marks": [],
+          "data": {}
+         }
+        ]
+       },
+       {
+        "nodeType": "ordered-list",
+        "data": {},
+        "content": [
+         {
+          "nodeType": "list-item",
+          "data": {},
+          "content": [
+           {
+            "nodeType": "paragraph",
+            "data": {},
+            "content": [
+             {
+              "nodeType": "text",
+              "value": "Add fruit",
+              "marks": [],
+              "data": {}
+             }
+            ]
+           }
+          ]
+         },
+         {
+          "nodeType": "list-item",
+          "data": {},
+          "content": [
+           {
+            "nodeType": "paragraph",
+            "data": {},
+            "content": [
+             {
+              "nodeType": "text",
+              "value": "Choose whole grains",
+              "marks": [],
+              "data": {}
+             }
+            ]
+           }
+          ]
+         },
+         {
+          "nodeType": "list-item",
+          "data": {},
+          "content": [
+           {
+            "nodeType": "paragraph",
+            "data": {},
+            "content": [
+             {
+              "nodeType": "text",
+              "value": "Drink water",
+              "marks": [],
+              "data": {}
+             }
+            ]
+           }
+          ]
+         },
+         {
+          "nodeType": "list-item",
+          "data": {},
+          "content": [
+           {
+            "nodeType": "paragraph",
+            "data": {},
+            "content": [
+             {
+              "nodeType": "text",
+              "value": "Include protein",
+              "marks": [],
+              "data": {}
+             }
+            ]
+           }
+          ]
+         },
+         {
+          "nodeType": "list-item",
+          "data": {},
+          "content": [
+           {
+            "nodeType": "paragraph",
+            "data": {},
+            "content": [
+             {
+              "nodeType": "text",
+              "value": "Take your time",
+              "marks": [],
+              "data": {}
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "nodeType": "blockquote",
+        "data": {},
+        "content": [
+         {
+          "nodeType": "paragraph",
+          "data": {},
+          "content": [
+           {
+            "nodeType": "text",
+            "value": "Breakfast is the most important meal of the day.",
+            "marks": [],
+            "data": {}
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     "de": {
+      "nodeType": "document",
+      "data": {},
+      "content": [
+       {
+        "nodeType": "paragraph",
+        "data": {},
+        "content": [
+         {
+          "nodeType": "text",
+          "value": "Frühstück muss nicht kompliziert sein.",
+          "marks": [],
+          "data": {}
+         }
+        ]
+       },
+       {
+        "nodeType": "ordered-list",
+        "data": {},
+        "content": [
+         {
+          "nodeType": "list-item",
+          "data": {},
+          "content": [
+           {
+            "nodeType": "paragraph",
+            "data": {},
+            "content": [
+             {
+              "nodeType": "text",
+              "value": "Obst hinzufügen",
+              "marks": [],
+              "data": {}
+             }
+            ]
+           }
+          ]
+         },
+         {
+          "nodeType": "list-item",
+          "data": {},
+          "content": [
+           {
+            "nodeType": "paragraph",
+            "data": {},
+            "content": [
+             {
+              "nodeType": "text",
+              "value": "Vollkorn wählen",
+              "marks": [],
+              "data": {}
+             }
+            ]
+           }
+          ]
+         },
+         {
+          "nodeType": "list-item",
+          "data": {},
+          "content": [
+           {
+            "nodeType": "paragraph",
+            "data": {},
+            "content": [
+             {
+              "nodeType": "text",
+              "value": "Wasser trinken",
+              "marks": [],
+              "data": {}
+             }
+            ]
+           }
+          ]
+         },
+         {
+          "nodeType": "list-item",
+          "data": {},
+          "content": [
+           {
+            "nodeType": "paragraph",
+            "data": {},
+            "content": [
+             {
+              "nodeType": "text",
+              "value": "Protein einbauen",
+              "marks": [],
+              "data": {}
+             }
+            ]
+           }
+          ]
+         },
+         {
+          "nodeType": "list-item",
+          "data": {},
+          "content": [
+           {
+            "nodeType": "paragraph",
+            "data": {},
+            "content": [
+             {
+              "nodeType": "text",
+              "value": "Zeit nehmen",
+              "marks": [],
+              "data": {}
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "nodeType": "blockquote",
+        "data": {},
+        "content": [
+         {
+          "nodeType": "paragraph",
+          "data": {},
+          "content": [
+           {
+            "nodeType": "text",
+            "value": "Das Frühstück ist die wichtigste Mahlzeit des Tages.",
+            "marks": [],
+            "data": {}
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    },
+    "image": {
+     "en": {
+      "sys": {
+       "type": "Link",
+       "linkType": "Asset",
+       "id": "drupal-media-22-703fea8d57"
+      }
+     }
+    },
+    "tags": {
+     "en": [
+      {
+       "sys": {
+        "type": "Link",
+        "linkType": "Entry",
+        "id": "drupal-taxonomy_term-1-04a4ff3186"
+       }
+      },
+      {
+       "sys": {
+        "type": "Link",
+        "linkType": "Entry",
+        "id": "drupal-taxonomy_term-2-a784c36d93"
+       }
+      }
+     ]
+    },
+    "path": {
+     "en": "/news/healthy-breakfast",
+     "de": "/de/news/gesundes-fruehstueck"
+    },
+    "seo": {
+     "en": {
+      "title": "Five tips for a healthy breakfast | Nestle Demo Kitchen",
+      "description": "Quick wins for your morning routine.",
+      "canonical": "/news/healthy-breakfast",
+      "hreflang": [
+       {
+        "locale": "de",
+        "href": "/de/news/gesundes-fruehstueck"
+       },
+       {
+        "locale": "en",
+        "href": "/news/healthy-breakfast"
+       }
+      ]
+     },
+     "de": {
+      "title": "Fünf Tipps für ein gesundes Frühstück | Nestle Demo Küche",
+      "description": "Schnelle Erfolge für deine Morgenroutine.",
+      "canonical": "/de/news/gesundes-fruehstueck",
+      "hreflang": [
+       {
+        "locale": "de",
+        "href": "/de/news/gesundes-fruehstueck"
+       },
+       {
+        "locale": "en",
+        "href": "/news/healthy-breakfast"
+       }
+      ]
+     }
+    },
+    "ccmId": {
+     "en": "drupal:node:3"
+    }
+   },
+   "metadata": {
+    "tags": []
+   }
+  },
+  {
+   "sys": {
+    "type": "Entry",
+    "id": "drupal-node-2-d8202b4c70",
+    "version": 2,
+    "createdAt": "2026-11-03T15:52:06.826Z",
+    "updatedAt": "2026-11-03T15:52:06.826Z",
+    "space": {
+     "sys": {
+      "type": "Link",
+      "linkType": "Space",
+      "id": "fake-space"
+     }
+    },
+    "environment": {
+     "sys": {
+      "type": "Link",
+      "linkType": "Environment",
+      "id": "migration-20261103"
+     }
+    },
+    "contentType": {
+     "sys": {
+      "type": "Link",
+      "linkType": "ContentType",
+      "id": "page"
+     }
+    },
+    "automationTags": [],
+    "publishedVersion": 1,
+    "publishedAt": "2026-11-03T15:52:06.826Z",
+    "firstPublishedAt": "2026-11-03T15:52:06.826Z",
+    "publishedCounter": 1
+   },
+   "fields": {
+    "title": {
+     "en": "About us",
+     "de": "Über uns"
+    },
+    "body": {
+     "en": {
+      "nodeType": "document",
+      "data": {},
+      "content": [
+       {
+        "nodeType": "paragraph",
+        "data": {},
+        "content": [
+         {
+          "nodeType": "text",
+          "value": "We are a small team of ",
+          "marks": [],
+          "data": {}
+         },
+         {
+          "nodeType": "text",
+          "value": "food lovers",
+          "marks": [
+           {
+            "type": "bold"
+           }
+          ],
+          "data": {}
+         },
+         {
+          "nodeType": "text",
+          "value": ".",
+          "marks": [],
+          "data": {}
+         }
+        ]
+       },
+       {
+        "nodeType": "heading-2",
+        "data": {},
+        "content": [
+         {
+          "nodeType": "text",
+          "value": "Our values",
+          "marks": [],
+          "data": {}
+         }
+        ]
+       },
+       {
+        "nodeType": "unordered-list",
+        "data": {},
+        "content": [
+         {
+          "nodeType": "list-item",
+          "data": {},
+          "content": [
+           {
+            "nodeType": "paragraph",
+            "data": {},
+            "content": [
+             {
+              "nodeType": "text",
+              "value": "Fresh ingredients",
+              "marks": [],
+              "data": {}
+             }
+            ]
+           }
+          ]
+         },
+         {
+          "nodeType": "list-item",
+          "data": {},
+          "content": [
+           {
+            "nodeType": "paragraph",
+            "data": {},
+            "content": [
+             {
+              "nodeType": "text",
+              "value": "Simple recipes",
+              "marks": [],
+              "data": {}
+             }
+            ]
+           }
+          ]
+         },
+         {
+          "nodeType": "list-item",
+          "data": {},
+          "content": [
+           {
+            "nodeType": "paragraph",
+            "data": {},
+            "content": [
+             {
+              "nodeType": "text",
+              "value": "Balanced nutrition",
+              "marks": [],
+              "data": {}
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "nodeType": "embedded-asset-block",
+        "data": {
+         "target": {
+          "sys": {
+           "type": "Link",
+           "linkType": "Asset",
+           "id": "drupal-media-22-703fea8d57"
+          }
+         }
+        },
+        "content": []
+       },
+       {
+        "nodeType": "heading-3",
+        "data": {},
+        "content": [
+         {
+          "nodeType": "text",
+          "value": "Opening hours",
+          "marks": [],
+          "data": {}
+         }
+        ]
+       },
+       {
+        "nodeType": "embedded-entry-block",
+        "data": {
+         "target": {
+          "sys": {
+           "type": "Link",
+           "linkType": "Entry",
+           "id": "drupal-node-2-html-body-en-0-b6815a6fc5"
+          }
+         }
+        },
+        "content": []
+       },
+       {
+        "nodeType": "paragraph",
+        "data": {},
+        "content": [
+         {
+          "nodeType": "text",
+          "value": "Read our article on ",
+          "marks": [],
+          "data": {}
+         },
+         {
+          "nodeType": "entry-hyperlink",
+          "data": {
+           "target": {
+            "sys": {
+             "type": "Link",
+             "linkType": "Entry",
+             "id": "drupal-node-3-fc1006cba4"
+            }
+           }
+          },
+          "content": [
+           {
+            "nodeType": "text",
+            "value": "healthy breakfast",
+            "marks": [],
+            "data": {}
+           }
+          ]
+         },
+         {
+          "nodeType": "text",
+          "value": " or visit ",
+          "marks": [],
+          "data": {}
+         },
+         {
+          "nodeType": "hyperlink",
+          "data": {
+           "uri": "https://www.nestle.com"
+          },
+          "content": [
+           {
+            "nodeType": "text",
+            "value": "nestle.com",
+            "marks": [],
+            "data": {}
+           }
+          ]
+         },
+         {
+          "nodeType": "text",
+          "value": ".",
+          "marks": [],
+          "data": {}
+         }
+        ]
+       }
+      ]
+     },
+     "de": {
+      "nodeType": "document",
+      "data": {},
+      "content": [
+       {
+        "nodeType": "paragraph",
+        "data": {},
+        "content": [
+         {
+          "nodeType": "text",
+          "value": "Wir sind ein kleines Team von ",
+          "marks": [],
+          "data": {}
+         },
+         {
+          "nodeType": "text",
+          "value": "Genießern",
+          "marks": [
+           {
+            "type": "bold"
+           }
+          ],
+          "data": {}
+         },
+         {
+          "nodeType": "text",
+          "value": ".",
+          "marks": [],
+          "data": {}
+         }
+        ]
+       },
+       {
+        "nodeType": "heading-2",
+        "data": {},
+        "content": [
+         {
+          "nodeType": "text",
+          "value": "Unsere Werte",
+          "marks": [],
+          "data": {}
+         }
+        ]
+       },
+       {
+        "nodeType": "unordered-list",
+        "data": {},
+        "content": [
+         {
+          "nodeType": "list-item",
+          "data": {},
+          "content": [
+           {
+            "nodeType": "paragraph",
+            "data": {},
+            "content": [
+             {
+              "nodeType": "text",
+              "value": "Frische Zutaten",
+              "marks": [],
+              "data": {}
+             }
+            ]
+           }
+          ]
+         },
+         {
+          "nodeType": "list-item",
+          "data": {},
+          "content": [
+           {
+            "nodeType": "paragraph",
+            "data": {},
+            "content": [
+             {
+              "nodeType": "text",
+              "value": "Einfache Rezepte",
+              "marks": [],
+              "data": {}
+             }
+            ]
+           }
+          ]
+         },
+         {
+          "nodeType": "list-item",
+          "data": {},
+          "content": [
+           {
+            "nodeType": "paragraph",
+            "data": {},
+            "content": [
+             {
+              "nodeType": "text",
+              "value": "Ausgewogene Ernährung",
+              "marks": [],
+              "data": {}
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "nodeType": "embedded-asset-block",
+        "data": {
+         "target": {
+          "sys": {
+           "type": "Link",
+           "linkType": "Asset",
+           "id": "drupal-media-22-703fea8d57"
+          }
+         }
+        },
+        "content": []
+       },
+       {
+        "nodeType": "heading-3",
+        "data": {},
+        "content": [
+         {
+          "nodeType": "text",
+          "value": "Öffnungszeiten",
+          "marks": [],
+          "data": {}
+         }
+        ]
+       },
+       {
+        "nodeType": "embedded-entry-block",
+        "data": {
+         "target": {
+          "sys": {
+           "type": "Link",
+           "linkType": "Entry",
+           "id": "drupal-node-2-html-body-de-0-5895f6962b"
+          }
+         }
+        },
+        "content": []
+       },
+       {
+        "nodeType": "paragraph",
+        "data": {},
+        "content": [
+         {
+          "nodeType": "text",
+          "value": "Lies unseren Artikel über ",
+          "marks": [],
+          "data": {}
+         },
+         {
+          "nodeType": "entry-hyperlink",
+          "data": {
+           "target": {
+            "sys": {
+             "type": "Link",
+             "linkType": "Entry",
+             "id": "drupal-node-3-fc1006cba4"
+            }
+           }
+          },
+          "content": [
+           {
+            "nodeType": "text",
+            "value": "gesundes Frühstück",
+            "marks": [],
+            "data": {}
+           }
+          ]
+         },
+         {
+          "nodeType": "text",
+          "value": " oder besuche ",
+          "marks": [],
+          "data": {}
+         },
+         {
+          "nodeType": "hyperlink",
+          "data": {
+           "uri": "https://www.nestle.com"
+          },
+          "content": [
+           {
+            "nodeType": "text",
+            "value": "nestle.com",
+            "marks": [],
+            "data": {}
+           }
+          ]
+         },
+         {
+          "nodeType": "text",
+          "value": ".",
+          "marks": [],
+          "data": {}
+         }
+        ]
+       }
+      ]
+     }
+    },
+    "path": {
+     "en": "/about-us",
+     "de": "/de/ueber-uns"
+    },
+    "seo": {
+     "en": {
+      "title": "About us | Nestle Demo Kitchen",
+      "description": "Who we are and what we cook.",
+      "canonical": "/about-us",
+      "hreflang": [
+       {
+        "locale": "de",
+        "href": "/de/ueber-uns"
+       },
+       {
+        "locale": "en",
+        "href": "/about-us"
+       }
+      ]
+     },
+     "de": {
+      "title": "Über uns | Nestle Demo Küche",
+      "description": "Wer wir sind und was wir kochen.",
+      "canonical": "/de/ueber-uns",
+      "hreflang": [
+       {
+        "locale": "de",
+        "href": "/de/ueber-uns"
+       },
+       {
+        "locale": "en",
+        "href": "/about-us"
+       }
+      ]
+     }
+    },
+    "ccmId": {
+     "en": "drupal:node:2"
+    }
+   },
+   "metadata": {
+    "tags": []
+   }
+  },
+  {
+   "sys": {
+    "type": "Entry",
+    "id": "drupal-paragraph-102-a7ea0a9415",
+    "version": 2,
+    "createdAt": "2026-11-03T15:52:06.827Z",
+    "updatedAt": "2026-11-03T15:52:06.827Z",
+    "space": {
+     "sys": {
+      "type": "Link",
+      "linkType": "Space",
+      "id": "fake-space"
+     }
+    },
+    "environment": {
+     "sys": {
+      "type": "Link",
+      "linkType": "Environment",
+      "id": "migration-20261103"
+     }
+    },
+    "contentType": {
+     "sys": {
+      "type": "Link",
+      "linkType": "ContentType",
+      "id": "sectionText"
+     }
+    },
+    "automationTags": [],
+    "publishedVersion": 1,
+    "publishedAt": "2026-11-03T15:52:06.827Z",
+    "firstPublishedAt": "2026-11-03T15:52:06.827Z",
+    "publishedCounter": 1
+   },
+   "fields": {
+    "body": {
+     "en": {
+      "nodeType": "document",
+      "data": {},
+      "content": [
+       {
+        "nodeType": "heading-2",
+        "data": {},
+        "content": [
+         {
+          "nodeType": "text",
+          "value": "Why breakfast matters",
+          "marks": [],
+          "data": {}
+         }
+        ]
+       },
+       {
+        "nodeType": "paragraph",
+        "data": {},
+        "content": [
+         {
+          "nodeType": "text",
+          "value": "A balanced breakfast gives you ",
+          "marks": [],
+          "data": {}
+         },
+         {
+          "nodeType": "text",
+          "value": "energy",
+          "marks": [
+           {
+            "type": "bold"
+           }
+          ],
+          "data": {}
+         },
+         {
+          "nodeType": "text",
+          "value": " and helps you ",
+          "marks": [],
+          "data": {}
+         },
+         {
+          "nodeType": "text",
+          "value": "focus",
+          "marks": [
+           {
+            "type": "italic"
+           }
+          ],
+          "data": {}
+         },
+         {
+          "nodeType": "text",
+          "value": ". Learn more ",
+          "marks": [],
+          "data": {}
+         },
+         {
+          "nodeType": "entry-hyperlink",
+          "data": {
+           "target": {
+            "sys": {
+             "type": "Link",
+             "linkType": "Entry",
+             "id": "drupal-node-2-d8202b4c70"
+            }
+           }
+          },
+          "content": [
+           {
+            "nodeType": "text",
+            "value": "about us",
+            "marks": [],
+            "data": {}
+           }
+          ]
+         },
+         {
+          "nodeType": "text",
+          "value": ".",
+          "marks": [],
+          "data": {}
+         }
+        ]
+       }
+      ]
+     },
+     "de": {
+      "nodeType": "document",
+      "data": {},
+      "content": [
+       {
+        "nodeType": "heading-2",
+        "data": {},
+        "content": [
+         {
+          "nodeType": "text",
+          "value": "Warum Frühstück wichtig ist",
+          "marks": [],
+          "data": {}
+         }
+        ]
+       },
+       {
+        "nodeType": "paragraph",
+        "data": {},
+        "content": [
+         {
+          "nodeType": "text",
+          "value": "Ein ausgewogenes Frühstück gibt dir ",
+          "marks": [],
+          "data": {}
+         },
+         {
+          "nodeType": "text",
+          "value": "Energie",
+          "marks": [
+           {
+            "type": "bold"
+           }
+          ],
+          "data": {}
+         },
+         {
+          "nodeType": "text",
+          "value": " und hilft dir, dich zu ",
+          "marks": [],
+          "data": {}
+         },
+         {
+          "nodeType": "text",
+          "value": "konzentrieren",
+          "marks": [
+           {
+            "type": "italic"
+           }
+          ],
+          "data": {}
+         },
+         {
+          "nodeType": "text",
+          "value": ". Mehr ",
+          "marks": [],
+          "data": {}
+         },
+         {
+          "nodeType": "entry-hyperlink",
+          "data": {
+           "target": {
+            "sys": {
+             "type": "Link",
+             "linkType": "Entry",
+             "id": "drupal-node-2-d8202b4c70"
+            }
+           }
+          },
+          "content": [
+           {
+            "nodeType": "text",
+            "value": "über uns",
+            "marks": [],
+            "data": {}
+           }
+          ]
+         },
+         {
+          "nodeType": "text",
+          "value": ".",
+          "marks": [],
+          "data": {}
+         }
+        ]
+       }
+      ]
+     }
+    },
+    "ccmId": {
+     "en": "drupal:paragraph:102"
+    }
+   },
+   "metadata": {
+    "tags": []
+   }
+  },
+  {
+   "sys": {
+    "type": "Entry",
+    "id": "drupal-paragraph-103-18c2c6631e",
+    "version": 2,
+    "createdAt": "2026-11-03T15:52:06.827Z",
+    "updatedAt": "2026-11-03T15:52:06.827Z",
+    "space": {
+     "sys": {
+      "type": "Link",
+      "linkType": "Space",
+      "id": "fake-space"
+     }
+    },
+    "environment": {
+     "sys": {
+      "type": "Link",
+      "linkType": "Environment",
+      "id": "migration-20261103"
+     }
+    },
+    "contentType": {
+     "sys": {
+      "type": "Link",
+      "linkType": "ContentType",
+      "id": "sectionTeaserList"
+     }
+    },
+    "automationTags": [],
+    "publishedVersion": 1,
+    "publishedAt": "2026-11-03T15:52:06.827Z",
+    "firstPublishedAt": "2026-11-03T15:52:06.827Z",
+    "publishedCounter": 1
+   },
+   "fields": {
+    "heading": {
+     "en": "Latest articles",
+     "de": "Neueste Artikel"
+    },
+    "collection": {
+     "en": {
+      "collection": "articles--block_latest",
+      "limit": 3
+     }
+    },
+    "ccmId": {
+     "en": "drupal:paragraph:103"
+    }
+   },
+   "metadata": {
+    "tags": []
+   }
+  },
+  {
+   "sys": {
+    "type": "Entry",
+    "id": "drupal-node-1-a6394f1fb2",
+    "version": 2,
+    "createdAt": "2026-11-03T15:52:06.827Z",
+    "updatedAt": "2026-11-03T15:52:06.827Z",
+    "space": {
+     "sys": {
+      "type": "Link",
+      "linkType": "Space",
+      "id": "fake-space"
+     }
+    },
+    "environment": {
+     "sys": {
+      "type": "Link",
+      "linkType": "Environment",
+      "id": "migration-20261103"
+     }
+    },
+    "contentType": {
+     "sys": {
+      "type": "Link",
+      "linkType": "ContentType",
+      "id": "landingPage"
+     }
+    },
+    "automationTags": [],
+    "publishedVersion": 1,
+    "publishedAt": "2026-11-03T15:52:06.827Z",
+    "firstPublishedAt": "2026-11-03T15:52:06.827Z",
+    "publishedCounter": 1
+   },
+   "fields": {
+    "title": {
+     "en": "Home",
+     "de": "Startseite"
+    },
+    "sections": {
+     "en": [
+      {
+       "sys": {
+        "type": "Link",
+        "linkType": "Entry",
+        "id": "drupal-paragraph-101-7c9337acee"
+       }
+      },
+      {
+       "sys": {
+        "type": "Link",
+        "linkType": "Entry",
+        "id": "drupal-paragraph-102-a7ea0a9415"
+       }
+      },
+      {
+       "sys": {
+        "type": "Link",
+        "linkType": "Entry",
+        "id": "drupal-paragraph-103-18c2c6631e"
+       }
+      }
+     ]
+    },
+    "path": {
+     "en": "/",
+     "de": "/de"
+    },
+    "seo": {
+     "en": {
+      "title": "Nestle Demo Kitchen | Good food, good life",
+      "description": "Recipes and nutrition tips for a better breakfast.",
+      "canonical": "/",
+      "hreflang": [
+       {
+        "locale": "de",
+        "href": "/de"
+       },
+       {
+        "locale": "en",
+        "href": "/"
+       }
+      ]
+     },
+     "de": {
+      "title": "Nestle Demo Küche | Gutes Essen, gutes Leben",
+      "description": "Rezepte und Ernährungstipps für ein besseres Frühstück.",
+      "canonical": "/de",
+      "hreflang": [
+       {
+        "locale": "de",
+        "href": "/de"
+       },
+       {
+        "locale": "en",
+        "href": "/"
+       }
+      ]
+     }
+    },
+    "ccmId": {
+     "en": "drupal:node:1"
+    }
+   },
+   "metadata": {
+    "tags": []
+   }
+  },
+  {
+   "sys": {
+    "type": "Entry",
+    "id": "drupal-node-4-dd75aa234a",
+    "version": 2,
+    "createdAt": "2026-11-03T15:52:06.827Z",
+    "updatedAt": "2026-11-03T15:52:06.827Z",
+    "space": {
+     "sys": {
+      "type": "Link",
+      "linkType": "Space",
+      "id": "fake-space"
+     }
+    },
+    "environment": {
+     "sys": {
+      "type": "Link",
+      "linkType": "Environment",
+      "id": "migration-20261103"
+     }
+    },
+    "contentType": {
+     "sys": {
+      "type": "Link",
+      "linkType": "ContentType",
+      "id": "article"
+     }
+    },
+    "automationTags": [],
+    "publishedVersion": 1,
+    "publishedAt": "2026-11-03T15:52:06.827Z",
+    "firstPublishedAt": "2026-11-03T15:52:06.827Z",
+    "publishedCounter": 1
+   },
+   "fields": {
+    "title": {
+     "en": "Why fruit belongs on your plate",
+     "de": "Warum Obst auf den Teller gehört"
+    },
+    "created": {
+     "en": "2024-05-25T08:00:00.000Z"
+    },
+    "body": {
+     "en": {
+      "nodeType": "document",
+      "data": {},
+      "content": [
+       {
+        "nodeType": "paragraph",
+        "data": {},
+        "content": [
+         {
+          "nodeType": "text",
+          "value": "Fruit adds ",
+          "marks": [],
+          "data": {}
+         },
+         {
+          "nodeType": "text",
+          "value": "vitamins",
+          "marks": [
+           {
+            "type": "bold"
+           }
+          ],
+          "data": {}
+         },
+         {
+          "nodeType": "text",
+          "value": " and fibre.",
+          "marks": [],
+          "data": {}
+         }
+        ]
+       },
+       {
+        "nodeType": "embedded-asset-block",
+        "data": {
+         "target": {
+          "sys": {
+           "type": "Link",
+           "linkType": "Asset",
+           "id": "drupal-media-23-315b163fbc"
+          }
+         }
+        },
+        "content": []
+       }
+      ]
+     },
+     "de": {
+      "nodeType": "document",
+      "data": {},
+      "content": [
+       {
+        "nodeType": "paragraph",
+        "data": {},
+        "content": [
+         {
+          "nodeType": "text",
+          "value": "Obst liefert ",
+          "marks": [],
+          "data": {}
+         },
+         {
+          "nodeType": "text",
+          "value": "Vitamine",
+          "marks": [
+           {
+            "type": "bold"
+           }
+          ],
+          "data": {}
+         },
+         {
+          "nodeType": "text",
+          "value": " und Ballaststoffe.",
+          "marks": [],
+          "data": {}
+         }
+        ]
+       },
+       {
+        "nodeType": "embedded-asset-block",
+        "data": {
+         "target": {
+          "sys": {
+           "type": "Link",
+           "linkType": "Asset",
+           "id": "drupal-media-23-315b163fbc"
+          }
+         }
+        },
+        "content": []
+       }
+      ]
+     }
+    },
+    "image": {
+     "en": {
+      "sys": {
+       "type": "Link",
+       "linkType": "Asset",
+       "id": "drupal-media-23-315b163fbc"
+      }
+     }
+    },
+    "tags": {
+     "en": [
+      {
+       "sys": {
+        "type": "Link",
+        "linkType": "Entry",
+        "id": "drupal-taxonomy_term-2-a784c36d93"
+       }
+      }
+     ]
+    },
+    "path": {
+     "en": "/news/fruit",
+     "de": "/de/news/obst"
+    },
+    "seo": {
+     "en": {
+      "title": "Why fruit belongs on your plate | Nestle Demo Kitchen",
+      "description": "Vitamins, fibre and taste.",
+      "canonical": "/news/fruit",
+      "hreflang": [
+       {
+        "locale": "de",
+        "href": "/de/news/obst"
+       },
+       {
+        "locale": "en",
+        "href": "/news/fruit"
+       }
+      ]
+     },
+     "de": {
+      "title": "Warum Obst auf den Teller gehört | Nestle Demo Küche",
+      "description": "Vitamine, Ballaststoffe und Geschmack.",
+      "canonical": "/de/news/obst",
+      "hreflang": [
+       {
+        "locale": "de",
+        "href": "/de/news/obst"
+       },
+       {
+        "locale": "en",
+        "href": "/news/fruit"
+       }
+      ]
+     }
+    },
+    "ccmId": {
+     "en": "drupal:node:4"
+    }
+   },
+   "metadata": {
+    "tags": []
+   }
+  },
+  {
+   "sys": {
+    "type": "Entry",
+    "id": "navigation-footer-4da86fc3cd",
+    "version": 2,
+    "createdAt": "2026-11-03T15:52:06.827Z",
+    "updatedAt": "2026-11-03T15:52:06.827Z",
+    "space": {
+     "sys": {
+      "type": "Link",
+      "linkType": "Space",
+      "id": "fake-space"
+     }
+    },
+    "environment": {
+     "sys": {
+      "type": "Link",
+      "linkType": "Environment",
+      "id": "migration-20261103"
+     }
+    },
+    "contentType": {
+     "sys": {
+      "type": "Link",
+      "linkType": "ContentType",
+      "id": "navigation"
+     }
+    },
+    "automationTags": [],
+    "publishedVersion": 1,
+    "publishedAt": "2026-11-03T15:52:06.827Z",
+    "firstPublishedAt": "2026-11-03T15:52:06.827Z",
+    "publishedCounter": 1
+   },
+   "fields": {
+    "title": {
+     "en": "Footer"
+    },
+    "navId": {
+     "en": "footer"
+    },
+    "items": {
+     "en": [
+      {
+       "id": "drupal:menu_link_content:10",
+       "label": {
+        "de": "Impressum",
+        "en": "Imprint"
+       },
+       "href": "https://www.nestle.com/imprint",
+       "weight": 0,
+       "children": []
+      },
+      {
+       "id": "drupal:menu_link_content:11",
+       "label": {
+        "de": "Kontakt",
+        "en": "Contact"
+       },
+       "ref": {
+        "kind": "entry",
+        "id": "drupal:node:2"
+       },
+       "entryId": "drupal-node-2-d8202b4c70",
+       "path": {
+        "en": "/about-us",
+        "de": "/de/ueber-uns"
+       },
+       "weight": 1,
+       "children": []
+      }
+     ]
+    },
+    "ccmId": {
+     "en": "navigation:footer"
+    }
+   },
+   "metadata": {
+    "tags": []
+   }
+  },
+  {
+   "sys": {
+    "type": "Entry",
+    "id": "navigation-main-d562c055a3",
+    "version": 2,
+    "createdAt": "2026-11-03T15:52:06.827Z",
+    "updatedAt": "2026-11-03T15:52:06.827Z",
+    "space": {
+     "sys": {
+      "type": "Link",
+      "linkType": "Space",
+      "id": "fake-space"
+     }
+    },
+    "environment": {
+     "sys": {
+      "type": "Link",
+      "linkType": "Environment",
+      "id": "migration-20261103"
+     }
+    },
+    "contentType": {
+     "sys": {
+      "type": "Link",
+      "linkType": "ContentType",
+      "id": "navigation"
+     }
+    },
+    "automationTags": [],
+    "publishedVersion": 1,
+    "publishedAt": "2026-11-03T15:52:06.827Z",
+    "firstPublishedAt": "2026-11-03T15:52:06.827Z",
+    "publishedCounter": 1
+   },
+   "fields": {
+    "title": {
+     "en": "Main navigation"
+    },
+    "navId": {
+     "en": "main"
+    },
+    "items": {
+     "en": [
+      {
+       "id": "drupal:menu_link_content:1",
+       "label": {
+        "de": "Startseite",
+        "en": "Home"
+       },
+       "ref": {
+        "kind": "entry",
+        "id": "drupal:node:1"
+       },
+       "entryId": "drupal-node-1-a6394f1fb2",
+       "path": {
+        "en": "/",
+        "de": "/de"
+       },
+       "weight": 0,
+       "children": []
+      },
+      {
+       "id": "drupal:menu_link_content:2",
+       "label": {
+        "de": "Über uns",
+        "en": "About us"
+       },
+       "ref": {
+        "kind": "entry",
+        "id": "drupal:node:2"
+       },
+       "entryId": "drupal-node-2-d8202b4c70",
+       "path": {
+        "en": "/about-us",
+        "de": "/de/ueber-uns"
+       },
+       "weight": 1,
+       "children": []
+      },
+      {
+       "id": "drupal:menu_link_content:3",
+       "label": {
+        "de": "News",
+        "en": "News"
+       },
+       "href": "/news",
+       "weight": 2,
+       "children": [
+        {
+         "id": "drupal:menu_link_content:4",
+         "label": {
+          "de": "Gesundes Frühstück",
+          "en": "Healthy breakfast"
+         },
+         "ref": {
+          "kind": "entry",
+          "id": "drupal:node:3"
+         },
+         "entryId": "drupal-node-3-fc1006cba4",
+         "path": {
+          "en": "/news/healthy-breakfast",
+          "de": "/de/news/gesundes-fruehstueck"
+         },
+         "weight": 0,
+         "children": []
+        }
+       ]
+      }
+     ]
+    },
+    "ccmId": {
+     "en": "navigation:main"
+    }
+   },
+   "metadata": {
+    "tags": []
+   }
+  },
+  {
+   "sys": {
+    "type": "Entry",
+    "id": "settings-site-7263dd658b",
+    "version": 2,
+    "createdAt": "2026-11-03T15:52:06.827Z",
+    "updatedAt": "2026-11-03T15:52:06.827Z",
+    "space": {
+     "sys": {
+      "type": "Link",
+      "linkType": "Space",
+      "id": "fake-space"
+     }
+    },
+    "environment": {
+     "sys": {
+      "type": "Link",
+      "linkType": "Environment",
+      "id": "migration-20261103"
+     }
+    },
+    "contentType": {
+     "sys": {
+      "type": "Link",
+      "linkType": "ContentType",
+      "id": "siteSettings"
+     }
+    },
+    "automationTags": [],
+    "publishedVersion": 1,
+    "publishedAt": "2026-11-03T15:52:06.827Z",
+    "firstPublishedAt": "2026-11-03T15:52:06.827Z",
+    "publishedCounter": 1
+   },
+   "fields": {
+    "title": {
+     "en": "Site settings: Nestle Demo Kitchen"
+    },
+    "siteName": {
+     "en": {
+      "en": "Nestle Demo Kitchen",
+      "de": "Nestle Demo Küche"
+     }
+    },
+    "baseUrl": {
+     "en": "http://localhost:4400"
+    },
+    "ccmId": {
+     "en": "settings:site"
+    },
+    "logo": {
+     "en": {
+      "sys": {
+       "type": "Link",
+       "linkType": "Asset",
+       "id": "drupal-media-24-437825a6bf"
+      }
+     }
+    },
+    "footerText": {
+     "en": {
+      "de": "© 2024 Nestle Demo Küche. Alle Rechte vorbehalten.",
+      "en": "© 2024 Nestle Demo Kitchen. All rights reserved."
+     }
+    },
+    "seoDefaults": {
+     "en": {
+      "title": "Nestle Demo Kitchen",
+      "description": "Good food, good life"
+     }
+    },
+    "scripts": {
+     "en": [
+      {
+       "id": "cookie-consent",
+       "src": "/themes/custom/demo/js/cookies.js",
+       "placement": "body"
+      },
+      {
+       "id": "analytics",
+       "src": "https://www.googletagmanager.com/gtm.js?id=GTM-DEMO",
+       "placement": "head"
+      }
+     ]
+    },
+    "extra": {
+     "en": {
+      "slogan": {
+       "en": "Good food, good life",
+       "de": "Gutes Essen, gutes Leben"
+      },
+      "frontPage": "drupal:node:1",
+      "cookieBanner": {
+       "selector": "#cookie-banner"
+      },
+      "theme": "demo",
+      "metatagDefaults": {
+       "front": {
+        "canonical_url": "[site:url]",
+        "description": "[site:slogan]",
+        "title": "[site:name] | [site:slogan]"
+       },
+       "global": {
+        "canonical_url": "[current-page:url]",
+        "title": "[current-page:title] | [site:name]"
+       },
+       "node": {
+        "canonical_url": "[node:url]",
+        "description": "[node:summary]",
+        "title": "[node:title] | [site:name]"
+       },
+       "taxonomy_term": {
+        "canonical_url": "[term:url]",
+        "description": "[term:description]",
+        "title": "[term:name] | [site:name]"
+       }
+      }
+     }
+    }
+   },
+   "metadata": {
+    "tags": []
+   }
+  }
+ ],
+ "assets": [
+  {
+   "sys": {
+    "type": "Asset",
+    "id": "drupal-media-21-715131892a",
+    "version": 3,
+    "createdAt": "2026-11-03T15:52:06.824Z",
+    "updatedAt": "2026-11-03T15:52:06.824Z",
+    "space": {
+     "sys": {
+      "type": "Link",
+      "linkType": "Space",
+      "id": "fake-space"
+     }
+    },
+    "environment": {
+     "sys": {
+      "type": "Link",
+      "linkType": "Environment",
+      "id": "migration-20261103"
+     }
+    },
+    "publishedVersion": 2,
+    "publishedAt": "2026-11-03T15:52:06.824Z",
+    "firstPublishedAt": "2026-11-03T15:52:06.824Z",
+    "publishedCounter": 1
+   },
+   "fields": {
+    "title": {
+     "en": "A bowl of cereal with berries",
+     "de": "Eine Schüssel Müsli mit Beeren"
+    },
+    "description": {
+     "en": "A bowl of cereal with berries",
+     "de": "Eine Schüssel Müsli mit Beeren"
+    },
+    "file": {
+     "en": {
+      "fileName": "hero-breakfast.jpg",
+      "contentType": "image/jpeg",
+      "url": "//images.ctfassets.net/fake-space/drupal-media-21-715131892a/e5838b76a0cc25a07582f9cf9bde2dca/hero-breakfast.jpg",
+      "details": {
+       "size": 0
+      }
+     }
+    }
+   },
+   "metadata": {
+    "tags": []
+   }
+  },
+  {
+   "sys": {
+    "type": "Asset",
+    "id": "drupal-media-22-703fea8d57",
+    "version": 3,
+    "createdAt": "2026-11-03T15:52:06.824Z",
+    "updatedAt": "2026-11-03T15:52:06.824Z",
+    "space": {
+     "sys": {
+      "type": "Link",
+      "linkType": "Space",
+      "id": "fake-space"
+     }
+    },
+    "environment": {
+     "sys": {
+      "type": "Link",
+      "linkType": "Environment",
+      "id": "migration-20261103"
+     }
+    },
+    "publishedVersion": 2,
+    "publishedAt": "2026-11-03T15:52:06.824Z",
+    "firstPublishedAt": "2026-11-03T15:52:06.824Z",
+    "publishedCounter": 1
+   },
+   "fields": {
+    "title": {
+     "en": "Rolled oats",
+     "de": "Haferflocken"
+    },
+    "description": {
+     "en": "Rolled oats",
+     "de": "Haferflocken"
+    },
+    "file": {
+     "en": {
+      "fileName": "oats.jpg",
+      "contentType": "image/jpeg",
+      "url": "//images.ctfassets.net/fake-space/drupal-media-22-703fea8d57/18d4193aefa456d78d92848c2c29c32f/oats.jpg",
+      "details": {
+       "size": 0
+      }
+     }
+    }
+   },
+   "metadata": {
+    "tags": []
+   }
+  },
+  {
+   "sys": {
+    "type": "Asset",
+    "id": "drupal-media-23-315b163fbc",
+    "version": 3,
+    "createdAt": "2026-11-03T15:52:06.824Z",
+    "updatedAt": "2026-11-03T15:52:06.824Z",
+    "space": {
+     "sys": {
+      "type": "Link",
+      "linkType": "Space",
+      "id": "fake-space"
+     }
+    },
+    "environment": {
+     "sys": {
+      "type": "Link",
+      "linkType": "Environment",
+      "id": "migration-20261103"
+     }
+    },
+    "publishedVersion": 2,
+    "publishedAt": "2026-11-03T15:52:06.824Z",
+    "firstPublishedAt": "2026-11-03T15:52:06.824Z",
+    "publishedCounter": 1
+   },
+   "fields": {
+    "title": {
+     "en": "Fresh fruit",
+     "de": "Frisches Obst"
+    },
+    "description": {
+     "en": "Fresh fruit",
+     "de": "Frisches Obst"
+    },
+    "file": {
+     "en": {
+      "fileName": "fruit.jpg",
+      "contentType": "image/jpeg",
+      "url": "//images.ctfassets.net/fake-space/drupal-media-23-315b163fbc/3d2264eea1195b4fcb6c7766ace6542d/fruit.jpg",
+      "details": {
+       "size": 0
+      }
+     }
+    }
+   },
+   "metadata": {
+    "tags": []
+   }
+  },
+  {
+   "sys": {
+    "type": "Asset",
+    "id": "drupal-media-24-437825a6bf",
+    "version": 3,
+    "createdAt": "2026-11-03T15:52:06.824Z",
+    "updatedAt": "2026-11-03T15:52:06.824Z",
+    "space": {
+     "sys": {
+      "type": "Link",
+      "linkType": "Space",
+      "id": "fake-space"
+     }
+    },
+    "environment": {
+     "sys": {
+      "type": "Link",
+      "linkType": "Environment",
+      "id": "migration-20261103"
+     }
+    },
+    "publishedVersion": 2,
+    "publishedAt": "2026-11-03T15:52:06.824Z",
+    "firstPublishedAt": "2026-11-03T15:52:06.824Z",
+    "publishedCounter": 1
+   },
+   "fields": {
+    "title": {
+     "en": "Nestle Demo Kitchen logo",
+     "de": "Nestle Demo Küche Logo"
+    },
+    "description": {
+     "en": "Nestle Demo Kitchen logo",
+     "de": "Nestle Demo Küche Logo"
+    },
+    "file": {
+     "en": {
+      "fileName": "logo.svg",
+      "contentType": "image/svg+xml",
+      "url": "//images.ctfassets.net/fake-space/drupal-media-24-437825a6bf/7aee51eedee218869905588e409d27c8/logo.svg",
+      "details": {
+       "size": 0
+      }
+     }
+    }
+   },
+   "metadata": {
+    "tags": []
+   }
+  }
+ ]
+}

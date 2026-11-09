@@ -28,11 +28,11 @@ export class Toggle extends FormControl {
       }
       button {
         position: relative;
-        width: 3rem;
-        height: 1.5rem;
+        width: var(--__P__-dim-3rem);
+        height: var(--__P__-dim-1-5rem);
         padding: 0;
         border: 0;
-        border-radius: 999px;
+        border-radius: var(--__P__-radius-pill);
         background: var(--__P__-toggle-off);
         cursor: pointer;
         transition: background-color var(--__P__-duration-fast-02) var(--__P__-easing-standard-productive);
@@ -40,10 +40,10 @@ export class Toggle extends FormControl {
       button::after {
         content: '';
         position: absolute;
-        top: 0.1875rem;
-        left: 0.1875rem;
-        width: 1.125rem;
-        height: 1.125rem;
+        top: var(--__P__-dim-0-1875rem);
+        left: var(--__P__-dim-0-1875rem);
+        width: var(--__P__-dim-1-125rem);
+        height: var(--__P__-dim-1-125rem);
         border-radius: 50%;
         background: var(--__P__-icon-on-color);
         transition: transform var(--__P__-duration-fast-02) var(--__P__-easing-standard-productive);
@@ -52,20 +52,20 @@ export class Toggle extends FormControl {
         background: var(--__P__-support-success);
       }
       button[aria-checked='true']::after {
-        transform: translateX(1.5rem);
+        transform: translateX(var(--__P__-dim-1-5rem));
       }
       :host([size='sm']) button {
-        width: 2rem;
-        height: 1rem;
+        width: var(--__P__-dim-2rem);
+        height: var(--__P__-dim-1rem);
       }
       :host([size='sm']) button::after {
-        top: 0.1875rem;
-        left: 0.1875rem;
-        width: 0.625rem;
-        height: 0.625rem;
+        top: var(--__P__-dim-0-1875rem);
+        left: var(--__P__-dim-0-1875rem);
+        width: var(--__P__-dim-0-625rem);
+        height: var(--__P__-dim-0-625rem);
       }
       :host([size='sm']) button[aria-checked='true']::after {
-        transform: translateX(1rem);
+        transform: translateX(var(--__P__-dim-1rem));
       }
       button:focus-visible {
         outline: 2px solid var(--__P__-focus);

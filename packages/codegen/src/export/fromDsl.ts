@@ -376,6 +376,8 @@ function renderElementInner(
   };
   const t = ctx.tokens;
 
+  // content the page has but does not draw (screen-reader text, a crawler's menu), as the importer built it
+  if (typeof dsl.meta?.hiddenMarkup === "string") return el("div", { ...base, raw: dsl.meta.hiddenMarkup });
   switch (dsl.type) {
     case "frame":
       return el("div", { ...base, style, children: kids() });
@@ -392,7 +394,19 @@ function renderElementInner(
     }
     case "text": {
       const ts = dsl.style?.textStyle;
-      const tag = ts === "display" ? "h1" : ts === "headline" ? "h2" : ts === "title" ? "h3" : "p";
+      // a captured page says which element a text is in; a designed one says it through the text style
+      const written = typeof dsl.meta?.textTag === "string" ? dsl.meta.textTag : undefined;
+      const tag = written
+        ? /^h[1-6]$/.test(written)
+          ? written
+          : "p"
+        : ts === "display"
+          ? "h1"
+          : ts === "headline"
+            ? "h2"
+            : ts === "title"
+              ? "h3"
+              : "p";
       const runs = activeRuns(dsl);
       // a line of a word broken at a hyphenation point (URL capture `meta.softHyphen`): the hyphen is drawn, not text
       // (the page's text has a soft hyphen there, no "-")
@@ -417,7 +431,8 @@ function renderElementInner(
         : [text(cut(dsl.text ?? "", true))];
       return el(tag, {
         ...base,
-        style,
+        // (the exported reset stops at h4: a captured h5 / h6 would keep the browser's margins)
+        style: tag === "h5" || tag === "h6" ? { margin: "0", ...style } : style,
         attrs: hasLeadingTrim(dsl) ? { "data-trim": "" } : {},
         children,
         ...(soft ? { pseudo: { after: { content: '"-"' } } } : {}),
@@ -438,6 +453,24 @@ function renderElementInner(
           !!c.children?.some(has)
         );
       });
+      // a button that goes to a URL is a link: crawlers, assistive tech and "open in new tab" need the href in the markup
+      const url = base.interaction?.onTap === "open-url" ? base.interaction.url : undefined;
+      if (url && !nested)
+        return el("a", {
+          ...base,
+          interaction: undefined,
+          attrs: { href: url },
+          style: {
+            display: "inline-block",
+            "text-align": "center",
+            color: "inherit",
+            border: "0",
+            "text-decoration": "none",
+            cursor: "pointer",
+            ...style,
+          },
+          children,
+        });
       return el(nested ? "div" : "button", {
         ...base,
         attrs: nested ? { role: "button" } : { type: "button" },

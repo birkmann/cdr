@@ -1,0 +1,82 @@
+{
+  "id": "mainNav",
+  "name": "Main navigation",
+  "selector": "nav#block-demo-main-menu.block.block-menu.navigation",
+  "kind": "chrome",
+  "template": "<nav role=\"navigation\" aria-labelledby=\"block-demo-main-menu-menu\" id=\"block-demo-main-menu\" class=\"block block-menu navigation menu--main primary-nav\">\n                    <h2 class=\"visually-hidden block__title\" id=\"block-demo-main-menu-menu\">{{t.mainNavigation}}</h2>\n                    <ul class=\"menu primary-nav__menu primary-nav__menu--level-1\" data-drupal-selector=\"primary-nav-menu--level-1\">\n          {{#each items}}<li class=\"menu-item primary-nav__menu-item primary-nav__menu-item--link primary-nav__menu-item--level-1 {{#if this.children}}menu-item--expanded{{/if}} {{#if this.children}}primary-nav__menu-item--has-children{{/if}} {{#if this.activeTrail}}menu-item--active-trail{{/if}}\">\n            <a href=\"{{this.url}}\" class=\"primary-nav__menu-link primary-nav__menu-link--link primary-nav__menu-link--level-1 {{#if this.active}}is-active{{/if}}\"{{#if this.active}} aria-current=\"page\"{{/if}}>{{this.label}}</a>\n            {{#if this.children}}<ul class=\"menu primary-nav__menu primary-nav__menu--level-2\">\n          {{#each this.children}}<li class=\"menu-item primary-nav__menu-item primary-nav__menu-item--link primary-nav__menu-item--level-2 {{#if this.activeTrail}}menu-item--active-trail{{/if}}\">\n            <a href=\"{{this.url}}\" class=\"primary-nav__menu-link primary-nav__menu-link--link primary-nav__menu-link--level-2 {{#if this.active}}is-active{{/if}}\"{{#if this.active}} aria-current=\"page\"{{/if}}>{{this.label}}</a>\n          </li>{{/each}}\n            </ul>{{/if}}\n          </li>{{/each}}\n                    </ul>\n                  </nav>",
+  "props": [
+    {
+      "name": "items",
+      "type": "list",
+      "ccmField": "navigation.main",
+      "itemFields": {
+        "label": "text",
+        "url": "link",
+        "locale": "text",
+        "active": "boolean",
+        "activeTrail": "boolean",
+        "children": "list"
+      }
+    },
+    {
+      "name": "t.mainNavigation",
+      "type": "text",
+      "i18n": {
+        "de": "Hauptnavigation",
+        "en": "Main navigation"
+      }
+    }
+  ],
+  "exampleHtml": "<nav role=\"navigation\" aria-labelledby=\"block-demo-main-menu-menu\" id=\"block-demo-main-menu\" class=\"block block-menu navigation menu--main primary-nav\">\n                    <h2 class=\"visually-hidden block__title\" id=\"block-demo-main-menu-menu\">Main navigation</h2>\n                    <ul class=\"menu primary-nav__menu primary-nav__menu--level-1\" data-drupal-selector=\"primary-nav-menu--level-1\">\n          <li class=\"menu-item primary-nav__menu-item primary-nav__menu-item--link primary-nav__menu-item--level-1 menu-item--active-trail\">\n            <a href=\"/\" class=\"primary-nav__menu-link primary-nav__menu-link--link primary-nav__menu-link--level-1 is-active\" data-drupal-link-system-path=\"<front>\" aria-current=\"page\">Home</a>\n          </li>\n          <li class=\"menu-item primary-nav__menu-item primary-nav__menu-item--link primary-nav__menu-item--level-1\">\n            <a href=\"/about-us\" class=\"primary-nav__menu-link primary-nav__menu-link--link primary-nav__menu-link--level-1\" data-drupal-link-system-path=\"node/2\">About us</a>\n          </li>\n          <li class=\"menu-item primary-nav__menu-item primary-nav__menu-item--link primary-nav__menu-item--level-1 menu-item--expanded primary-nav__menu-item--has-children\">\n            <a href=\"/news\" class=\"primary-nav__menu-link primary-nav__menu-link--link primary-nav__menu-link--level-1\" data-drupal-link-system-path=\"news\">News</a>\n            <ul class=\"menu primary-nav__menu primary-nav__menu--level-2\">\n          <li class=\"menu-item primary-nav__menu-item primary-nav__menu-item--link primary-nav__menu-item--level-2\">\n            <a href=\"/news/healthy-breakfast\" class=\"primary-nav__menu-link primary-nav__menu-link--link primary-nav__menu-link--level-2\" data-drupal-link-system-path=\"node/3\">Healthy breakfast</a>\n          </li>\n            </ul>\n          </li>\n                    </ul>\n                  </nav>",
+  "exampleProps": {
+    "items": [
+      {
+        "label": "Home",
+        "url": "/",
+        "active": true,
+        "activeTrail": true,
+        "children": []
+      },
+      {
+        "label": "About us",
+        "url": "/about-us",
+        "active": false,
+        "activeTrail": false,
+        "children": []
+      },
+      {
+        "label": "News",
+        "url": "/news",
+        "active": false,
+        "activeTrail": false,
+        "children": [
+          {
+            "label": "Healthy breakfast",
+            "url": "/news/healthy-breakfast",
+            "active": false,
+            "activeTrail": false,
+            "children": []
+          }
+        ]
+      }
+    ],
+    "t": {
+      "mainNavigation": "Main navigation"
+    }
+  },
+  "source": "heuristic",
+  "instances": 6,
+  "pages": [
+    "/",
+    "/about-us",
+    "/de",
+    "/de/news/gesundes-fruehstueck",
+    "/de/ueber-uns",
+    "/news/healthy-breakfast"
+  ],
+  "locales": [
+    "de",
+    "en"
+  ],
+  "verified": true
+}

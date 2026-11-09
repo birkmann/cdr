@@ -1,0 +1,56 @@
+/**
+ * Demo theme — layout: containers, regions, responsive grid.
+ * Breakpoints: mobile < 768px, tablet 768–1199px, desktop >= 1200px.
+ */
+.container {
+  width: 100%;
+  max-width: var(--container-max);
+  margin: 0 auto;
+  padding: 0 var(--gutter);
+}
+.container--narrow {
+  max-width: var(--container-narrow);
+}
+.layout-main-wrapper {
+  min-height: 50vh;
+}
+.region--content-above {
+  padding-top: var(--space-5);
+}
+.path-frontpage .region--content-above {
+  padding-top: 0;
+}
+.region--content {
+  padding-bottom: var(--space-6);
+}
+.page-title {
+  margin-bottom: var(--space-4);
+}
+.grid-teasers {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-4);
+}
+.clearfix::after {
+  content: "";
+  display: table;
+  clear: both;
+}
+
+@media (min-width: 768px) {
+  .region--content-above {
+    padding-top: var(--space-6);
+  }
+  .grid-teasers {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (min-width: 1200px) {
+  .grid-teasers {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-5);
+  }
+  .region--content {
+    padding-bottom: var(--space-7);
+  }
+}

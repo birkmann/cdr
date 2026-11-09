@@ -1,0 +1,30 @@
+{
+  "id": "sectionText",
+  "name": "Section Text",
+  "selector": "div.paragraph.paragraph--type--text.paragraph--view-mode--default",
+  "kind": "section",
+  "ccmType": "sectionText",
+  "template": "<div class=\"paragraph paragraph--type--text paragraph--view-mode--default\">\n  <div class=\"container\">\n    <div class=\"clearfix text-formatted text-content field field--name-field-body field--type-text-long field--label-hidden field__item\">{{{body}}}</div>\n  </div>\n</div>",
+  "props": [
+    {
+      "name": "body",
+      "type": "richText",
+      "ccmField": "body"
+    }
+  ],
+  "exampleHtml": "<div class=\"paragraph paragraph--type--text paragraph--view-mode--default\" data-paragraph-id=\"102\">\n  <div class=\"container\">\n    <div class=\"clearfix text-formatted text-content field field--name-field-body field--type-text-long field--label-hidden field__item\"><h2>Why breakfast matters</h2><p>A balanced breakfast gives you <strong>energy</strong> and helps you <em>focus</em>. Learn more <a href=\"/node/2\">about us</a>.</p></div>\n  </div>\n</div>",
+  "exampleProps": {
+    "body": "<h2>Why breakfast matters</h2><p>A balanced breakfast gives you <strong>energy</strong> and helps you <em>focus</em>. Learn more <a href=\"/node/2\">about us</a>.</p>"
+  },
+  "source": "heuristic",
+  "instances": 2,
+  "pages": [
+    "/",
+    "/de"
+  ],
+  "locales": [
+    "de",
+    "en"
+  ],
+  "verified": true
+}

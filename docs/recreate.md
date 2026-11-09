@@ -2,7 +2,7 @@
 
 CDR can rebuild a live web page as code you own: measured from its real DOM, block by block, at every width, with its menus and sliders working, and compared with the live page afterwards.
 
-This is **opt-in only**. A plain brief such as "example.com" still goes to the `web-app` skill, which designs an original page. A recreation starts only from `cdr recreate`, the web app's **Recreate 1:1** button or `/recreate`, or a chat message that asks for an exact copy of a URL ("recreate … 1:1", "clone this page", "pixel-perfect").
+This is **opt-in only**. A plain brief such as "example.com" still goes to the `web-app` skill, which designs an original page. A recreation starts only from `cdr recreate`, the web app's **Recreate 1:1** or **Rebuild as code** button or `/recreate`, or a chat message that asks for an exact copy of a URL ("recreate … 1:1", "clone this page", "pixel-perfect").
 
 Every run asks for consent first: a high-risk permission request that names what is copied. The layout, text, photos, fonts and logos belong to their owners. Use a recreation for your own evaluation and prototyping, or with the rights holder's permission. Captured assets stay in the gitignored run folder unless you configure otherwise. A denied request captures nothing and leaves no run folder. No logins, paywalls or captchas are bypassed. The capture runs as an anonymous visitor in a fresh browser profile.
 
@@ -82,6 +82,44 @@ A run with a failing gate ends as `failed` and says which gate failed. The thres
 ```
 
 Every output carries `credits.json` and `RECREATION.md` with the source, the capture time, the asset and font policy, and the rights notice.
+
+## Mirror mode
+
+In the web and desktop apps this is what **Recreate 1:1**, `/recreate` and a chat request for an exact copy run; **Rebuild as code** runs the measured rebuild described above. On the command line it is `cdr recreate <url> --mirror`, and agents use the `recreate_mirror` tool. The rebuild measures the live DOM and rebuilds it as code you own. Mirror mode copies the page's own markup, stylesheets, scripts, images and fonts and re-serves them from a generated Next.js app, then holds that app to a strict verify suite. It gets closer to the original because it is the original's files, and for the same reason the output is not code you own: it is a verbatim copy.
+
+```
+consent → crawl → ccm → design → generate → appbuild → serve → verify → fix → reverify → report
+```
+
+- **crawl** loads the page in Playwright Chromium at 375, 768 and 1440 px with its timers, carousels and media held still, scrolls it so lazy content loads, writes CSS-in-JS into the DOM, and downloads same-origin assets, including CSS `url()`s and srcset candidates. Trackers are blocked. If scripts of the page failed to load, the gate `crawl.pagesComplete` stops the run: a capture that never finished rendering is no baseline.
+- **ccm, design, generate** split the page into sections, port its styles and scripts, and write the app to `out/mirror`. Sites built on web components or their own JavaScript are re-served as static islands: the original head and body with their scripts in order. Client-rendered Next.js sources use the rendered DOM. Third-party images are served from local copies; scripts and links keep their hosts.
+- **appbuild, serve** install the app's dependencies (once per dependency set, kept in `.harness/recreate/.mirror-deps`; this needs the network), run `next build` and start the app on a free local port, without your provider keys in its environment.
+- **verify** captures both sides with the same routine and judges them, using a baseline of the live page taken with that routine right after the crawl. A live page that changed since the crawl is reported as `SOURCE_DRIFT` and the copy is judged against the crawl-time capture instead, so a changed news ticker is not counted as a defect. Every failing shot gets a text dossier under `verify/diagnosis/`.
+- **fix** tries rule-based patches first and the configured model last (the `repair` role; budget `recreate.mirror.fix.budgetUsd`, default 3.9 USD). A patch is kept only if the metric improves and no gate regresses. Without a model, only the rules run. `--no-fix` skips it.
+
+| Gate                                            | Passes when                                                |
+| ----------------------------------------------- | ---------------------------------------------------------- |
+| `crawl.pagesComplete`, `crawl.pocUrls`          | the page rendered completely and was captured              |
+| `ccm.valid`                                     | the content model is valid                                 |
+| `visual.parity`, `visual.bbox`, `visual.height` | ≥ 0.97 of pixels match per viewport; key boxes within 4 px |
+| `fidelity.similarity`, `content.*`              | text similarity ≥ 0.99, no missing content                 |
+| `links.*`, `redirects.failed`, `media.missing`  | no broken links, failing redirects or missing media        |
+| `playback.blank`                                | no video player is blank when motion is on                 |
+
+`seo.*`, `a11y.*`, `performance.*` and `cleanliness.*` are reported as notes and do not fail a run. A mirror holds raw HTML by design.
+
+The preview pane, the compare page and the snapshot's own address opened in a browser tab show the run's real app: `cdr serve` starts it on a loopback port of its own when the page is opened (at most three at a time, without your provider keys in its environment), so the page's scripts, menus and sliders behave as in the app that was verified. Files the crawl never saw are fetched from the original site at that moment. When the app cannot be started, or the server is reached from another machine, the pane falls back to `out/preview/index.html`, a static snapshot in which code the page loads at runtime does not run. Run the app yourself with `CCM_DIR=<run>/ccm npx next start` in `out/mirror`. Resume with `--from <stage> --run <id>`. `--pages N` also crawls links the page leads to, up to N pages (default 1).
+
+A site that answers automated requests with a bot-management block is reported and the run stops: mirror mode does not get past such blocks, and it does not read blocked sites from web archives. `robots.txt`, private-address and consent rules are the same as in the default mode, and they apply to every request of the crawl and of verify. `recreate.assets: "none"` cannot be combined with mirror mode.
+
+## Replica
+
+The `replica-nextjs` target (used by `cdr autopilot`) rebuilds the page in Next.js from its design system. Like `react-vite`, it runs the `components` and `system` stages; it also keeps the page's h1 to h3, which the scene otherwise merges into plain text, so the verify suite can compare them with the original's.
+
+- Each section is a composite from `@<prefix>-ds/site`, in the page's own flow-first layout with its measured fluid geometry. The app is written to `out/replica`, built with `next build` and started on a free port without your provider keys in its environment.
+- **Swap contract.** A set that maps to a primitive (`Button`, `Link`, `Tag`) is first rendered by the primitive of `@<prefix>-ds/react`, with the page's values set through the primitive's own tokens. A swap stays only while every section it appears in keeps parity of at least 0.97 at every viewport. Otherwise that set keeps its measured markup and the swap is recorded as `DS_SWAP_REVERTED` with its diff crop.
+- **DS coverage** is the share of painted boxes rendered by a primitive or by a repeated component of the site package, at the viewport where it is lowest. Boxes that belong only to a one-off section composite do not count, because every box on the page sits inside one. `final/coverage.json` also gives the primitive-only share and the share with section composites included.
+- **Final check.** `verifyStep` runs against the replica with the snapshot as the old side, at the same thresholds as the mirror, followed by this pipeline's responsive sweep and flow lint. The flow lint reads the composites' CSS as emitted, before their values became tokens. Results are in `final/verify/*.json`, `final/sweep.json`, `final/flow.json`, `final/coverage.json` and `final/compare/index.html`.
 
 ## In a chat
 

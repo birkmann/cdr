@@ -1,0 +1,105 @@
+{
+  "id": "articleBody",
+  "name": "Article Body",
+  "selector": "article.node.node--type-article.node--promoted",
+  "kind": "document",
+  "ccmType": "article",
+  "viewMode": "full",
+  "template": "<article class=\"node node--type-article node--promoted node--view-mode-full\">\n  <div class=\"node__content container container--narrow\">\n    <header class=\"node__header\">\n      <div class=\"node__meta\"><span class=\"node__meta-label\">{{t.publishedOn}}</span> <time datetime=\"{{created.iso}}\" class=\"node__date\">{{created.formatted}}</time></div>\n    </header>\n    {{#if image}}<div class=\"field field--name-field-image field--type-entity-reference field--label-hidden field__item\"><article class=\"media media--type-image media--view-mode-default\">\n  <div class=\"field field--name-field-media-image field--type-image field--label-hidden field__item\">  <img loading=\"eager\" src=\"{{image.url}}\" width=\"{{image.width}}\" height=\"{{image.height}}\" alt=\"{{image.alt}}\">\n</div>\n</article>\n</div>{{/if}}\n    <div class=\"text-content clearfix field field--name-body field--type-text-with-summary field--label-hidden field__item\">{{{body}}}</div>\n    <div class=\"field field--name-field-tags field--type-entity-reference field--label-above field--tags\">\n      <h3 class=\"field__label\">{{t.tags}}</h3>\n      <ul class=\"links field__items field--tags__items\">{{#each tags}}<li class=\"field__item\"><a href=\"{{this.url}}\" hreflang=\"{{this.locale}}\">{{this.label}}</a></li>{{/each}}</ul>\n    </div>\n  </div>\n</article>",
+  "props": [
+    {
+      "name": "created",
+      "type": "text",
+      "ccmField": "created",
+      "format": {
+        "kind": "date",
+        "options": {
+          "day": "numeric",
+          "month": "long",
+          "year": "numeric"
+        },
+        "locales": {
+          "en": "en-GB",
+          "de": "de"
+        }
+      }
+    },
+    {
+      "name": "image",
+      "type": "asset",
+      "ccmField": "image"
+    },
+    {
+      "name": "body",
+      "type": "richText",
+      "ccmField": "body"
+    },
+    {
+      "name": "tags",
+      "type": "list",
+      "ccmField": "tags",
+      "itemFields": {
+        "label": "text",
+        "url": "link",
+        "locale": "text"
+      }
+    },
+    {
+      "name": "t.publishedOn",
+      "type": "text",
+      "i18n": {
+        "de": "Veröffentlicht am",
+        "en": "Published on"
+      }
+    },
+    {
+      "name": "t.tags",
+      "type": "text",
+      "i18n": {
+        "de": "Schlagworte",
+        "en": "Tags"
+      }
+    }
+  ],
+  "exampleHtml": "<article data-history-node-id=\"3\" class=\"node node--type-article node--promoted node--view-mode-full\">\n  <div class=\"node__content container container--narrow\">\n    <header class=\"node__header\">\n      <div class=\"node__meta\"><span class=\"node__meta-label\">Published on</span> <time datetime=\"2024-05-20T08:00:00+00:00\" class=\"node__date\">20 May 2024</time></div>\n    </header>\n    <div class=\"field field--name-field-image field--type-entity-reference field--label-hidden field__item\"><article class=\"media media--type-image media--view-mode-default\">\n  <div class=\"field field--name-field-media-image field--type-image field--label-hidden field__item\">  <img loading=\"eager\" src=\"/sites/default/files/2024-05/oats.jpg\" width=\"800\" height=\"600\" alt=\"Rolled oats\">\n</div>\n</article>\n</div>\n    <div class=\"text-content clearfix field field--name-body field--type-text-with-summary field--label-hidden field__item\"><p>Breakfast does not have to be complicated.</p><ol><li>Add fruit</li><li>Choose whole grains</li><li>Drink water</li><li>Include protein</li><li>Take your time</li></ol><blockquote><p>Breakfast is the most important meal of the day.</p></blockquote></div>\n    <div class=\"field field--name-field-tags field--type-entity-reference field--label-above field--tags\">\n      <h3 class=\"field__label\">Tags</h3>\n      <ul class=\"links field__items field--tags__items\"><li class=\"field__item\"><a href=\"/tags/breakfast\" hreflang=\"en\">Breakfast</a></li><li class=\"field__item\"><a href=\"/tags/nutrition\" hreflang=\"en\">Nutrition</a></li></ul>\n    </div>\n  </div>\n</article>",
+  "exampleProps": {
+    "created": {
+      "iso": "2024-05-20T08:00:00+00:00",
+      "formatted": "20 May 2024"
+    },
+    "image": {
+      "url": "/sites/default/files/2024-05/oats.jpg",
+      "alt": "Rolled oats",
+      "width": "800",
+      "height": "600"
+    },
+    "body": "<p>Breakfast does not have to be complicated.</p><ol><li>Add fruit</li><li>Choose whole grains</li><li>Drink water</li><li>Include protein</li><li>Take your time</li></ol><blockquote><p>Breakfast is the most important meal of the day.</p></blockquote>",
+    "tags": [
+      {
+        "label": "Breakfast",
+        "url": "/tags/breakfast",
+        "locale": "en"
+      },
+      {
+        "label": "Nutrition",
+        "url": "/tags/nutrition",
+        "locale": "en"
+      }
+    ],
+    "t": {
+      "publishedOn": "Published on",
+      "tags": "Tags"
+    }
+  },
+  "source": "heuristic",
+  "instances": 2,
+  "pages": [
+    "/de/news/gesundes-fruehstueck",
+    "/news/healthy-breakfast"
+  ],
+  "locales": [
+    "de",
+    "en"
+  ],
+  "verified": true
+}

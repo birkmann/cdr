@@ -1,0 +1,48 @@
+{
+  "ccmId": "drupal:node:1",
+  "type": "landingPage",
+  "locale": "de",
+  "status": "published",
+  "fields": {
+    "title": "Startseite",
+    "sections": [
+      {
+        "kind": "entry",
+        "id": "drupal:paragraph:101"
+      },
+      {
+        "kind": "entry",
+        "id": "drupal:paragraph:102"
+      },
+      {
+        "kind": "entry",
+        "id": "drupal:paragraph:103"
+      }
+    ]
+  },
+  "sourceChangedAt": "2024-06-01T10:00:00.000Z",
+  "source": {
+    "system": "drupal",
+    "kind": "node",
+    "id": "1",
+    "bundle": "landing_page",
+    "url": "http://localhost:8080/de/jsonapi/node/landing_page/n0000000-0000-4000-8000-000000000001?resourceVersion=id%3A1"
+  },
+  "path": "/de",
+  "slug": "",
+  "meta": {
+    "title": "Acme Demo Küche | Gutes Essen, gutes Leben",
+    "description": "Rezepte und Ernährungstipps für ein besseres Frühstück.",
+    "canonical": "/de",
+    "hreflang": [
+      {
+        "locale": "de",
+        "href": "/de"
+      },
+      {
+        "locale": "en",
+        "href": "/"
+      }
+    ]
+  }
+}

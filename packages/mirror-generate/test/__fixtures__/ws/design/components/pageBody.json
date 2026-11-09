@@ -1,0 +1,31 @@
+{
+  "id": "pageBody",
+  "name": "Page Body",
+  "selector": "article.node.node--type-page.node--view-mode-full",
+  "kind": "document",
+  "ccmType": "page",
+  "viewMode": "full",
+  "template": "<article class=\"node node--type-page node--view-mode-full\">\n  <div class=\"node__content container container--narrow\">\n    <div class=\"text-content clearfix field field--name-body field--type-text-with-summary field--label-hidden field__item\">{{{body}}}</div>\n  </div>\n</article>",
+  "props": [
+    {
+      "name": "body",
+      "type": "richText",
+      "ccmField": "body"
+    }
+  ],
+  "exampleHtml": "<article data-history-node-id=\"2\" class=\"node node--type-page node--view-mode-full\">\n  <div class=\"node__content container container--narrow\">\n    <div class=\"text-content clearfix field field--name-body field--type-text-with-summary field--label-hidden field__item\"><p>We are a small team of <strong>food lovers</strong>.</p><h2>Our values</h2><ul><li>Fresh ingredients</li><li>Simple recipes</li><li>Balanced nutrition</li></ul><article class=\"align-center media media--type-image media--view-mode-default\">\n  <div class=\"field field--name-field-media-image field--type-image field--label-hidden field__item\">  <img loading=\"lazy\" src=\"/sites/default/files/2024-05/oats.jpg\" width=\"800\" height=\"600\" alt=\"Rolled oats\">\n</div>\n</article><h3>Opening hours</h3><table><thead><tr><th>Day</th><th>Hours</th></tr></thead><tbody><tr><td>Mon–Fri</td><td>8–18</td></tr><tr><td>Sat</td><td>9–14</td></tr></tbody></table><p>Read our article on <a href=\"/node/3\">healthy breakfast</a> or visit <a href=\"https://www.acme.com\">acme.com</a>.</p></div>\n  </div>\n</article>",
+  "exampleProps": {
+    "body": "<p>We are a small team of <strong>food lovers</strong>.</p><h2>Our values</h2><ul><li>Fresh ingredients</li><li>Simple recipes</li><li>Balanced nutrition</li></ul><article class=\"align-center media media--type-image media--view-mode-default\">\n  <div class=\"field field--name-field-media-image field--type-image field--label-hidden field__item\">  <img loading=\"lazy\" src=\"/sites/default/files/2024-05/oats.jpg\" width=\"800\" height=\"600\" alt=\"Rolled oats\">\n</div>\n</article><h3>Opening hours</h3><table><thead><tr><th>Day</th><th>Hours</th></tr></thead><tbody><tr><td>Mon–Fri</td><td>8–18</td></tr><tr><td>Sat</td><td>9–14</td></tr></tbody></table><p>Read our article on <a href=\"/node/3\">healthy breakfast</a> or visit <a href=\"https://www.acme.com\">acme.com</a>.</p>"
+  },
+  "source": "heuristic",
+  "instances": 2,
+  "pages": [
+    "/about-us",
+    "/de/ueber-uns"
+  ],
+  "locales": [
+    "de",
+    "en"
+  ],
+  "verified": true
+}

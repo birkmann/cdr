@@ -1,0 +1,6 @@
+{
+ "decisions": [
+  { "path": "node.article.field_legacy_code", "decision": "skip" },
+  { "path": "contentTypes.article.fields.body.type", "decision": "set", "value": "richText" }
+ ]
+}

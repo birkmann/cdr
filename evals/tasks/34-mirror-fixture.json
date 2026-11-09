@@ -1,0 +1,35 @@
+{
+  "id": "34-mirror-fixture",
+  "suite": "recreate",
+  "sandbox": true,
+  "serve": "../packages/capture/test/sites/acme",
+  "config": {
+    "recreate": {
+      "allowLocal": true,
+      "respectRobots": false
+    }
+  },
+  "task": "Make a verbatim mirror of {{url}}: copy the page's own files and verify the copy against the original.",
+  "timeoutMs": 1500000,
+  "checks": [
+    {
+      "type": "recreateGate",
+      "gates": [
+        "crawl.pagesComplete",
+        "ccm.valid",
+        "fidelity.similarity",
+        "links.broken",
+        "redirects.failed",
+        "media.missing",
+        "playback.blank",
+        "visual.parity",
+        "visual.bbox",
+        "visual.height"
+      ]
+    },
+    {
+      "type": "command",
+      "command": "test -f .harness/recreate/*/out/mirror/package.json"
+    }
+  ]
+}

@@ -18,6 +18,9 @@ rmSync(dir, { recursive: true, force: true });
 mkdirSync(join(dir, "bin"), { recursive: true });
 cpSync(join(root, "dist-harness/cdr.mjs"), join(dir, "bin/cdr.mjs"));
 cpSync(join(root, "packages/core/skills"), join(dir, "bin/skills"), { recursive: true });
+// Mirror mode: its template and prompts, and Playwright, which cannot be compiled into cdr.mjs.
+cpSync(join(root, "dist-harness/mirror"), join(dir, "bin/mirror"), { recursive: true });
+cpSync(join(root, "dist-harness/node_modules"), join(dir, "bin/node_modules"), { recursive: true });
 writeFileSync(join(dir, "bin/package.json"), JSON.stringify({ type: "module", private: true }, null, 2) + "\n");
 cpSync(join(root, "apps/web/dist"), join(dir, "web"), { recursive: true });
 cpSync(join(root, "LICENSE"), join(dir, "LICENSE"));

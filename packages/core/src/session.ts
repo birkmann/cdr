@@ -787,7 +787,7 @@ export class Session {
   async complete(
     roleOrRef: string,
     messages: ChatMessage[],
-    o: { maxTokens?: number } = {},
+    o: { maxTokens?: number; onUsage?(u: { input: number; output: number; cost: number }): void } = {},
   ): Promise<string> {
     const m = this.model(roleOrRef);
     // A model that cannot see the images would answer blind (the provider drops them with a note); a caller that
@@ -801,6 +801,7 @@ export class Session {
       ((m.pricing?.inputPrice ?? 0) * res.usage.input + (m.pricing?.outputPrice ?? 0) * res.usage.output) /
       1_000_000;
     this.budget.add(res.usage.input, res.usage.output, cost);
+    o.onUsage?.({ input: res.usage.input, output: res.usage.output, cost });
     this.emit({
       type: "usage",
       inputTokens: res.usage.input,

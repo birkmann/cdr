@@ -1,0 +1,39 @@
+{
+  "id": "pageTitle",
+  "name": "Page title",
+  "selector": "div#block-demo-page-title.block.block-core.block-page-title-block",
+  "kind": "document",
+  "template": "<div id=\"block-demo-page-title\" class=\"block block-core block-page-title-block\">\n                    <h1 class=\"title page-title {{#if visuallyHidden}}visually-hidden{{/if}}\"><span class=\"field field--name-title field--type-string field--label-hidden\">{{title}}</span></h1>\n                  </div>",
+  "props": [
+    {
+      "name": "title",
+      "type": "text",
+      "ccmField": "title"
+    },
+    {
+      "name": "visuallyHidden",
+      "type": "text",
+      "valueType": "boolean"
+    }
+  ],
+  "exampleHtml": "<div id=\"block-demo-page-title\" class=\"block block-core block-page-title-block\">\n                    <h1 class=\"title page-title visually-hidden\"><span class=\"field field--name-title field--type-string field--label-hidden\">Home</span></h1>\n                  </div>",
+  "exampleProps": {
+    "title": "Home",
+    "visuallyHidden": true
+  },
+  "source": "heuristic",
+  "instances": 6,
+  "pages": [
+    "/",
+    "/about-us",
+    "/de",
+    "/de/news/gesundes-fruehstueck",
+    "/de/ueber-uns",
+    "/news/healthy-breakfast"
+  ],
+  "locales": [
+    "de",
+    "en"
+  ],
+  "verified": true
+}

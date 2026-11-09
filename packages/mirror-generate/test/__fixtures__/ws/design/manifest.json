@@ -1,0 +1,197 @@
+{
+  "baseUrl": "http://localhost:4400",
+  "viewports": [
+    {
+      "name": "mobile",
+      "width": 375,
+      "height": 812
+    },
+    {
+      "name": "tablet",
+      "width": 768,
+      "height": 1024
+    },
+    {
+      "name": "desktop",
+      "width": 1440,
+      "height": 900
+    }
+  ],
+  "stylesheets": [
+    "styles/base.css",
+    "styles/layout.css",
+    "styles/components.css",
+    "styles/navigation.css",
+    "styles/cookie-banner.css"
+  ],
+  "fonts": [
+    "assets/themes/custom/demo/fonts/inter-regular.woff2",
+    "assets/themes/custom/demo/fonts/inter-semibold.woff2"
+  ],
+  "scripts": [
+    {
+      "src": "scripts/navigation.js",
+      "placement": "body",
+      "original": "/themes/custom/demo/js/navigation.js?t4k2xz"
+    },
+    {
+      "src": "scripts/cookies.js",
+      "placement": "body",
+      "original": "/themes/custom/demo/js/cookies.js?t4k2xz",
+      "role": "consent"
+    }
+  ],
+  "components": [
+    {
+      "id": "cookieBanner",
+      "file": "components/cookieBanner.json",
+      "kind": "chrome"
+    },
+    {
+      "id": "footerNav",
+      "file": "components/footerNav.json",
+      "kind": "chrome"
+    },
+    {
+      "id": "languageSwitcher",
+      "file": "components/languageSwitcher.json",
+      "kind": "chrome"
+    },
+    {
+      "id": "mainNav",
+      "file": "components/mainNav.json",
+      "kind": "chrome"
+    },
+    {
+      "id": "siteFooter",
+      "file": "components/siteFooter.json",
+      "kind": "chrome"
+    },
+    {
+      "id": "siteHeader",
+      "file": "components/siteHeader.json",
+      "kind": "chrome"
+    },
+    {
+      "id": "articleBody",
+      "file": "components/articleBody.json",
+      "kind": "document",
+      "ccmType": "article"
+    },
+    {
+      "id": "landingPageBody",
+      "file": "components/landingPageBody.json",
+      "kind": "document",
+      "ccmType": "landingPage"
+    },
+    {
+      "id": "pageBody",
+      "file": "components/pageBody.json",
+      "kind": "document",
+      "ccmType": "page"
+    },
+    {
+      "id": "pageTitle",
+      "file": "components/pageTitle.json",
+      "kind": "document"
+    },
+    {
+      "id": "articleTeaser",
+      "file": "components/articleTeaser.json",
+      "kind": "section",
+      "ccmType": "article"
+    },
+    {
+      "id": "embeddedMedia",
+      "file": "components/embeddedMedia.json",
+      "kind": "section"
+    },
+    {
+      "id": "sectionHero",
+      "file": "components/sectionHero.json",
+      "kind": "section",
+      "ccmType": "sectionHero"
+    },
+    {
+      "id": "sectionTeaserList",
+      "file": "components/sectionTeaserList.json",
+      "kind": "section",
+      "ccmType": "sectionTeaserList"
+    },
+    {
+      "id": "sectionText",
+      "file": "components/sectionText.json",
+      "kind": "section",
+      "ccmType": "sectionText"
+    }
+  ],
+  "templates": [
+    {
+      "contentType": "article",
+      "file": "templates/article.json"
+    },
+    {
+      "contentType": "landingPage",
+      "file": "templates/landingPage.json"
+    },
+    {
+      "contentType": "page",
+      "file": "templates/page.json"
+    }
+  ],
+  "layouts": [
+    {
+      "id": "default",
+      "file": "layouts/default.json"
+    }
+  ],
+  "tokensFile": "tokens.json",
+  "images": [
+    "assets/themes/custom/demo/images/footer-pattern.png",
+    "assets/themes/custom/demo/images/icon-arrow.svg",
+    "assets/themes/custom/demo/images/icon-menu.svg"
+  ],
+  "screenshots": {
+    "desktop": [
+      "screenshots/desktop/about-us.png",
+      "screenshots/desktop/de.png",
+      "screenshots/desktop/de_news_gesundes-fruehstueck.png",
+      "screenshots/desktop/de_ueber-uns.png",
+      "screenshots/desktop/news_healthy-breakfast.png",
+      "screenshots/desktop/root.png"
+    ],
+    "tablet": [
+      "screenshots/tablet/about-us.png",
+      "screenshots/tablet/de.png",
+      "screenshots/tablet/de_news_gesundes-fruehstueck.png",
+      "screenshots/tablet/de_ueber-uns.png",
+      "screenshots/tablet/news_healthy-breakfast.png",
+      "screenshots/tablet/root.png"
+    ],
+    "mobile": [
+      "screenshots/mobile/about-us.png",
+      "screenshots/mobile/de.png",
+      "screenshots/mobile/de_news_gesundes-fruehstueck.png",
+      "screenshots/mobile/de_ueber-uns.png",
+      "screenshots/mobile/news_healthy-breakfast.png",
+      "screenshots/mobile/root.png"
+    ]
+  },
+  "mask": [
+    "#cookie-banner",
+    "#sliding-popup",
+    ".eu-cookie-compliance-banner",
+    "#onetrust-banner-sdk",
+    "#CybotCookiebotDialog"
+  ],
+  "locales": [
+    "en",
+    "de"
+  ],
+  "defaultLocale": "en",
+  "richText": {
+    "embeddedAsset": "embeddedMedia",
+    "listItemParagraphs": false
+  },
+  "source": "heuristic"
+}

@@ -1,0 +1,39 @@
+{
+  "id": "siteFooter",
+  "name": "Site footer",
+  "selector": "footer.site-footer",
+  "kind": "chrome",
+  "template": "<footer class=\"site-footer\">\n            <div class=\"site-footer__inner container\">\n              <div class=\"region region--footer-top\">\n                {{{footerNav}}}\n              </div>\n              <div class=\"region region--footer-bottom\">\n                <div id=\"block-demo-footertext\" class=\"block block-block-content block-block-content-6d3c1a2e-0000-4000-8000-000000000099\">\n                  <div class=\"text-content clearfix field field--name-body field--type-text-with-summary field--label-hidden field__item\"><p>{{footerText}}</p></div>\n                </div>\n              </div>\n            </div>\n          </footer>",
+  "props": [
+    {
+      "name": "footerNav",
+      "type": "html",
+      "component": "footerNav"
+    },
+    {
+      "name": "footerText",
+      "type": "text",
+      "ccmField": "settings.footerText"
+    }
+  ],
+  "exampleHtml": "<footer class=\"site-footer\">\n            <div class=\"site-footer__inner container\">\n              <div class=\"region region--footer-top\">\n                <nav role=\"navigation\" aria-labelledby=\"block-demo-footer-menu\" id=\"block-demo-footer\" class=\"block block-menu navigation menu--footer\">\n                  <h2 class=\"visually-hidden block__title\" id=\"block-demo-footer-menu\">Footer</h2>\n                  <ul class=\"menu footer-nav__menu\">\n          <li class=\"menu-item footer-nav__menu-item footer-nav__menu-item--link footer-nav__menu-item--level-1\">\n            <a href=\"https://www.acme.com/imprint\" class=\"footer-nav__menu-link footer-nav__menu-link--link footer-nav__menu-link--level-1\">Imprint</a>\n          </li>\n          <li class=\"menu-item footer-nav__menu-item footer-nav__menu-item--link footer-nav__menu-item--level-1\">\n            <a href=\"/about-us\" class=\"footer-nav__menu-link footer-nav__menu-link--link footer-nav__menu-link--level-1\" data-drupal-link-system-path=\"node/2\">Contact</a>\n          </li>\n                  </ul>\n                </nav>\n              </div>\n              <div class=\"region region--footer-bottom\">\n                <div id=\"block-demo-footertext\" class=\"block block-block-content block-block-content-6d3c1a2e-0000-4000-8000-000000000099\">\n                  <div class=\"text-content clearfix field field--name-body field--type-text-with-summary field--label-hidden field__item\"><p>© 2024 Acme Demo Kitchen. All rights reserved.</p></div>\n                </div>\n              </div>\n            </div>\n          </footer>",
+  "exampleProps": {
+    "footerNav": "<nav role=\"navigation\" aria-labelledby=\"block-demo-footer-menu\" id=\"block-demo-footer\" class=\"block block-menu navigation menu--footer\">\n                  <h2 class=\"visually-hidden block__title\" id=\"block-demo-footer-menu\">Footer</h2>\n                  <ul class=\"menu footer-nav__menu\">\n          <li class=\"menu-item footer-nav__menu-item footer-nav__menu-item--link footer-nav__menu-item--level-1\">\n            <a href=\"https://www.acme.com/imprint\" class=\"footer-nav__menu-link footer-nav__menu-link--link footer-nav__menu-link--level-1\">Imprint</a>\n          </li>\n          <li class=\"menu-item footer-nav__menu-item footer-nav__menu-item--link footer-nav__menu-item--level-1\">\n            <a href=\"/about-us\" class=\"footer-nav__menu-link footer-nav__menu-link--link footer-nav__menu-link--level-1\" data-drupal-link-system-path=\"node/2\">Contact</a>\n          </li>\n                  </ul>\n                </nav>",
+    "footerText": "© 2024 Acme Demo Kitchen. All rights reserved."
+  },
+  "source": "heuristic",
+  "instances": 6,
+  "pages": [
+    "/",
+    "/about-us",
+    "/de",
+    "/de/news/gesundes-fruehstueck",
+    "/de/ueber-uns",
+    "/news/healthy-breakfast"
+  ],
+  "locales": [
+    "de",
+    "en"
+  ],
+  "verified": true
+}

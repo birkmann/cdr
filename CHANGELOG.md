@@ -4,6 +4,11 @@ All notable changes are listed here. The project follows [Semantic Versioning](h
 
 ## Unreleased
 
+- `cdr autopilot` (`pnpm autopilot`) runs the self-improving matrix. It finds what fails across a list of sites, starts fixer goals in git worktrees, and keeps a fix only if the whole matrix does not regress, the finding is gone, and the fix leaves a test or lint behind. `fix`, `verify`, `loop`, `rules`, `diff` and `clean` are new, with a nightly launchd or cron example. See docs/autopilot.md.
+- Delete all your chats at once with **Delete all**, on the web app's Conversations page or at the bottom of the desktop app's conversation list. Running chats are kept.
+- A page recreated in mirror mode now runs in the preview pane and on the compare page as its real generated app, so its menus, sliders and runtime-loaded components work there. Choosing the recreate skill and sending only an address starts a mirror run directly.
+- `cdr recreate <url> --mirror`, the web app's **Mirror** button and the `recreate_mirror` tool reproduce a page from its own markup, styles and scripts in a generated Next.js app, and hold it to a verify suite that separates source drift from real defects.
+
 ## 0.3.1 (2026-11-08)
 
 - Recreations keep a wrapping row, such as a navigation, on one line where the page does. A rounding error in the row's fitted width could push its last item onto a new line.

@@ -1089,7 +1089,7 @@ button.st-sb:hover { background: var(--hover); color: var(--text); }
 .st-conv-action { position: absolute; top: 4px; right: 4px; visibility: hidden; }
 .st-conv:hover .st-conv-action, .st-conv-action:focus-visible, .st-conv-action.visible { visibility: visible; }
 .st-conv-approvals { margin: 2px 8px 6px; border: 1px solid var(--warn); border-radius: 8px; background: color-mix(in srgb, var(--warn) 6%, transparent); }
-.st-conv-foot { flex: none; display: flex; padding: 4px 6px; border-top: 1px solid var(--divider); }
+.st-conv-foot { flex: none; display: flex; align-items: center; justify-content: space-between; padding: 4px 6px; border-top: 1px solid var(--divider); }
 
 .st-rail-inner { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 12px; }
 .st-rail-empty { padding: 24px 16px; color: var(--muted); font-size: 12px; line-height: 1.5; text-align: center; }

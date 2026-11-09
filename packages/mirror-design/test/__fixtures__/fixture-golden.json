@@ -1,0 +1,369 @@
+{
+  "$comment": "Golden set for the heuristic miner on fixtures/site (POC URLs). Expected component ids, kinds, ccmTypes and props (MIGRATION_PLAN.md §10.1 harness). Regenerate only after reviewing a deliberate miner change.",
+  "pocUrls": [
+    "/",
+    "/about-us",
+    "/news/healthy-breakfast",
+    "/de",
+    "/de/ueber-uns"
+  ],
+  "components": [
+    {
+      "id": "articleBody",
+      "kind": "document",
+      "ccmType": "article",
+      "props": [
+        {
+          "name": "body",
+          "type": "richText",
+          "ccmField": "body"
+        },
+        {
+          "name": "created",
+          "type": "text",
+          "ccmField": "created"
+        },
+        {
+          "name": "image",
+          "type": "asset",
+          "ccmField": "image"
+        },
+        {
+          "name": "tags",
+          "type": "list",
+          "ccmField": "tags"
+        }
+      ],
+      "i18nKeys": []
+    },
+    {
+      "id": "articleTeaser",
+      "kind": "section",
+      "ccmType": "article",
+      "props": [
+        {
+          "name": "created",
+          "type": "text",
+          "ccmField": "created"
+        },
+        {
+          "name": "image",
+          "type": "asset",
+          "ccmField": "image"
+        },
+        {
+          "name": "title",
+          "type": "text",
+          "ccmField": "title"
+        },
+        {
+          "name": "url",
+          "type": "link",
+          "ccmField": "path"
+        }
+      ],
+      "i18nKeys": []
+    },
+    {
+      "id": "cookieBanner",
+      "kind": "chrome",
+      "props": [],
+      "i18nKeys": [
+        "t.accept",
+        "t.decline",
+        "t.weUseCookiesTo"
+      ]
+    },
+    {
+      "id": "embeddedMedia",
+      "kind": "section",
+      "props": [
+        {
+          "name": "align",
+          "type": "text"
+        },
+        {
+          "name": "image",
+          "type": "asset"
+        }
+      ],
+      "i18nKeys": []
+    },
+    {
+      "id": "footerNav",
+      "kind": "chrome",
+      "props": [
+        {
+          "name": "items",
+          "type": "list",
+          "ccmField": "navigation.footer"
+        }
+      ],
+      "i18nKeys": [
+        "t.footer"
+      ]
+    },
+    {
+      "id": "landingPageBody",
+      "kind": "document",
+      "ccmType": "landingPage",
+      "props": [
+        {
+          "name": "sections",
+          "type": "list",
+          "ccmField": "sections"
+        }
+      ],
+      "i18nKeys": []
+    },
+    {
+      "id": "languageSwitcher",
+      "kind": "chrome",
+      "props": [
+        {
+          "name": "links",
+          "type": "list",
+          "ccmField": "translations"
+        }
+      ],
+      "i18nKeys": [
+        "t.languageSwitcher"
+      ]
+    },
+    {
+      "id": "mainNav",
+      "kind": "chrome",
+      "props": [
+        {
+          "name": "items",
+          "type": "list",
+          "ccmField": "navigation.main"
+        }
+      ],
+      "i18nKeys": [
+        "t.mainNavigation"
+      ]
+    },
+    {
+      "id": "pageBody",
+      "kind": "document",
+      "ccmType": "page",
+      "props": [
+        {
+          "name": "body",
+          "type": "richText",
+          "ccmField": "body"
+        }
+      ],
+      "i18nKeys": []
+    },
+    {
+      "id": "pageTitle",
+      "kind": "document",
+      "props": [
+        {
+          "name": "title",
+          "type": "text",
+          "ccmField": "title"
+        },
+        {
+          "name": "visuallyHidden",
+          "type": "text"
+        }
+      ],
+      "i18nKeys": []
+    },
+    {
+      "id": "sectionHero",
+      "kind": "section",
+      "ccmType": "sectionHero",
+      "props": [
+        {
+          "name": "cta",
+          "type": "link",
+          "ccmField": "cta"
+        },
+        {
+          "name": "image",
+          "type": "asset",
+          "ccmField": "image"
+        },
+        {
+          "name": "subtitle",
+          "type": "text",
+          "ccmField": "subtitle"
+        },
+        {
+          "name": "title",
+          "type": "text",
+          "ccmField": "title"
+        }
+      ],
+      "i18nKeys": []
+    },
+    {
+      "id": "sectionTeaserList",
+      "kind": "section",
+      "ccmType": "sectionTeaserList",
+      "props": [
+        {
+          "name": "heading",
+          "type": "text",
+          "ccmField": "heading"
+        },
+        {
+          "name": "items",
+          "type": "list",
+          "ccmField": "collection"
+        }
+      ],
+      "i18nKeys": []
+    },
+    {
+      "id": "sectionText",
+      "kind": "section",
+      "ccmType": "sectionText",
+      "props": [
+        {
+          "name": "body",
+          "type": "richText",
+          "ccmField": "body"
+        }
+      ],
+      "i18nKeys": []
+    },
+    {
+      "id": "siteFooter",
+      "kind": "chrome",
+      "props": [
+        {
+          "name": "footerNav",
+          "type": "html"
+        },
+        {
+          "name": "footerText",
+          "type": "text",
+          "ccmField": "settings.footerText"
+        }
+      ],
+      "i18nKeys": []
+    },
+    {
+      "id": "siteHeader",
+      "kind": "chrome",
+      "props": [
+        {
+          "name": "homeUrl",
+          "type": "link",
+          "ccmField": "route.home"
+        },
+        {
+          "name": "languageSwitcher",
+          "type": "html"
+        },
+        {
+          "name": "logo",
+          "type": "asset",
+          "ccmField": "settings.logo"
+        },
+        {
+          "name": "mainNav",
+          "type": "html"
+        },
+        {
+          "name": "siteName",
+          "type": "text",
+          "ccmField": "settings.siteName"
+        },
+        {
+          "name": "slogan",
+          "type": "text",
+          "ccmField": "settings.extra.slogan"
+        }
+      ],
+      "i18nKeys": [
+        "t.home",
+        "t.mainNavigation",
+        "t.menu"
+      ]
+    }
+  ],
+  "templates": [
+    {
+      "contentType": "article",
+      "chrome": [
+        "siteHeader",
+        "siteFooter",
+        "cookieBanner"
+      ],
+      "slots": [
+        {
+          "component": "pageTitle",
+          "field": "title",
+          "region": "contentAbove",
+          "props": {
+            "visuallyHidden": false
+          }
+        },
+        {
+          "component": "articleBody",
+          "region": "content"
+        }
+      ],
+      "bodyClass": "path-node page-node-type-article"
+    },
+    {
+      "contentType": "landingPage",
+      "chrome": [
+        "siteHeader",
+        "siteFooter",
+        "cookieBanner"
+      ],
+      "slots": [
+        {
+          "component": "pageTitle",
+          "field": "title",
+          "region": "contentAbove",
+          "props": {
+            "visuallyHidden": true
+          }
+        },
+        {
+          "component": "landingPageBody",
+          "region": "content"
+        }
+      ],
+      "bodyClass": "path-frontpage page-node-type-landing-page"
+    },
+    {
+      "contentType": "page",
+      "chrome": [
+        "siteHeader",
+        "siteFooter",
+        "cookieBanner"
+      ],
+      "slots": [
+        {
+          "component": "pageTitle",
+          "field": "title",
+          "region": "contentAbove",
+          "props": {
+            "visuallyHidden": false
+          }
+        },
+        {
+          "component": "pageBody",
+          "region": "content"
+        }
+      ],
+      "bodyClass": "path-node page-node-type-page"
+    }
+  ],
+  "tokens": {
+    "color.primary": "#1f4e79",
+    "color.accent": "#d98b3a",
+    "breakpoint.tablet": "768px",
+    "breakpoint.desktop": "1200px",
+    "fontFamily.sans[0]": "Inter"
+  }
+}

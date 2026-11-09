@@ -163,7 +163,7 @@ export const STAGE_ORDER: RecreateStage[] = [
 export function stagesFor(targets: RecreateTarget[]): RecreateStage[] {
   const need = new Set<RecreateStage>(["consent", "probe", "capture", "scene", "build", "measure"]);
   const componentTargets = targets.filter((t) => t.startsWith("ds-") || t === "tokens" || t === "design-md");
-  if (componentTargets.length || targets.includes("react-vite")) {
+  if (componentTargets.length || targets.includes("react-vite") || targets.includes("replica-nextjs")) {
     need.add("components");
     need.add("system");
   }

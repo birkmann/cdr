@@ -1,0 +1,34 @@
+{
+  "id": "footer",
+  "name": "Footer",
+  "items": [
+    {
+      "id": "drupal:menu_link_content:10",
+      "label": {
+        "de": "Impressum",
+        "en": "Imprint"
+      },
+      "href": "https://www.acme.com/imprint",
+      "weight": 0,
+      "children": []
+    },
+    {
+      "id": "drupal:menu_link_content:11",
+      "label": {
+        "de": "Kontakt",
+        "en": "Contact"
+      },
+      "ref": {
+        "kind": "entry",
+        "id": "drupal:node:2"
+      },
+      "weight": 1,
+      "children": []
+    }
+  ],
+  "source": {
+    "system": "drupal",
+    "kind": "menu",
+    "id": "footer"
+  }
+}

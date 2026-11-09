@@ -1,22 +1,26 @@
 ---
 name: recreate-url
-description: Recreate a live web page 1:1 from its real DOM (static HTML, then optionally React + Vite or design-system packages), measured against the live page. Only after the user explicitly asked for an exact copy of a URL.
+description: Recreate a live web page 1:1. By default with recreate_mirror, which re-serves the page's own files with its menus, sliders and scripts working; rebuilt as code only when the user asks for code they own. Only after the user explicitly asked for an exact copy of a URL.
 auto: never
 ---
 
 # Recreate a page 1:1
 
-This skill rebuilds **that page**: measured from its live DOM, block by block, at every captured width, with menus and sliders working. It is never your own idea.
+This skill reproduces **that page**. It is never your own idea.
+
+**Default: mirror.** For "recreate this page 1:1", "clone this page" and the like, call `recreate_mirror { url, pages?, fix? }`. It copies the page's own markup, styles, scripts, images and fonts, re-serves them from a generated Next.js app and checks that app against the original. It asks for consent and runs the whole chain in that one call, for several minutes. Report the failing gates, the preview (`.harness/recreate/<run>/out/preview/index.html`, publish it with `set_preview`), the compare page, and that the result is a verbatim copy whose contents belong to their owners. Do not patch files under `out/mirror`: the run's fix loop owns that output.
+
+**Only when the user wants code they own** (a clean static page, a React project, a design system, tokens), rebuild it with the stages below: measured from its live DOM, block by block, at every captured width, with menus and sliders working.
 
 ## When to use it (and when not)
 
-Use it when the user's message asks for an exact copy of a URL in words that leave no doubt, for example _recreate exactly_, _1:1_, _pixel-perfect_, _clone this page_, _copy this site as it is_, together with a URL. If the user selected this skill themselves, that is the request: a URL or domain alone ("nestle.com") means recreate that page.
+Use it when the user's message asks for an exact copy of a URL in words that leave no doubt, for example _recreate exactly_, _1:1_, _pixel-perfect_, _clone this page_, _copy this site as it is_, together with a URL. If the user selected this skill themselves, that is the request: a URL or domain alone ("nestle.com") means mirror that page with `recreate_mirror`.
 
-A URL works with or without a scheme: `nestle.com`, `www.nestle.com/brands` and `https://www.nestle.com` are all valid; pass it to `recreate_capture` as written, it adds `https://` itself.
+A URL works with or without a scheme: `nestle.com`, `www.nestle.com/brands` and `https://www.nestle.com` are all valid; pass it to the tool as written, it adds `https://` itself.
 
 Do **not** use it (unless the user selected it) for "like bvg.de", "inspired by", "in the style of", "something similar to": those go to the `web-app` skill, which designs an original page. When in doubt, ask the user which they want.
 
-## Stages
+## Stages (rebuild only)
 
 1. `recreate_capture { url, widths? }`: asks the user for consent (always), probes the page's layout ranges, captures it per device class and converts it to sections. Keep the run id.
 2. `recreate_build { run }`: writes the whole `out/static/index.html` at once and scores every section against the live page. Nothing is repaired automatically unless the run was started with `repair: true`.

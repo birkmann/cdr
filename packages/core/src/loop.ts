@@ -41,7 +41,11 @@ export interface AgentHost {
   agents?: AgentSpawner;
   permissionMode?(): "ask" | "auto" | "yolo";
   autoApprovesPermissions?(): boolean;
-  complete?(role: string, messages: ChatMessage[], o?: { maxTokens?: number }): Promise<string>;
+  complete?(
+    role: string,
+    messages: ChatMessage[],
+    o?: { maxTokens?: number; onUsage?(u: { input: number; output: number; cost: number }): void },
+  ): Promise<string>;
   /** File where raw history removed by compaction is kept for this agent (searchable by the agent). */
   historyLog?(agent: string): HistoryLog | undefined;
 }

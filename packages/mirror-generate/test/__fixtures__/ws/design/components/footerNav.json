@@ -1,0 +1,67 @@
+{
+  "id": "footerNav",
+  "name": "Footer navigation",
+  "selector": "nav#block-demo-footer.block.block-menu.navigation",
+  "kind": "chrome",
+  "template": "<nav role=\"navigation\" aria-labelledby=\"block-demo-footer-menu\" id=\"block-demo-footer\" class=\"block block-menu navigation menu--footer\">\n                  <h2 class=\"visually-hidden block__title\" id=\"block-demo-footer-menu\">{{t.footer}}</h2>\n                  <ul class=\"menu footer-nav__menu\">\n          {{#each items}}<li class=\"menu-item footer-nav__menu-item footer-nav__menu-item--link footer-nav__menu-item--level-1 {{#if this.activeTrail}}menu-item--active-trail{{/if}}\">\n            <a href=\"{{this.url}}\" class=\"footer-nav__menu-link footer-nav__menu-link--link footer-nav__menu-link--level-1 {{#if this.active}}is-active{{/if}}\"{{#if this.active}} aria-current=\"page\"{{/if}}>{{this.label}}</a>\n          </li>{{/each}}\n                  </ul>\n                </nav>",
+  "props": [
+    {
+      "name": "items",
+      "type": "list",
+      "ccmField": "navigation.footer",
+      "itemFields": {
+        "label": "text",
+        "url": "link",
+        "locale": "text",
+        "active": "boolean",
+        "activeTrail": "boolean",
+        "children": "list"
+      }
+    },
+    {
+      "name": "t.footer",
+      "type": "text",
+      "i18n": {
+        "de": "Fußzeile",
+        "en": "Footer"
+      }
+    }
+  ],
+  "exampleHtml": "<nav role=\"navigation\" aria-labelledby=\"block-demo-footer-menu\" id=\"block-demo-footer\" class=\"block block-menu navigation menu--footer\">\n                  <h2 class=\"visually-hidden block__title\" id=\"block-demo-footer-menu\">Footer</h2>\n                  <ul class=\"menu footer-nav__menu\">\n          <li class=\"menu-item footer-nav__menu-item footer-nav__menu-item--link footer-nav__menu-item--level-1\">\n            <a href=\"https://www.acme.com/imprint\" class=\"footer-nav__menu-link footer-nav__menu-link--link footer-nav__menu-link--level-1\">Imprint</a>\n          </li>\n          <li class=\"menu-item footer-nav__menu-item footer-nav__menu-item--link footer-nav__menu-item--level-1\">\n            <a href=\"/about-us\" class=\"footer-nav__menu-link footer-nav__menu-link--link footer-nav__menu-link--level-1\" data-drupal-link-system-path=\"node/2\">Contact</a>\n          </li>\n                  </ul>\n                </nav>",
+  "exampleProps": {
+    "items": [
+      {
+        "label": "Imprint",
+        "url": "https://www.acme.com/imprint",
+        "active": false,
+        "activeTrail": false,
+        "children": []
+      },
+      {
+        "label": "Contact",
+        "url": "/about-us",
+        "active": false,
+        "activeTrail": false,
+        "children": []
+      }
+    ],
+    "t": {
+      "footer": "Footer"
+    }
+  },
+  "source": "heuristic",
+  "instances": 6,
+  "pages": [
+    "/",
+    "/about-us",
+    "/de",
+    "/de/news/gesundes-fruehstueck",
+    "/de/ueber-uns",
+    "/news/healthy-breakfast"
+  ],
+  "locales": [
+    "de",
+    "en"
+  ],
+  "verified": true
+}

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { RecreateRunView } from "@harness/client";
 import type { UseSessionResult } from "@harness/react";
 import { useApp } from "../app-state";
-import { useSessionLinks } from "../recreate";
+import { useMirrorApp, useSessionLinks } from "../recreate";
 import { IconAlert, IconCheck, IconCopy, IconExternal, IconRefresh, IconX } from "./icons";
 
 const STAGE_ORDER = [
@@ -19,6 +19,16 @@ const STAGE_ORDER = [
   "convert",
   "ds-export",
   "repair",
+  "crawl",
+  "ccm",
+  "design",
+  "generate",
+  "appbuild",
+  "serve",
+  "verify",
+  "fix",
+  "reverify",
+  "report",
 ];
 const STAGE_LABEL: Record<string, string> = {
   consent: "Consent",
@@ -32,6 +42,16 @@ const STAGE_LABEL: Record<string, string> = {
   convert: "Convert",
   "ds-export": "Design-system export",
   repair: "Repair",
+  crawl: "Crawl",
+  ccm: "Content",
+  design: "Design",
+  generate: "Generate app",
+  appbuild: "Build app",
+  serve: "Start app",
+  verify: "Verify",
+  fix: "Fix loop",
+  reverify: "Verify again",
+  report: "Report",
 };
 const SECTION_LABEL: Record<RecreateRunView["sections"][number]["status"], string> = {
   building: "building",
@@ -59,9 +79,9 @@ export function recreateRuns(s: Pick<UseSessionResult, "recreate">): RecreateRun
 /** The page the latest run is building (shown in the Preview tab while it grows). */
 export function recreatePreviewPath(s: Pick<UseSessionResult, "recreate">): string | undefined {
   const run = recreateRuns(s)
-    .filter((r) => r.dir && r.stages.build)
+    .filter((r) => r.dir && (r.mode === "mirror" ? r.stages.report?.status === "done" : r.stages.build))
     .at(-1);
-  return run ? `${run.dir}/out/static/index.html` : undefined;
+  return run ? `${run.dir}/out/${run.mode === "mirror" ? "preview" : "static"}/index.html` : undefined;
 }
 
 export type RecreateShot = RecreateRunView["shots"][number];
@@ -315,6 +335,19 @@ function StageIcon({ status }: { status: string }) {
 
 /** Stages every run goes through; the others (components, convert …) appear when they start. */
 const CORE_STAGES = ["consent", "probe", "capture", "scene", "build", "measure"];
+const MIRROR_STAGES = [
+  "consent",
+  "crawl",
+  "ccm",
+  "design",
+  "generate",
+  "appbuild",
+  "serve",
+  "verify",
+  "fix",
+  "reverify",
+  "report",
+];
 
 const clock = (ms: number) => {
   const t = Math.max(0, Math.floor(ms / 1000));
@@ -341,6 +374,24 @@ const hostOf = (url: string) => {
   }
 };
 
+function MirrorSummary({ run }: { run: RecreateRunView }) {
+  const gates = Object.values(run.verify ?? {});
+  const required = gates.filter((g) => !g.advisory);
+  const failing = required.filter((g) => !g.pass);
+  const advisory = gates.filter((g) => g.advisory && !g.pass);
+  const drift = gates.reduce((n, g) => Math.max(n, g.drift ?? 0), 0);
+  const kept = (run.fixes ?? []).filter((f) => f.accepted).length;
+  return (
+    <p className="muted small">
+      Verify: {required.length - failing.length} of {required.length} gates pass
+      {failing.length ? ` · failing: ${failing.map((g) => g.gate).join(", ")}` : ""}
+      {advisory.length ? ` · notes: ${advisory.map((g) => g.gate).join(", ")}` : ""}
+      {drift ? ` · source changed since the crawl on ${drift} shot${drift === 1 ? "" : "s"}` : ""}
+      {run.fixes?.length ? ` · fix loop kept ${kept} of ${run.fixes.length}` : ""}
+    </p>
+  );
+}
+
 export function RecreateCard({ run, onCompare }: { run: RecreateRunView; onCompare(runId: string): void }) {
   const running = run.status === "running";
   const now = useNow(running);
@@ -348,7 +399,12 @@ export function RecreateCard({ run, onCompare }: { run: RecreateRunView; onCompa
   const last = Math.max(-1, ...present.map((k) => STAGE_ORDER.indexOf(k)));
   // while running, the core stages still ahead are listed as pending so the way to the end is visible
   const names = [
-    ...new Set([...present, ...(running ? CORE_STAGES.filter((k) => STAGE_ORDER.indexOf(k) > last) : [])]),
+    ...new Set([
+      ...present,
+      ...(running
+        ? (run.mode === "mirror" ? MIRROR_STAGES : CORE_STAGES).filter((k) => STAGE_ORDER.indexOf(k) > last)
+        : []),
+    ]),
   ].sort((a, b) => STAGE_ORDER.indexOf(a) - STAGE_ORDER.indexOf(b));
   const stages = names.map((name) => ({ name, st: run.stages[name] }));
   const finished = stages.filter((x) => x.st && x.st.status !== "running").length;
@@ -434,6 +490,7 @@ export function RecreateCard({ run, onCompare }: { run: RecreateRunView; onCompa
           })}
         </ol>
       )}
+      {run.mode === "mirror" && run.verify && <MirrorSummary run={run} />}
       {run.sections.length > 0 && (
         <details className="recreate-sections">
           <summary>
@@ -581,8 +638,12 @@ export function ComparePanel({
   const run = runs.find((r) => r.runId === runId) ?? runs.at(-1);
   const [nonce, setNonce] = useState(0);
   useEffect(() => setNonce((n) => n + 1), [run?.comparePath, run?.status]);
-  const url =
-    client && previewBase && run?.comparePath ? client.previewUrl(previewBase, run.comparePath) : "";
+  const mirrorApp = useMirrorApp(sessionId, run?.mode === "mirror" ? run.runId : undefined, nonce);
+  const page =
+    client && previewBase && run?.comparePath && !mirrorApp.starting
+      ? client.previewUrl(previewBase, run.comparePath)
+      : "";
+  const url = page && mirrorApp.url ? `${page}?app=${encodeURIComponent(mirrorApp.url)}` : page;
   return (
     <div className="preview">
       <div className="panel-toolbar">

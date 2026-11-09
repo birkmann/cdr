@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Attachment, SkillInfo } from "@harness/client";
 import { useApp } from "../app-state";
-import { findUrl, parseRecreateCommand } from "../recreate";
+import { bareAddress, findUrl, parseRecreateCommand } from "../recreate";
 import { Popover } from "./Pickers";
 import { IconCopy, IconFile, IconPlus, IconSend, IconSparkle, IconStop, IconX } from "./icons";
 
@@ -95,7 +95,7 @@ export interface ComposerProps {
   skills?: SkillInfo[];
   onStop?(): void;
   /** 1:1 recreation of a URL: shows "Recreate 1:1" for a typed URL and handles `/recreate <url>` */
-  onRecreate?(url: string): Promise<boolean | void> | boolean | void;
+  onRecreate?(url: string, mode?: "rebuild"): Promise<boolean | void> | boolean | void;
   left?: ReactNode;
   right?: ReactNode;
 }
@@ -177,12 +177,15 @@ export function Composer({
     !disabled && !busy && !sending && (text.trim().length > 0 || files.length > 0 || selected.length > 0);
   const command = onRecreate ? parseRecreateCommand(text) : undefined;
   const url = onRecreate && !disabled ? (command ?? findUrl(text)) : undefined;
-  const recreate = async (target: string) => {
+  const recreate = async (target: string, mode?: "rebuild") => {
     if (!onRecreate || busy || sending) return;
     setSending(true);
     try {
-      const ok = await onRecreate(target);
-      if (ok !== false) setText("");
+      const ok = await onRecreate(target, mode);
+      if (ok !== false) {
+        setText("");
+        setSelected([]);
+      }
       setError(undefined);
     } catch (e) {
       setError((e as Error).message);
@@ -196,6 +199,12 @@ export function Composer({
       if (!command) return setError("Usage: /recreate https://example.com");
       return recreate(command);
     }
+    // The recreate skill and nothing but an address is the request itself: the same run as the Recreate 1:1 button.
+    const address =
+      onRecreate && selected.length === 1 && selected[0] === "recreate-url" && !files.length
+        ? bareAddress(text)
+        : undefined;
+    if (address) return recreate(address);
     setSending(true);
     try {
       const typed = takeSkillPrefix(text, skills);
@@ -362,9 +371,18 @@ export function Composer({
             className="secondary tiny"
             disabled={busy || sending}
             onClick={() => void recreate(url)}
-            title="Recreate this page 1:1 from its live DOM (asks for your consent first)"
+            title="Copy the page's own files and re-serve them from a generated app, checked against the original (asks for your consent first)"
           >
             <IconCopy size={13} /> Recreate 1:1
+          </button>
+          <button
+            type="button"
+            className="secondary tiny"
+            disabled={busy || sending}
+            onClick={() => void recreate(url, "rebuild")}
+            title="Measure the page and rebuild it as code you own, instead of re-serving its own files (asks for your consent first)"
+          >
+            <IconCopy size={13} /> Rebuild as code
           </button>
           <span className="muted small mono" title={url}>
             {url}

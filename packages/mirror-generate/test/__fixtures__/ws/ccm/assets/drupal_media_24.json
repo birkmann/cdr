@@ -1,0 +1,21 @@
+{
+  "ccmId": "drupal:media:24",
+  "src": "http://localhost:4400/sites/default/files/logo.svg",
+  "originalPath": "/sites/default/files/logo.svg",
+  "fileName": "logo.svg",
+  "mime": "image/svg+xml",
+  "source": {
+    "system": "drupal",
+    "kind": "media",
+    "id": "24",
+    "bundle": "image",
+    "url": "http://localhost:8080/jsonapi/media/image/m0000000-0000-4000-8000-000000000024?resourceVersion=id%3A24"
+  },
+  "size": 17,
+  "width": 160,
+  "height": 40,
+  "alt": {
+    "de": "Acme Demo Küche Logo",
+    "en": "Acme Demo Kitchen logo"
+  }
+}

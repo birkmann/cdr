@@ -1,0 +1,18 @@
+{
+ "siteName": {
+  "en": "Acme Global"
+ },
+ "baseUrl": "https://www.acme.com",
+ "scripts": [
+  {
+   "id": "inline-datalayer-tags",
+   "inline": "var dataLayer_tags = {\"event\":\"fireTags\"};",
+   "placement": "head"
+  },
+  {
+   "id": "gtm",
+   "src": "/modules/contrib/google_tag/js/gtm.js?tnamkk",
+   "placement": "head"
+  }
+ ]
+}

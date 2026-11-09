@@ -58,7 +58,9 @@ const err = (id: Id | null, code: number, message: string): Reply => ({
 });
 const ok = (id: Id, result: unknown): Reply => ({ jsonrpc: "2.0", id, result });
 
-/** recreate_capture's schema plus the explicit consent argument. */
+const CONSENT_TOOLS = new Set(["recreate_capture", "recreate_mirror"]);
+
+/** A self-gated tool's schema plus the explicit consent argument. */
 function withConsent(t: Tool): Tool {
   const p = t.parameters as { properties?: Record<string, unknown>; required?: string[] };
   return {
@@ -92,7 +94,7 @@ export class RecreateMcpServer {
       recreateComponentsTool,
       recreateConvertTool,
     ];
-    this.tools = base.map((t) => (t.name === "recreate_capture" ? withConsent(t) : t));
+    this.tools = base.map((t) => (CONSENT_TOOLS.has(t.name) ? withConsent(t) : t));
   }
 
   /** Where replies and notifications go (set by `serve`; tests may set it directly). */
@@ -151,7 +153,7 @@ export class RecreateMcpServer {
       string,
       unknown
     >;
-    if (tool.name === "recreate_capture" && args.consent !== true && !this.o.yes)
+    if (CONSENT_TOOLS.has(tool.name) && args.consent !== true && !this.o.yes)
       return ok(id, {
         content: [
           {
@@ -219,7 +221,7 @@ export class RecreateMcpServer {
             annotations: {
               readOnlyHint: t.readOnly,
               destructiveHint: false,
-              openWorldHint: t.name === "recreate_capture",
+              openWorldHint: CONSENT_TOOLS.has(t.name),
             },
           })),
         });

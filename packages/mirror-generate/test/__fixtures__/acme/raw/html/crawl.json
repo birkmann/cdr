@@ -1,0 +1,14 @@
+{
+ "baseUrl": "http://localhost:4401",
+ "pages": [
+  {
+   "path": "/",
+   "id": "root",
+   "status": 200,
+   "manifest": "raw/html/pages/root.json",
+   "requested": [
+    "/"
+   ]
+  }
+ ]
+}

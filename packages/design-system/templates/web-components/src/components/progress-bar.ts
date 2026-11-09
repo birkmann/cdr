@@ -22,13 +22,13 @@ export class ProgressBar extends LitElement {
       }
       .track {
         position: relative;
-        height: 0.5rem;
+        height: var(--__P__-dim-0-5rem);
         overflow: hidden;
         background: var(--__P__-layer-accent-01);
         border-radius: var(--__P__-radius-pill);
       }
       :host([size='small']) .track {
-        height: 0.25rem;
+        height: var(--__P__-dim-0-25rem);
       }
       .bar {
         height: 100%;

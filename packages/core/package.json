@@ -30,6 +30,7 @@
     "@harness/recreate": "workspace:*",
     "@harness/capture": "workspace:*",
     "@harness/measure": "workspace:*",
-    "@harness/design-system": "workspace:*"
+    "@harness/design-system": "workspace:*",
+    "@harness/mirror": "workspace:*"
   }
 }

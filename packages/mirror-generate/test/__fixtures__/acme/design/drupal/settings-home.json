@@ -1,0 +1,36 @@
+{
+ "path": {
+  "baseUrl": "/",
+  "pathPrefix": "",
+  "currentPath": "node/472961",
+  "currentPathIsAdmin": false,
+  "isFront": true,
+  "currentLanguage": "en"
+ },
+ "pluralDelimiter": "\u0003",
+ "ajaxPageState": {
+  "theme": "da_vinci_code",
+  "libraries": "eJx1U-uu2yAMfiF"
+ },
+ "gtm": {
+  "tagId": null,
+  "settings": {
+   "data_layer": "dataLayer",
+   "include_environment": false,
+   "include_custom_domain": true,
+   "custom_domain": "http://localhost:4401/__ext/data-eu.acme.com"
+  },
+  "tagIds": [
+   "GTM-PWRZ37"
+  ]
+ },
+ "dark_mode_switch": {
+  "dark_class": "dark-mode",
+  "parent_element": "body"
+ },
+ "user": {
+  "uid": 0,
+  "permissionsHash": "016e77ed127567cfa38acc48ef5c809cde20a9c969de1e8a9209400fa85dfd54"
+ },
+ "searchUrl": "http://localhost:4401/searchresults"
+}

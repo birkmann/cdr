@@ -1,0 +1,179 @@
+{
+  "ccmId": "drupal:node:2",
+  "type": "page",
+  "locale": "de",
+  "status": "published",
+  "fields": {
+    "title": "Über uns",
+    "body": {
+      "type": "doc",
+      "children": [
+        {
+          "type": "paragraph",
+          "children": [
+            {
+              "type": "text",
+              "value": "Wir sind ein kleines Team von "
+            },
+            {
+              "type": "text",
+              "value": "Genießern",
+              "marks": [
+                "bold"
+              ]
+            },
+            {
+              "type": "text",
+              "value": "."
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "children": [
+            {
+              "type": "text",
+              "value": "Unsere Werte"
+            }
+          ]
+        },
+        {
+          "type": "list",
+          "ordered": false,
+          "children": [
+            {
+              "type": "listItem",
+              "children": [
+                {
+                  "type": "paragraph",
+                  "children": [
+                    {
+                      "type": "text",
+                      "value": "Frische Zutaten"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "children": [
+                {
+                  "type": "paragraph",
+                  "children": [
+                    {
+                      "type": "text",
+                      "value": "Einfache Rezepte"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "children": [
+                {
+                  "type": "paragraph",
+                  "children": [
+                    {
+                      "type": "text",
+                      "value": "Ausgewogene Ernährung"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "embeddedAsset",
+          "ref": {
+            "kind": "asset",
+            "id": "drupal:media:22"
+          }
+        },
+        {
+          "type": "heading",
+          "level": 3,
+          "children": [
+            {
+              "type": "text",
+              "value": "Öffnungszeiten"
+            }
+          ]
+        },
+        {
+          "type": "rawHtml",
+          "html": "<table><thead><tr><th>Tag</th><th>Zeiten</th></tr></thead><tbody><tr><td>Mo–Fr</td><td>8–18</td></tr><tr><td>Sa</td><td>9–14</td></tr></tbody></table>",
+          "reason": "table"
+        },
+        {
+          "type": "paragraph",
+          "children": [
+            {
+              "type": "text",
+              "value": "Lies unseren Artikel über "
+            },
+            {
+              "type": "link",
+              "ref": {
+                "kind": "entry",
+                "id": "drupal:node:3"
+              },
+              "children": [
+                {
+                  "type": "text",
+                  "value": "gesundes Frühstück"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": " oder besuche "
+            },
+            {
+              "type": "link",
+              "href": "https://www.acme.com",
+              "children": [
+                {
+                  "type": "text",
+                  "value": "acme.com"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": "."
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "sourceChangedAt": "2024-06-02T10:00:00.000Z",
+  "source": {
+    "system": "drupal",
+    "kind": "node",
+    "id": "2",
+    "bundle": "page",
+    "url": "http://localhost:8080/de/jsonapi/node/page/n0000000-0000-4000-8000-000000000002?resourceVersion=id%3A2"
+  },
+  "path": "/de/ueber-uns",
+  "slug": "ueber-uns",
+  "meta": {
+    "title": "Über uns | Acme Demo Küche",
+    "description": "Wer wir sind und was wir kochen.",
+    "canonical": "/de/ueber-uns",
+    "hreflang": [
+      {
+        "locale": "de",
+        "href": "/de/ueber-uns"
+      },
+      {
+        "locale": "en",
+        "href": "/about-us"
+      }
+    ]
+  }
+}

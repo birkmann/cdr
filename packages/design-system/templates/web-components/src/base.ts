@@ -36,9 +36,9 @@ export const base = css`
   }
   .visually-hidden {
     position: absolute !important;
-    width: 1px;
-    height: 1px;
-    margin: -1px;
+    width: var(--__P__-dim-1px);
+    height: var(--__P__-dim-1px);
+    margin: var(--__P__-dim-n1px);
     padding: 0;
     overflow: hidden;
     clip: rect(0, 0, 0, 0);

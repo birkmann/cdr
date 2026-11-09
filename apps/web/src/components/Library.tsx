@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { basename, isAutomated, relativeTime, useApp, useKnownProjects } from "../app-state";
-import { IconCode, IconFile, IconFolder, IconPlus, IconSearch, IconChevronRight } from "./icons";
+import { deleteAllChats, deleteAllNote, deleteAllPrompt, planDeleteAll } from "../delete-chats";
+import { alertDialog, confirmDialog } from "./Dialogs";
+import { IconCode, IconFile, IconFolder, IconPlus, IconSearch, IconChevronRight, IconTrash } from "./icons";
 import { ProjectPicker } from "./Pickers";
 import { CopyButton } from "./History";
 import {
@@ -12,8 +14,29 @@ import {
 } from "./Projects";
 
 export function Library({ kind }: { kind: "projects" | "chats" | "artifacts" }) {
-  const { client, sessions: allSessions, navigate, rememberProject, settings, updateSettings } = useApp();
+  const {
+    client,
+    sessions: allSessions,
+    navigate,
+    refreshSessions,
+    rememberProject,
+    settings,
+    updateSettings,
+  } = useApp();
   const automated = useMemo(() => allSessions.filter(isAutomated).length, [allSessions]);
+  const deletePlan = useMemo(() => planDeleteAll(allSessions), [allSessions]);
+  const [deleting, setDeleting] = useState(false);
+  const deleteAll = async () => {
+    if (!client) return;
+    const { title: dialogTitle, message } = deleteAllPrompt(deletePlan);
+    if (!(await confirmDialog(message, { title: dialogTitle, ok: "Delete all", danger: true }))) return;
+    setDeleting(true);
+    const result = await deleteAllChats(client, deletePlan.chats);
+    setDeleting(false);
+    await refreshSessions();
+    const note = deleteAllNote(result);
+    if (note) void alertDialog(note, { title: "Some things were not deleted" });
+  };
   const sessions = useMemo(
     () => (settings.showAutomated ? allSessions : allSessions.filter((s) => !isAutomated(s))),
     [allSessions, settings.showAutomated],
@@ -128,9 +151,20 @@ export function Library({ kind }: { kind: "projects" | "chats" | "artifacts" }) 
             }}
           />
         ) : (
-          <button className="secondary" onClick={() => navigate({ name: "home" })}>
-            <IconPlus /> New chat
-          </button>
+          <span className="row">
+            {kind === "chats" && (
+              <button
+                className="secondary danger-text"
+                disabled={deleting || deletePlan.chats.length === 0}
+                onClick={() => void deleteAll()}
+              >
+                <IconTrash /> {deleting ? "Deleting…" : "Delete all"}
+              </button>
+            )}
+            <button className="secondary" onClick={() => navigate({ name: "home" })}>
+              <IconPlus /> New chat
+            </button>
+          </span>
         )}
       </div>
       <label className="library-search">

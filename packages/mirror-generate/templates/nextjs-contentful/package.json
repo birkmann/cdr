@@ -1,0 +1,26 @@
+{
+  "name": "@cmp/template-nextjs-contentful",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "next": "16.4.4",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "contentful": "11.12.10",
+    "@contentful/rich-text-types": "17.2.7",
+    "@contentful/rich-text-react-renderer": "16.2.2",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@types/node": "22.20.5",
+    "typescript": "5.9.3"
+  }
+}

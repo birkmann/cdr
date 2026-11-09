@@ -1,0 +1,79 @@
+{
+  "ccmId": "drupal:paragraph:102",
+  "type": "sectionText",
+  "locale": "en",
+  "status": "published",
+  "fields": {
+    "body": {
+      "type": "doc",
+      "children": [
+        {
+          "type": "heading",
+          "level": 2,
+          "children": [
+            {
+              "type": "text",
+              "value": "Why breakfast matters"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "children": [
+            {
+              "type": "text",
+              "value": "A balanced breakfast gives you "
+            },
+            {
+              "type": "text",
+              "value": "energy",
+              "marks": [
+                "bold"
+              ]
+            },
+            {
+              "type": "text",
+              "value": " and helps you "
+            },
+            {
+              "type": "text",
+              "value": "focus",
+              "marks": [
+                "italic"
+              ]
+            },
+            {
+              "type": "text",
+              "value": ". Learn more "
+            },
+            {
+              "type": "link",
+              "ref": {
+                "kind": "entry",
+                "id": "drupal:node:2"
+              },
+              "children": [
+                {
+                  "type": "text",
+                  "value": "about us"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": "."
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "sourceChangedAt": "2024-06-01T10:00:00.000Z",
+  "source": {
+    "system": "drupal",
+    "kind": "paragraph",
+    "id": "102",
+    "bundle": "text",
+    "url": "http://localhost:8080/jsonapi/paragraph/text/p0000000-0000-4000-8000-000000000102?resourceVersion=id%3A102"
+  }
+}

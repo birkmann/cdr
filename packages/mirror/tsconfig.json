@@ -1,0 +1,45 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": [
+    "src"
+  ],
+  "exclude": [
+    "src/**/*.test.ts"
+  ],
+  "references": [
+    {
+      "path": "../protocol"
+    },
+    {
+      "path": "../capture"
+    },
+    {
+      "path": "../measure"
+    },
+    {
+      "path": "../recreate"
+    },
+    {
+      "path": "../mirror-core"
+    },
+    {
+      "path": "../mirror-capture"
+    },
+    {
+      "path": "../mirror-design"
+    },
+    {
+      "path": "../mirror-generate"
+    },
+    {
+      "path": "../mirror-verify"
+    },
+    {
+      "path": "../mirror-fix"
+    }
+  ]
+}

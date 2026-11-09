@@ -1,0 +1,20 @@
+{
+  "id": "articles--block_latest",
+  "name": "Articles: Latest",
+  "type": "article",
+  "filters": [],
+  "sort": [
+    {
+      "field": "created",
+      "direction": "desc"
+    }
+  ],
+  "limit": 3,
+  "manual": false,
+  "source": {
+    "system": "drupal",
+    "kind": "view_display",
+    "id": "articles.block_latest",
+    "bundle": "block"
+  }
+}
