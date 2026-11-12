@@ -198,6 +198,51 @@ describe("runRecreate (recorded capture, no browser)", () => {
     expect(existsSync(join(root, ".harness/recreate", r.runId))).toBe(false);
   });
 
+  it("logs every run in its folder: each step timed, every event, a timing summary, no secrets", async () => {
+    const root = project();
+    const r = await runRecreate(
+      { url: "https://acme.example/", widths: [390, 1440] },
+      {
+        projectRoot: root,
+        driver: fakeDriver([]),
+        consent: yes,
+        sectionChecks: false,
+        config: { remoteUrl: "https://capture.example/", apiKey: "sk-secret-123" } as never,
+      },
+    );
+    const dir = join(root, ".harness/recreate", r.runId, "logs");
+    const log = readFileSync(join(dir, "run.log"), "utf8");
+    expect(log).toMatch(/^\d\d:\d\d:\d\d\.\d{3} +\+\d+\.\ds {2}=== new run /m);
+    expect(log).toMatch(/consent: auto \(yes\)/);
+    for (const st of ["probe", "capture", "scene", "build", "measure"]) {
+      expect(log).toMatch(new RegExp(`▶ ${st}\\n`));
+      expect(log).toMatch(new RegExp(`[✓✗–] ${st} \\d+\\.\\ds`));
+    }
+    expect(log).toMatch(/… capture session 390px/);
+    expect(log).toMatch(/measured static\n {26}390px {2}pixel \d+\.\d\d %/);
+    // percentages as the gates print them (the events carry fractions)
+    const gate = /✓ pixel {2}390px (\d+\.\d\d) %/.exec(log)?.[1];
+    expect(log).toContain(`390px  pixel ${gate} %`);
+    expect(log).toMatch(/timing \((success|failed)\): this invocation \d+\.\ds, stages in total/);
+    expect(log).not.toContain("sk-secret-123");
+    // each line once
+    expect(log.match(/ log: \.harness/g)).toHaveLength(1);
+    expect(log).toMatch(/✓ measure static \d+\.\ds/);
+    const events = readFileSync(join(dir, "events.jsonl"), "utf8")
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l) as { at: string; ms: number; type: string });
+    expect(events[0]!.type).toBe("recreate.started");
+    expect(events.at(-1)!.type).toBe("recreate.finished");
+    expect(events.every((e) => typeof e.ms === "number" && !Number.isNaN(Date.parse(e.at)))).toBe(true);
+    // a resumed run adds its own block
+    await runRecreate(
+      { run: r.runId, from: "measure" },
+      { projectRoot: root, driver: fakeDriver([]), consent: yes, sectionChecks: false },
+    );
+    expect(readFileSync(join(dir, "run.log"), "utf8").match(/^.*=== (new run|resumed)/gm)).toHaveLength(2);
+  });
+
   it("reports a new run's consent only once given, not in recreate.started", async () => {
     const events: RecreateProgress[] = [];
     await runRecreate(
@@ -754,3 +799,54 @@ describe.skipIf(!chrome)("runRecreate end to end (fixture site, headless Chrome)
     }
   }, 240_000);
 });
+
+describe.skipIf(!chrome)(
+  "runRecreate modern (fixture site with video, slider, hover, menu; headless Chrome)",
+  () => {
+    it("recreates one DOM for every width that plays the video, drives the slider, keeps the hover looks and passes every gate", async () => {
+      const site = await serveSite("motion");
+      try {
+        const root = project();
+        const r = await runRecreate(
+          { url: site.url, to: ["modern"] },
+          {
+            projectRoot: root,
+            config: { allowLocal: true, respectRobots: false, gates: { lighthouse: false } },
+            consent: yes,
+            sectionChecks: false,
+          },
+        );
+        const rep = r.reports.find((x) => x.target === "modern");
+        expect(rep, r.summary).toBeTruthy();
+        expect(r.outputs.map((o) => o.target)).toEqual(["modern"]);
+        // every gate passes; pixels within 2 % (glyph rendering differs a little between machines)
+        const failing = rep!.gates
+          .filter((g) => !g.pass && g.name !== "pixel")
+          .map((g) => `${g.name}: ${g.detail}`);
+        expect(failing).toEqual([]);
+        for (const w of rep!.widths) expect(w.pixel).toBeLessThan(0.02);
+        expect(rep!.gates.map((g) => g.name)).toEqual(
+          expect.arrayContaining([
+            "pixel",
+            "text",
+            "layout",
+            "interactions",
+            "responsive",
+            "flow",
+            "a11y",
+            "markup",
+            "motion",
+            "behaviour",
+            "hover",
+          ]),
+        );
+        const html = readFileSync(join(root, ".harness/recreate", r.runId, "out/modern/index.html"), "utf8");
+        expect(html).not.toMatch(/data-bp=/);
+        expect(html).toMatch(/<video [^>]*autoplay/);
+        expect(existsSync(join(root, ".harness/recreate", r.runId, "capture/media.json"))).toBe(true);
+      } finally {
+        await site.close();
+      }
+    }, 420_000);
+  },
+);

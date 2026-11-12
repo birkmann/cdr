@@ -97,15 +97,29 @@ export const recreateCaptureTool: Tool = {
         items: { type: "integer" },
         description: "Capture widths in CSS px. Default: the page's own layout ranges (else 390, 768, 1440).",
       },
+      to: {
+        type: "array",
+        items: { type: "string", enum: ["modern", "lit", "react-page", "angular-page", "static"] },
+        description:
+          "What recreate_build writes: modern (one semantic DOM for every width, real video, sliders, hover looks, accessible; the default for new recreations), lit (a Lit + Vite project of the modern page), react-page (a React + Vite project of it), angular-page (an Angular project of it), static (the earlier per-breakpoint page; needed for react-vite and design systems).",
+      },
     },
     required: ["url"],
   },
   readOnly: false,
   selfGated: true,
   risk: () => "high",
-  async execute(args: { url: string; widths?: number[] }, ctx) {
+  async execute(args: { url: string; widths?: number[]; to?: RecreateTarget[] }, ctx) {
+    const to = (args.to ?? []).filter((t) =>
+      ["modern", "lit", "react-page", "angular-page", "static"].includes(t),
+    );
+    if (to.some((t) => t !== "modern" && t !== "static") && !to.includes("modern")) to.unshift("modern");
     const r = await runRecreate(
-      { url: args.url, ...(args.widths?.length ? { widths: args.widths } : {}) },
+      {
+        url: args.url,
+        ...(args.widths?.length ? { widths: args.widths } : {}),
+        ...(to.length ? { to } : {}),
+      },
       recreateHost(ctx, { consentArgs: args }),
       { stopAfter: "scene" },
     );
@@ -142,7 +156,7 @@ export const recreateCaptureTool: Tool = {
 export const recreateBuildTool: Tool = {
   name: "recreate_build",
   description:
-    "Build the captured page as static HTML in one pass and score every section against the live page (one shot per width). Sections that miss their threshold are repaired by the model only when the run was started with repair: true.",
+    "Build the captured page in one pass: the modern page (out/modern: one DOM, fitted CSS, video, sliders, hover) and the Lit project (out/lit) when the run targets them, else static HTML scored section by section against the live page. Sections of the static page below their threshold are repaired by the model only when the run was started with repair: true.",
   parameters: {
     type: "object",
     properties: { run: { type: "string", description: "Run id from recreate_capture." } },
@@ -154,7 +168,8 @@ export const recreateBuildTool: Tool = {
     const got = needRun(ctx, args.run);
     if ("ok" in got) return got;
     // the preview shows the page from the start; it refreshes as sections are added
-    const index = got.dir.rel("out/static/index.html");
+    const to = got.m.request.to ?? ["static"];
+    const index = got.dir.rel(to.includes("modern") ? "out/modern/index.html" : "out/static/index.html");
     let shown = false;
     const r = await runRecreate(
       resumeRequest(got.m, args.run, "build"),
@@ -162,7 +177,14 @@ export const recreateBuildTool: Tool = {
         ...recreateHost(ctx),
         progress: (e) => {
           ctx.emit(e);
-          if (!shown && e.type === "recreate.section" && e.status === "building") {
+          if (
+            !shown &&
+            ((e.type === "recreate.section" && e.status === "building") ||
+              (e.type === "recreate.stage" &&
+                e.stage === "build" &&
+                e.status === "done" &&
+                to.includes("modern")))
+          ) {
             shown = true;
             ctx.emit({ type: "preview.ready", path: index, title: "Recreation" });
           }
@@ -292,12 +314,26 @@ export const recreateComponentsTool: Tool = {
 export const recreateConvertTool: Tool = {
   name: "recreate_convert",
   description:
-    "Convert a recreation into a project: react-vite (Vite + React + TypeScript, styles tailwind | css-modules | vanilla) or a design-system package (ds-react, ds-lit, ds-angular), or tokens. Runs the components stage first when needed.",
+    "Convert a recreation into a project: lit, react-page or angular-page (the modern page as a Lit, React or Angular project, prerendered and hydrated), react-vite (Vite + React + TypeScript, styles tailwind | css-modules | vanilla) or a design-system package (ds-react, ds-lit, ds-angular), or tokens. Runs the components stage first when needed.",
   parameters: {
     type: "object",
     properties: {
       run: { type: "string" },
-      to: { type: "string", enum: ["react-vite", "ds-react", "ds-lit", "ds-angular", "tokens", "design-md"] },
+      to: {
+        type: "string",
+        enum: [
+          "lit",
+          "react-page",
+          "angular-page",
+          "modern",
+          "react-vite",
+          "ds-react",
+          "ds-lit",
+          "ds-angular",
+          "tokens",
+          "design-md",
+        ],
+      },
       style: { type: "string", enum: ["tailwind", "css-modules", "vanilla"] },
     },
     required: ["run", "to"],
@@ -310,6 +346,17 @@ export const recreateConvertTool: Tool = {
   ) {
     const got = needRun(ctx, args.run);
     if ("ok" in got) return got;
+    // the page projects come from the live DOM (the build stage): the modern page, and Lit built from it
+    if (args.to === "lit" || args.to === "react-page" || args.to === "angular-page" || args.to === "modern") {
+      const r = await runStages(ctx, got, args.run, "build", "build", {
+        to: args.to === "modern" ? ["modern"] : ["modern", args.to],
+      });
+      const out = r.outputs.find((o) => o.target === args.to);
+      return {
+        ok: r.status === "success" && !!out,
+        output: `${stageLines(r)}\n${out ? `Written to ${got.dir.rel(out.path)}. Next: recreate_measure (measures out/modern, and out/lit/dist once built).` : `No ${args.to} output.`}`,
+      };
+    }
     const from: RecreateStage = got.dir.exists("design-system/system.json") ? "convert" : "components";
     const r = await runStages(ctx, got, args.run, from, "ds-export", { to: [args.to], style: args.style });
     const out = r.outputs.find((o) => o.target === args.to);

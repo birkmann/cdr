@@ -56,12 +56,54 @@ export function recreateRuns(s: Pick<UseSessionResult, "recreate">): RecreateRun
   return Object.values(s.recreate?.runs ?? {});
 }
 
+/** outputs that are projects: their page is their build (dist/), measured once built */
+const PROJECTS = new Set(["lit", "react-page", "angular-page"]);
+const OUTPUT_LABEL: Record<string, string> = {
+  modern: "Modern page",
+  static: "Static page",
+  lit: "Lit project",
+  "react-page": "React project",
+  "angular-page": "Angular project",
+};
+
+/**
+ * The pages a run built, best first: the modern page, the projects' builds (once built and measured), the static
+ * page. Paths are relative to the project.
+ */
+export function recreatePages(run: RecreateRunView): { target: string; label: string; path: string }[] {
+  const out: { target: string; label: string; path: string }[] = [];
+  const order = ["modern", "lit", "react-page", "angular-page", "static"];
+  for (const t of order) {
+    const o = run.outputs.find((x) => x.target === t);
+    const dir =
+      o?.path ??
+      (run.dir && (t === "modern" || t === "static") && run.targets.includes(t)
+        ? `${run.dir}/out/${t}`
+        : undefined);
+    if (!dir) continue;
+    if (PROJECTS.has(t) && !run.measured[t]) continue;
+    out.push({
+      target: t,
+      label: OUTPUT_LABEL[t] ?? t,
+      path: PROJECTS.has(t) ? `${dir}/dist/index.html` : `${dir}/index.html`,
+    });
+  }
+  // a run started before its outputs were announced: the page the build writes
+  if (!out.length && run.dir && run.stages.build)
+    out.push({
+      target: run.targets.includes("modern") ? "modern" : "static",
+      label: run.targets.includes("modern") ? "Modern page" : "Static page",
+      path: `${run.dir}/out/${run.targets.includes("modern") ? "modern" : "static"}/index.html`,
+    });
+  return out;
+}
+
 /** The page the latest run is building (shown in the Preview tab while it grows). */
 export function recreatePreviewPath(s: Pick<UseSessionResult, "recreate">): string | undefined {
   const run = recreateRuns(s)
     .filter((r) => r.dir && r.stages.build)
     .at(-1);
-  return run ? `${run.dir}/out/static/index.html` : undefined;
+  return run ? recreatePages(run)[0]?.path : undefined;
 }
 
 export type RecreateShot = RecreateRunView["shots"][number];
@@ -124,7 +166,9 @@ export function recreateBuild(
   if (!shot) return;
   // the build writes the whole page before its first section event: from then on the page can be shown
   const page =
-    run.dir && run.stages.build && run.sections.length ? `${run.dir}/out/static/index.html` : undefined;
+    run.dir && run.stages.build && (run.sections.length || run.targets.includes("modern"))
+      ? recreatePages(run)[0]?.path
+      : undefined;
   return { run, shot, activity: activityOf(run), page };
 }
 
@@ -341,7 +385,17 @@ const hostOf = (url: string) => {
   }
 };
 
-export function RecreateCard({ run, onCompare }: { run: RecreateRunView; onCompare(runId: string): void }) {
+export function RecreateCard({
+  run,
+  sessionId,
+  onCompare,
+}: {
+  run: RecreateRunView;
+  sessionId?: string;
+  onCompare(runId: string): void;
+}) {
+  const { client } = useApp();
+  const { previewBase } = useSessionLinks(sessionId ?? "");
   const running = run.status === "running";
   const now = useNow(running);
   const present = Object.keys(run.stages);
@@ -366,6 +420,10 @@ export function RecreateCard({ run, onCompare }: { run: RecreateRunView; onCompa
     Object.keys(run.measured).length > 0 &&
     !Object.values(run.stages).some((x) => x.status === "failed");
   const look = gatesMissed ? "gates" : run.status;
+  // the gates of the page that matters most (the modern page, else the first measured): how many hold
+  const primary = run.measured.modern ?? Object.values(run.measured)[0];
+  const passed = primary?.gates.filter((g) => g.pass).length ?? 0;
+  const failing = primary?.gates.filter((g) => !g.pass).map((g) => g.name) ?? [];
   const statusLabel = running
     ? "Running"
     : run.status === "success"
@@ -373,8 +431,10 @@ export function RecreateCard({ run, onCompare }: { run: RecreateRunView; onCompa
       : run.status === "cancelled"
         ? "Stopped"
         : gatesMissed
-          ? "Gates missed"
+          ? `Ready · ${passed} of ${primary?.gates.length ?? 0} gates`
           : "Failed";
+  const pages = running ? [] : recreatePages(run);
+  const pageUrl = (path: string) => (client && previewBase ? client.previewUrl(previewBase, path) : "");
   return (
     <section className={`card recreate-card ${look}`} role="region" aria-label="Recreation progress">
       <div className="recreate-head">
@@ -404,6 +464,44 @@ export function RecreateCard({ run, onCompare }: { run: RecreateRunView; onCompa
       >
         <i style={{ width: `${progress * 100}%` }} />
       </div>
+      {pages.length > 0 && (
+        <div className="recreate-result" aria-label="Recreated pages">
+          <div className="recreate-result-line">
+            <b>{run.status === "success" ? "Your recreation is ready." : "Your recreation is built."}</b>{" "}
+            {gatesMissed && failing.length > 0 && (
+              <span className="muted small">
+                Still apart from the live page: {failing.join(", ")} (see Compare).
+              </span>
+            )}
+          </div>
+          <div className="row recreate-open">
+            {pages.map((p) => {
+              const url = pageUrl(p.path);
+              return url ? (
+                <a
+                  key={p.target}
+                  className="button-link"
+                  href={url}
+                  target="_blank"
+                  rel="noreferrer"
+                  title={p.path}
+                >
+                  Open {p.label} <IconExternal size={11} />
+                </a>
+              ) : (
+                <span key={p.target} className="mono small" title={p.path}>
+                  {p.label}: {p.path}
+                </span>
+              );
+            })}
+            {run.comparePath && (
+              <button className="secondary" onClick={() => onCompare(run.runId)}>
+                Compare with live page
+              </button>
+            )}
+          </div>
+        </div>
+      )}
       {stages.length > 0 && (
         <ol className="recreate-stages" aria-label="Stages">
           {stages.map(({ name, st }) => {
@@ -542,7 +640,7 @@ export function RecreateCard({ run, onCompare }: { run: RecreateRunView; onCompa
         </div>
       )}
       {run.summary && <div className="small">{run.summary}</div>}
-      {run.comparePath && (
+      {run.comparePath && !pages.length && (
         <div className="row">
           <button className="secondary" onClick={() => onCompare(run.runId)}>
             Compare with live page

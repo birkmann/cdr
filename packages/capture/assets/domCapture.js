@@ -44,6 +44,50 @@
     }
   }
   const visible = (el) => { const r = el.getBoundingClientRect(); const cs = getComputedStyle(el); return r.width > 0 && r.height > 0 && cs.visibility !== 'hidden' && cs.display !== 'none' }
+
+  /**
+   * A box's place in the live DOM, the same in every walk of the page at any width and in every load of it: the path of
+   * `tag[#id]:n` steps (n = index among its parent's children of that tag; boxes the capture inserted are not counted),
+   * `>s` into a shadow root, `::before` / `::after` for materialised pseudos, `~k` for the k-th text node of a box.
+   * The recreation matches the walks of one page by it (one DOM for every width).
+   */
+  const KEYS = new WeakMap()
+  const stableId = (id) => !!id && id.length <= 40 && !/\d{3,}|[0-9a-f]{8}|^(ember|react|radix|headlessui|mui|swiper-wrapper-)|^:r/i.test(id)
+  function keyOf(el) {
+    if (!el || el.nodeType !== 1) return ''
+    const hit = KEYS.get(el)
+    if (hit !== undefined) return hit
+    let key
+    if (el === document.documentElement) key = 'html'
+    else if (el === document.body) key = 'body'
+    else {
+      const ps = el.getAttribute('data-figcap-pseudo')
+      const parentNode = el.parentNode
+      const host = parentNode && parentNode.nodeType === 11 ? parentNode.host : null
+      const parent = host || el.parentElement
+      if (ps) key = `${keyOf(parent)}::${ps}`
+      else if (!parent) key = el.localName
+      else {
+        let n = 0
+        for (const c of (host ? parentNode : parent).children) {
+          if (c === el) break
+          if (c.localName === el.localName && !c.hasAttribute('data-figcap-pseudo')) n++
+        }
+        const id = el.getAttribute('id')
+        key = `${keyOf(parent)}${host ? '>s' : ''}/${el.localName}${stableId(id) ? `#${id}` : ''}:${n}`
+      }
+    }
+    KEYS.set(el, key)
+    return key
+  }
+  window.__figcapKeyOf = keyOf
+  const textKeyOf = (t) => {
+    const p = t.parentNode
+    let k = 0
+    for (const c of p.childNodes) { if (c === t) break; if (c.nodeType === 3 && c.data.trim()) k++ }
+    return `${p.nodeType === 11 ? `${keyOf(p.host)}>s` : keyOf(p)}~${k}`
+  }
+
   // Didomi, OneTrust, Cookiebot, Usercentrics (v2 + v3), consentmanager, TrustArc, Sourcepoint, Borlabs
   const CONSENT_IDS = ['#didomi-notice-agree-button', '#onetrust-accept-btn-handler', '#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll', '#accept-all-cookies', '[data-testid="uc-accept-all-button"]', '.uc-accept-button', '.cmpboxbtnyes', '#uc-btn-accept-banner', '#truste-consent-button', '.truste-button2', '.sp_choice_type_11', '[data-cookie-accept-all]', '#BorlabsCookieBox a._brlbs-btn-accept-all']
   // whole label only (anchored), so "Ablehnen", "Einstellungen", "Reject and continue" never match
@@ -655,6 +699,27 @@
       else if ((tag === 'button' || tag === 'summary' || role === 'button') && el.getAttribute('aria-expanded') === 'false' && !el.hasAttribute('aria-haspopup')) add(el, 'toggle')
       else if (tag === 'button' && scrollsX(el)) add(el, 'toggle')
     }
+    // desktop navigation flyouts: an entry (a link to its section page, often) that shows its hidden panel while the
+    // pointer is over it — opened by the driver's pointer, never clicked; a fixed header is where they live
+    if (window.innerWidth >= 1024) {
+      const hiddenNow = (p) => { const cs = getComputedStyle(p), r = p.getBoundingClientRect(); return cs.display === 'none' || cs.visibility === 'hidden' || Number(cs.opacity) < 0.05 || r.height < 4 || r.width < 4 }
+      for (const el of deepElements(document.body)) {
+        if (out.length >= 40) break
+        if (!/^(a|button)$/.test(el.localName) || seen.has(el) || el === window.__figcapMenuTrigger || !visible(el)) continue
+        const pop = /^(true|menu)$/.test(el.getAttribute('aria-haspopup') || '')
+        const nav = el.closest('nav, [role="navigation"], header')
+        if (!nav || (!pop && !el.hasAttribute('aria-controls'))) continue
+        const id = el.getAttribute('aria-controls')
+        const item = el.closest('li') || el.parentElement
+        let panel = id ? document.getElementById(id) : null
+        if (!panel && item) panel = [...item.children].find((c) => c !== el && !c.contains(el) && /^(ul|div|section|nav)$/.test(c.localName)) || null
+        if (!panel || !item || !item.contains(panel) || !hiddenNow(panel) || !panel.querySelector('a')) continue
+        const r = el.getBoundingClientRect()
+        if (r.width < 8 || r.height < 8) continue
+        seen.add(el)
+        out.push({ el, kind: 'hover', panel, tag: el.localName, label: labelOf(el), cls: classOf(el), at: { x: r.left + window.scrollX, y: r.top + window.scrollY } })
+      }
+    }
     return out
   }
   /**
@@ -700,13 +765,29 @@
     thaw()
     const c = (window.__figcapCtl || [])[opts.index]
     if (!c || !controlEl(c, opts.index) || !visible(c.el)) return null
-    c.el.scrollIntoView({ block: 'center', behavior: 'instant' })
+    if (c.kind === 'hover') window.scrollTo({ top: 0, left: 0, behavior: 'instant' })
+    else c.el.scrollIntoView({ block: 'center', behavior: 'instant' })
     await nextFrame(); await nextFrame()
-    const S = (window.__figcapState = { ctl: c, changed: [], url: location.href, last: window.performance.now(), texts: new Map(ancestorsOf(c.el).slice(0, 12).map((a) => [a, norm(a.innerText)])) })
+    const S = (window.__figcapState = { ctl: c, back: c.kind === 'select' && c.option === undefined ? selectedOf(c.el) : null, changed: [], url: location.href, last: window.performance.now(), texts: new Map(ancestorsOf(c.el).slice(0, 12).map((a) => [a, norm(a.innerText)])) })
     S.mo = new window.MutationObserver((list) => { S.last = window.performance.now(); for (const m of list) S.changed.push(m.type === 'characterData' ? m.target.parentElement : m.target) })
     S.mo.observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true })
     S.noNav = (e) => { const a = e.target.closest && e.target.closest('a[href]'); if (a && !/^(#|javascript:)/i.test((a.getAttribute('href') || '').trim())) e.preventDefault() }
     window.addEventListener('click', S.noNav)
+    if (c.kind === 'hover') {
+      // layers over the page the open flyout may show (a backdrop dimming the page): fixed, viewport-sized, not drawn now
+      S.overlays = []
+      for (const el of deepElements(document.body)) {
+        if (S.overlays.length >= 4 || el.__figcapBase === undefined || el.contains(c.el)) continue
+        const cs = getComputedStyle(el)
+        if (cs.position !== 'fixed' || cs.display === 'none') continue
+        const r = el.getBoundingClientRect()
+        if (r.width < window.innerWidth * 0.8 || r.height < window.innerHeight * 0.5) continue
+        if (Number(cs.opacity) < 0.05 || cs.visibility === 'hidden') S.overlays.push(el)
+      }
+      // the driver moves the pointer here (a pure CSS :hover changes nothing the observer sees: the panel counts)
+      const r = c.el.getBoundingClientRect()
+      return { clicked: true, hover: { x: Math.round(r.left + Math.min(r.width / 2, 12)), y: Math.round(r.top + r.height / 2) } }
+    }
     if (c.option !== undefined) chooseOption(c.el, c.option)
     else c.el.click()
     return { clicked: true }
@@ -731,6 +812,7 @@
     S.mo.disconnect()
     window.removeEventListener('click', S.noNav)
     if (location.href !== S.url) return { ok: false }
+    if (S.ctl.kind === 'hover') return hoverSettle(S)
     // body / html attribute churn (scroll locks, state classes) says nothing about where the widget is
     const shown = [...new Set(S.changed)].filter((n) => n && n.nodeType === 1 && n.isConnected && !/^(script|style|link|meta|noscript|body|html)$/.test(n.localName) && n.getBoundingClientRect().width > 0)
     if (!shown.length) return { ok: false }
@@ -739,6 +821,13 @@
       let n = 0
       for (const x of shown) if (inside(a, x)) n++
       if (n > 0.5 * shown.length) { region = a; break }
+    }
+    // what the control says it controls (a tab's panel, an accordion's answer) is in its region too
+    if (region && S.ctl && S.ctl.el && S.ctl.el.getAttribute) {
+      for (const id of (S.ctl.el.getAttribute('aria-controls') || '').split(/\s+/).filter(Boolean)) {
+        const t = document.getElementById(id)
+        if (t) while (region && region !== document.body && !inside(region, t)) region = region.parentElement
+      }
     }
     while (region && region.__figcapBase === undefined) region = region.parentElement
     if (!region || region === document.body || pinnedBox(region) || norm(region.innerText) === S.texts.get(region) && !shown.some((x) => inside(region, x) && x !== region)) return { ok: false }
@@ -759,6 +848,32 @@
     ;(window.__figcapCtl || []).forEach((c, k) => controlEl(c, k))
     return { ok: true, region: region.__figcapBase, kind: S.ctl.kind, label: S.ctl.text || labelOf(S.ctl.el) }
   }
+  /** a flyout under the pointer: its region is the entry holding the trigger and the panel, once the panel shows */
+  async function hoverSettle(S) {
+    const { el, panel } = S.ctl
+    if (!panel || !panel.isConnected) return { ok: false }
+    const r = panel.getBoundingClientRect(), cs = getComputedStyle(panel)
+    if (cs.display === 'none' || cs.visibility === 'hidden' || Number(cs.opacity) < 0.05 || r.height < 4) return { ok: false }
+    let region = el.parentElement
+    while (region && !region.contains(panel)) region = region.parentElement
+    while (region && region.__figcapBase === undefined) region = region.parentElement
+    if (!region || region === document.body) return { ok: false }
+    S.region = region
+    for (const img of panel.querySelectorAll('img')) {
+      if (img.loading === 'lazy') img.loading = 'eager'
+      const lazy = !img.getAttribute('src') && (img.getAttribute('data-src') || img.getAttribute('data-lazy-src'))
+      if (lazy) img.setAttribute('src', lazy)
+    }
+    await Promise.race([Promise.all([...panel.querySelectorAll('img')].map((i) => (i.decode ? i.decode().catch(() => {}) : null))), sleep(3000)])
+    region.setAttribute('data-figcap-region', '')
+    // the page's layers the flyout showed: their look while it is open
+    const overlays = []
+    for (const o of S.overlays || []) {
+      const cs = getComputedStyle(o)
+      if (o.isConnected && Number(cs.opacity) >= 0.05 && cs.visibility !== 'hidden') overlays.push({ id: o.__figcapBase, opacity: Number(cs.opacity), bg: cs.backgroundColor })
+    }
+    return { ok: true, region: region.__figcapBase, kind: 'hover', label: labelOf(el), ...(overlays.length ? { overlays } : {}) }
+  }
   /**
    * mode 'state-restore' (`index`): the page as before — a toggle clicked again, a choice back on the group's selected
    * one. `{ ok }` = the region (else the control's surroundings) reads as before.
@@ -768,13 +883,16 @@
     const S = window.__figcapState, c = (window.__figcapCtl || [])[opts.index]
     if (!S || !c) return { ok: false }
     if (S.region) S.region.removeAttribute('data-figcap-region')
-    const back = c.option !== undefined ? c.el : c.kind === 'toggle' ? c.el : selectedOf(c.el)
+    // a choice goes back to the one selected before the state opened (selectedOf now finds the one just chosen)
+    // a flyout closes when the driver has moved the pointer away
+    const back = c.kind === 'hover' ? c.el : c.option !== undefined ? c.el : c.kind === 'toggle' ? c.el : (S.back && S.back.isConnected ? S.back : selectedOf(c.el))
     if (!back) return { ok: false }
     const R = { last: window.performance.now() }
     const mo = new window.MutationObserver(() => { R.last = window.performance.now() })
     mo.observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true })
     window.addEventListener('click', S.noNav)
-    if (c.option !== undefined) chooseOption(back, c.base)
+    if (c.kind === 'hover') { /* nothing to click */ }
+    else if (c.option !== undefined) chooseOption(back, c.base)
     else back.click()
     await quiet(R, 2500)
     mo.disconnect()
@@ -1000,6 +1118,92 @@
   if (opts.mode === 'layout-sig') return layoutSig()
   if (opts.mode === 'layout-diff') return layoutDiff()
   if (opts.mode === 'container-switches') return containerSwitches()
+
+  /* ------------------------------------------------------------------ hover states */
+
+  // what a pointer over a control changes, on the control and inside it (an arrow sliding in, an underline growing, a
+  // card's photo zooming): read before and after the driver moves a real pointer there (CSS :hover and the page's own
+  // mouseenter handlers both apply)
+  const HOVER_PROPS = ['color', 'background-color', 'background-image', 'border-top-color', 'border-right-color', 'border-bottom-color', 'border-left-color', 'box-shadow', 'opacity', 'transform', 'translate', 'scale', 'rotate', 'text-decoration-line', 'text-decoration-color', 'text-underline-offset', 'outline-style', 'outline-color', 'outline-width', 'filter', 'visibility', 'width', 'height', 'fill', 'stroke', 'padding-left', 'padding-right', 'gap', 'clip-path']
+  const hvClass = (el) => (typeof el.className === 'string' ? el.className : el.getAttribute('class') || '')
+  function hoverTargets() {
+    const seen = new Map(), out = []
+    for (const el of deepElements(document.body)) el.removeAttribute('data-figcap-hv')
+    for (const el of deepElements(document.body)) {
+      if (out.length >= (opts.max || 160)) break
+      if (el.closest('svg') && el.localName !== 'svg') continue
+      const tag = el.localName
+      const role = el.getAttribute('role') || ''
+      const cs = getComputedStyle(el)
+      const interactive = (tag === 'a' && el.hasAttribute('href')) || tag === 'button' || tag === 'summary' || /^(button|tab|link|menuitem|option)$/.test(role) || (cs.cursor === 'pointer' && !el.parentElement?.closest('a[href],button'))
+      if (!interactive || !visible(el)) continue
+      if (el.parentElement && el.parentElement.closest('a[href],button,[role=button]')) continue
+      const r = el.getBoundingClientRect()
+      if (r.width < 8 || r.height < 8 || r.width > 1600 || r.height > 1000) continue
+      const sig = `${tag}|${hvClass(el).split(/\s+/).filter((c) => c && !/active|current|selected|is-|swiper-slide-(prev|next)|\d{2,}/i.test(c)).sort().join('.')}|${el.children.length}`
+      const n = seen.get(sig) || 0
+      if (n >= 2) continue
+      seen.set(sig, n + 1)
+      el.setAttribute('data-figcap-hv', String(out.length))
+      const label = (el.getAttribute('aria-label') || el.innerText || el.getAttribute('title') || '').replace(/\s+/g, ' ').trim().slice(0, 80)
+      out.push({ i: out.length, key: keyOf(el), tag, label, x: r.left + window.scrollX + r.width / 2, y: r.top + window.scrollY + r.height / 2, w: r.width, h: r.height })
+    }
+    return out
+  }
+  function hoverRead(i, phase) {
+    const el = document.querySelector(`[data-figcap-hv="${i}"]`)
+    if (!el) return null
+    const nodes = [el, ...[...el.querySelectorAll('*')].filter((x) => !x.closest('svg') || x.localName === 'svg')].slice(0, 80)
+    const read = (x, pseudo) => { const cs = getComputedStyle(x, pseudo || null); const o = {}; for (const p of HOVER_PROPS) o[p] = cs.getPropertyValue(p); return o }
+    const now = []
+    for (const x of nodes) {
+      now.push([keyOf(x), read(x)])
+      // a materialised pseudo stands in for its ::before / ::after: the pseudo's own hover look is read on its host
+      if (x.hasAttribute('data-figcap-b')) now.push([`${keyOf(x)}::before`, read(x, '::before')])
+      if (x.hasAttribute('data-figcap-a')) now.push([`${keyOf(x)}::after`, read(x, '::after')])
+    }
+    if (phase === 'before') { window.__figcapHv = now; return { ok: true } }
+    const before = new Map(window.__figcapHv || [])
+    const changes = []
+    for (const [k, v] of now) {
+      const b = before.get(k)
+      if (!b) continue
+      const d = {}
+      for (const p of HOVER_PROPS) if (v[p] !== b[p]) d[p] = v[p]
+      // the materialised pseudos are switched off (content: none): their size reads auto either way
+      if (Object.keys(d).length) changes.push({ key: k, props: d })
+    }
+    return { changes }
+  }
+  /**
+   * mode 'record-video' (`key`, `ms`): a few seconds of a playing video recorded in the page (captureStream +
+   * MediaRecorder, WebM) for a stream that has no file to download; null when the browser refuses (cross-origin media)
+   */
+  async function recordVideo(key, ms) {
+    const v = [...document.querySelectorAll('video')].find((x) => keyOf(x) === key)
+    if (!v || !v.captureStream || !window.MediaRecorder) return null
+    try {
+      if (v.paused) await v.play().catch(() => {})
+      const stream = v.captureStream()
+      const type = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'].find((t) => window.MediaRecorder.isTypeSupported(t))
+      if (!type || !stream.getVideoTracks().length) return null
+      const rec = new window.MediaRecorder(stream, { mimeType: type, videoBitsPerSecond: 2_500_000 })
+      const chunks = []
+      rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data) }
+      const done = new Promise((r) => { rec.onstop = r })
+      rec.start(500)
+      await sleep(ms)
+      rec.stop()
+      await done
+      const blob = new Blob(chunks, { type: 'video/webm' })
+      if (!blob.size) return null
+      const data = await new Promise((r) => { const f = new FileReader(); f.onload = () => r(f.result); f.readAsDataURL(blob) })
+      return { data, bytes: blob.size, w: v.videoWidth, h: v.videoHeight }
+    } catch (e) { return { error: String(e && e.message || e).slice(0, 200) } }
+  }
+  if (opts.mode === 'record-video') return recordVideo(opts.key, opts.ms || 6000)
+  if (opts.mode === 'hover-targets') return hoverTargets()
+  if (opts.mode === 'hover-read') return hoverRead(opts.index, opts.phase)
   if (opts.mode === 'freeze') { freezePage(); return { ok: true } }
   if (opts.mode === 'thaw') { thaw(); return { ok: true } }
   if (opts.mode === 'menu-close') return menuClose()
@@ -1130,6 +1334,23 @@
     })
   }
 
+  // a slider that advances by itself: changes to carousel-like boxes (style / class / scroll) while the page settles,
+  // before the freeze stops its timer; regular intervals are its autoplay delay (`SnapSlider.autoplay`)
+  if (opts.prepare !== false && window.MutationObserver && !window.__figcapAuto) {
+    const AUTO_RE = /carousel|slider|swiper|splide|slick|glide|flickity|embla|keen-slider|slides|track|stage|teaser/i
+    const auto = (window.__figcapAuto = new Map())
+    const mark = (el) => { const t = auto.get(el) || []; const now = window.performance.now(); if (!t.length || now - t[t.length - 1] > 250) t.push(now); auto.set(el, t) }
+    const mo = new window.MutationObserver((list) => {
+      for (const m of list) {
+        const el = m.target
+        if (el.nodeType !== 1) continue
+        const names = `${typeof el.className === 'string' ? el.className : ''} ${el.parentElement && typeof el.parentElement.className === 'string' ? el.parentElement.className : ''}`
+        if (AUTO_RE.test(names)) mark(m.attributeName === 'class' && el.parentElement ? el.parentElement : el)
+      }
+    })
+    mo.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['style', 'class', 'aria-hidden'] })
+    window.__figcapAutoStop = () => mo.disconnect()
+  }
   if (opts.prepare !== false) {
     await sleep(300)
     await dismissConsent()
@@ -1156,7 +1377,23 @@
     if (pending.length) await Promise.race([Promise.all(pending.map((i) => new Promise((r) => { i.addEventListener('load', r, { once: true }); i.addEventListener('error', r, { once: true }) }))), sleep(4000)])
     await Promise.race([Promise.all([...document.images].map((i) => (i.decode ? i.decode().catch(() => {}) : null))), sleep(2000)])
   }
+  if (window.__figcapAutoStop) window.__figcapAutoStop()
   if (opts.freeze !== false) freezePage()
+  // transitions of interactive boxes, read before the freeze switches them off: the recreation keeps how a hover or a
+  // panel moves (`SnapElement.transition`), not only where it ends
+  const TRANSITIONS = window.__figcapTransitions || (window.__figcapTransitions = new WeakMap())
+  if (!opts.alt && !opts.state) {
+    let n = 0
+    for (const el of deepElements(document.body)) {
+      if (n > 3000) break
+      const cs = getComputedStyle(el)
+      const d = cs.transitionDuration
+      if (!d || /^(0s,?\s*)+$/.test(d)) continue
+      if (el.closest('svg') && el.localName !== 'svg') continue
+      n++
+      TRANSITIONS.set(el, { property: cs.transitionProperty, duration: d, timing: cs.transitionTimingFunction, delay: cs.transitionDelay })
+    }
+  }
   const freeze = document.createElement('style')
   freeze.id = '__figcap_freeze'
   freeze.textContent = '*,*::before,*::after{transition:none!important;caret-color:transparent!important}[data-figcap-b]::before{content:none!important}[data-figcap-a]::after{content:none!important}'
@@ -1518,13 +1755,14 @@
     if (cs.position !== 'static' && cs.zIndex !== 'auto') out.z = Number(cs.zIndex)
     if (d !== 'contents' && stackingContext(cs, el)) out.stack = true
     if (/flex/.test(d)) Object.assign(out, { dir: cs.flexDirection, wrap: cs.flexWrap, justify: cs.justifyContent, align: cs.alignItems, gap: [px(cs.rowGap), px(cs.columnGap)] })
-    if (/grid/.test(d)) Object.assign(out, { cols: cs.gridTemplateColumns, rows: cs.gridTemplateRows, gap: [px(cs.rowGap), px(cs.columnGap)], justify: cs.justifyContent, align: cs.alignItems })
+    if (/grid/.test(d)) Object.assign(out, { cols: cs.gridTemplateColumns, rows: cs.gridTemplateRows, gap: [px(cs.rowGap), px(cs.columnGap)], justify: cs.justifyContent, align: cs.alignItems, ...(cs.gridTemplateAreas && cs.gridTemplateAreas !== 'none' ? { areas: cs.gridTemplateAreas } : {}) })
     const pad = [cs.paddingTop, cs.paddingRight, cs.paddingBottom, cs.paddingLeft].map(px)
     if (pad.some((p) => p)) out.padding = pad
     const bw = [cs.borderTopWidth, cs.borderRightWidth, cs.borderBottomWidth, cs.borderLeftWidth].map(px)
     if (bw.some((p) => p)) out.borderWidth = bw
     if (cs.alignSelf !== 'auto') out.alignSelf = cs.alignSelf
     if (cs.flexGrow !== '0') out.grow = Number(cs.flexGrow)
+    if (cs.order && cs.order !== '0') out.order = Number(cs.order)
     // layout intent the box's rect cannot tell: what the page asked for, not only where the box ended up
     const margin = [cs.marginTop, cs.marginRight, cs.marginBottom, cs.marginLeft].map(px)
     if (margin.some((m) => m)) out.margin = margin
@@ -1713,7 +1951,8 @@
     for (let d = 0; d < 3 && level.length; d++) {
       for (const p of level) {
         const kids = [...p.children].map((c) => c.getBoundingClientRect()).filter((k) => k.width > 20 && k.height > 20)
-        if (kids.length >= 2 && kids.every((k) => Math.abs(k.top - kids[0].top) < 4) && kids.some((k) => k.left >= r.right - 1)) return true
+        // (or before its left edge: an autoplaying slider caught on a later slide)
+        if (kids.length >= 2 && kids.every((k) => Math.abs(k.top - kids[0].top) < 4) && kids.some((k) => k.left >= r.right - 1 || k.right <= r.left + 1)) return true
       }
       level = level.flatMap((p) => [...p.children])
       if (level.length > 40) return false
@@ -1733,7 +1972,9 @@
     const snap = cs.scrollSnapType && cs.scrollSnapType !== 'none' ? cs.scrollSnapType : undefined
     if (sx && (!sy || el.scrollWidth - el.clientWidth >= el.scrollHeight - el.clientHeight)) return { axis: 'x', kind: 'scroll', ...(snap ? { snap } : {}) }
     if (sy && (opts.state || rect.h < VH * 0.9)) return { axis: 'y', kind: 'scroll', ...(snap ? { snap } : {}) }
-    if (sx || sy || !/hidden|clip/.test(cs.overflowX) || el.scrollWidth <= el.clientWidth + 20) return null
+    // (a track translated left reports no overflow to the right: its slides out of view on the left count too)
+    if (sx || sy || !/hidden|clip/.test(cs.overflowX)) return null
+    if (el.scrollWidth <= el.clientWidth + 20 && !(rect.w >= 60 && slideRow(el, el.getBoundingClientRect()))) return null
     let named = CAROUSEL_RE.test(namesOf(el))
     for (let p = el.parentElement, i = 0; p && i < 3 && !named; p = p.parentElement, i++) named = CAROUSEL_RE.test(namesOf(p)) || /carousel/i.test(p.getAttribute('aria-roledescription') || '')
     if (!named) for (const c of el.children) if (CAROUSEL_RE.test(namesOf(c))) named = true
@@ -1773,27 +2014,219 @@
     }
   }
 
+  /** the marks of an entrance animation on a box or its near ancestors: animation classes, data-aos, inline opacity */
+  const REVEAL_RE = /(^|[\s_-])(animate|animated|aos|fade|fadein|reveal|wow|appear|in-?view|motion|gsap|sal|scroll-?anim|enter)([\s_-]|$)/i
+  function revealHint(el) {
+    for (let a = el, i = 0; a && i < 4 && a !== document.body; a = a.parentElement, i++) {
+      if (REVEAL_RE.test(classOf(a)) || a.hasAttribute('data-aos') || a.hasAttribute('data-animate') || a.hasAttribute('data-sal')) return true
+      const st = a.getAttribute('style') || ''
+      if (/opacity\s*:\s*0|visibility\s*:\s*hidden/.test(st)) return true
+    }
+    return false
+  }
+  const srOnly = []
+  /** cursor declarations of :active / :focus rules (the cursor a control shows while pressed), read once */
+  let cursorRules = null
+  function activeCursorOf(el) {
+    if (!cursorRules) {
+      cursorRules = []
+      const visitRules = (list) => {
+        for (const r of list) {
+          if (r.cssRules && !r.selectorText) { try { visitRules(r.cssRules) } catch { /* unreadable */ } continue }
+          if (!r.selectorText || !r.style || !r.style.cursor || !/:active/.test(r.selectorText)) continue
+          // url()s in a rule are relative to its style sheet, not to the page
+          const base = (r.parentStyleSheet && r.parentStyleSheet.href) || location.href
+          const cur = r.style.cursor.replace(/url\(\s*["']?([^"')]+)["']?\s*\)/g, (_m, u) => { try { return `url("${new URL(u, base).href}")` } catch { return _m } })
+          for (const sel of r.selectorText.split(',')) if (/:active/.test(sel)) cursorRules.push([sel.replace(/:(active|focus(-visible|-within)?)/g, '').trim(), cur])
+        }
+      }
+      for (const sh of document.styleSheets) { try { visitRules(sh.cssRules) } catch { /* cross-origin */ } }
+    }
+    let found = null
+    for (const [sel, cur] of cursorRules) { try { if (sel && el.matches(sel)) found = cur } catch { /* bad selector */ } }
+    return found
+  }
+  const invisible = []
+  let forceVisible = 0, pendingInvisible = null
+  /** the accessibility attributes the recreation keeps (labels, states, relations) */
+  function ariaOf(el) {
+    const a = {}
+    for (const k of ['aria-labelledby', 'aria-describedby', 'aria-expanded', 'aria-controls', 'aria-hidden', 'aria-current', 'aria-haspopup', 'aria-pressed', 'aria-selected', 'aria-live', 'aria-roledescription', 'lang', 'target', 'rel', 'tabindex', 'datetime', 'for']) {
+      const v = el.getAttribute(k)
+      if (v !== null && v !== '') a[k] = String(v).slice(0, 200)
+    }
+    // a label by reference: its text, the ids may not survive the recreation
+    const by = el.getAttribute('aria-labelledby')
+    if (by) {
+      const t = by.split(/\s+/).map((id) => { const x = document.getElementById(id); return x ? (x.textContent || '').trim() : '' }).filter(Boolean).join(' ')
+      if (t) a['labelledby-text'] = t.replace(/\s+/g, ' ').slice(0, 200)
+    }
+    return a
+  }
+  /**
+   * A video's playback facts: its sources (with type and media condition), how it plays (autoplay / loop / muted /
+   * inline / controls), its length and whether the page offers a pause control for it (the recreation plays it as live)
+   */
+  function mediaOf(el) {
+    const sources = []
+    for (const s of el.querySelectorAll('source')) {
+      const src = s.getAttribute('src') || s.getAttribute('data-src')
+      if (src) sources.push({ src: absUrl(src), ...(s.getAttribute('type') ? { type: s.getAttribute('type') } : {}), ...(s.getAttribute('media') ? { media: s.getAttribute('media') } : {}) })
+    }
+    const own = el.getAttribute('src') || el.getAttribute('data-src')
+    const current = el.currentSrc && !/^blob:/.test(el.currentSrc) ? el.currentSrc : null
+    if (own && !sources.some((s) => s.src === absUrl(own))) sources.unshift({ src: absUrl(own) })
+    if (current && !sources.some((s) => s.src === current)) sources.unshift({ src: current })
+    return {
+      kind: 'video',
+      sources: sources.filter((s) => s.src && !/^blob:/.test(s.src)).slice(0, 6),
+      ...(current ? { current } : {}),
+      stream: !!el.srcObject || /^blob:/.test(el.currentSrc || '') || /\.m3u8|\.mpd/i.test(el.currentSrc || own || ''),
+      autoplay: el.autoplay || el.hasAttribute('autoplay') || (!el.paused && el.currentTime > 0),
+      loop: el.loop || el.hasAttribute('loop'),
+      muted: el.muted || el.hasAttribute('muted'),
+      playsinline: el.playsInline || el.hasAttribute('playsinline'),
+      controls: el.controls,
+      duration: Number.isFinite(el.duration) ? round(el.duration) : null,
+      natural: { w: el.videoWidth || 0, h: el.videoHeight || 0 },
+      ...(el.getAttribute('aria-label') ? { label: el.getAttribute('aria-label') } : {}),
+    }
+  }
+
+  /**
+   * How each slider behaves, read from its library where there is one (Swiper, Splide, Slick, Flickity, Glide) and from
+   * the DOM otherwise: slide count and how many show at once, loop, autoplay delay, transition speed, and its
+   * pagination dots (`SnapElement.scroller.slider`). The recreation's slider follows these, not a guess.
+   */
+  function sliderFacts() {
+    const DOTS_RE = /pagination|bullets|dots|indicator|pager|tabs?-?list/i
+    for (const { el, node } of scrollers) {
+      if (node.scroller.axis !== 'x') continue
+      const f = {}
+      const host = el.swiper ? el : el.closest('.swiper, .swiper-container')
+      const sw = host && host.swiper
+      if (sw && sw.params) {
+        const p = sw.params
+        f.library = 'swiper'
+        f.loop = !!p.loop
+        if (p.autoplay && (p.autoplay === true || p.autoplay.enabled !== false) && sw.autoplay) f.autoplay = (p.autoplay && p.autoplay.delay) || 3000
+        if (typeof p.slidesPerView === 'number') f.perView = p.slidesPerView
+        if (typeof p.spaceBetween === 'number') f.gap = p.spaceBetween
+        if (typeof p.speed === 'number') f.speed = p.speed
+        if (p.freeMode === true || (p.freeMode && p.freeMode.enabled)) f.free = true
+        f.slides = sw.slides ? [...sw.slides].filter((x) => !/swiper-slide-duplicate/.test(classOf(x))).length : undefined
+      }
+      const splide = el.closest('.splide')
+      if (!f.library && splide) {
+        f.library = 'splide'
+        try { const o = JSON.parse(splide.getAttribute('data-splide') || '{}'); if (o.type === 'loop') f.loop = true; if (o.autoplay) f.autoplay = o.interval || 5000; if (o.perPage) f.perView = o.perPage; if (o.speed) f.speed = o.speed } catch { /* no options */ }
+        f.slides = splide.querySelectorAll('.splide__slide:not(.splide__slide--clone)').length || undefined
+      }
+      const $ = window.jQuery
+      if (!f.library && $ && $.fn && $.fn.slick) {
+        const sl = el.closest('.slick-initialized')
+        if (sl) {
+          try { const o = $(sl).slick('getSlick').options; f.library = 'slick'; f.loop = !!o.infinite; if (o.autoplay) f.autoplay = o.autoplaySpeed; f.perView = o.slidesToShow; f.speed = o.speed } catch { /* no slick */ }
+          f.slides = sl.querySelectorAll('.slick-slide:not(.slick-cloned)').length || undefined
+        }
+      }
+      if (!f.library && window.Flickity && window.Flickity.data) {
+        const fl = window.Flickity.data(el.closest('.flickity-enabled') || el)
+        if (fl && fl.options) { f.library = 'flickity'; f.loop = !!fl.options.wrapAround; if (fl.options.autoPlay) f.autoplay = typeof fl.options.autoPlay === 'number' ? fl.options.autoPlay : 3000; f.slides = fl.cells ? fl.cells.length : undefined }
+      }
+      // the row of slides (the box itself or the first box down with two or more children side by side)
+      let row = el
+      for (let d = 0; d < 3; d++) {
+        const kids = [...row.children].filter((c) => !c.hasAttribute('data-figcap-pseudo'))
+        if (kids.length >= 2) break
+        if (kids.length === 1) row = kids[0]
+      }
+      const slides = [...row.children].filter((c) => !c.hasAttribute('data-figcap-pseudo') && !/(slide-duplicate|slick-cloned|splide__slide--clone|is-clone)/.test(classOf(c)))
+      f.row = keyOf(row)
+      if (!f.slides) f.slides = slides.length
+      // no library said so: the changes the page made by itself while it settled (regular steps = autoplay)
+      if (f.autoplay === undefined && window.__figcapAuto) {
+        let times = []
+        for (const [x, t] of window.__figcapAuto) if (x === el || x === row || el.contains(x) || x.contains(el)) if (t.length > times.length) times = t
+        const steps = times.slice(1).map((t, i) => t - times[i]).filter((d) => d >= 1200)
+        if (steps.length >= 1) {
+          const sorted = [...steps].sort((a, b) => a - b)
+          const mid = sorted[Math.floor(sorted.length / 2)]
+          if (steps.length === 1 || steps.every((d) => Math.abs(d - mid) / mid < 0.2)) f.autoplay = Math.round(mid / 100) * 100
+        }
+      }
+      const r = el.getBoundingClientRect()
+      const shown = slides.filter((c) => { const b = c.getBoundingClientRect(); return b.width > 0 && b.left >= r.left - 2 && b.right <= r.right + 2 }).length
+      if (!f.perView && shown) f.perView = shown
+      if (slides.length) f.slideKeys = slides.slice(0, 40).map(keyOf)
+      // pagination dots: a list of 2+ small controls near the slider whose count matches its slides (or pages)
+      for (let a = el.parentElement, i = 0; a && i < 4 && !f.dots; a = a.parentElement, i++) {
+        for (const c of a.querySelectorAll('*')) {
+          if (el.contains(c)) continue
+          const words = `${classOf(c)} ${c.getAttribute('role') || ''} ${c.getAttribute('aria-label') || ''}`
+          if (!DOTS_RE.test(words)) continue
+          const items = [...c.children].filter((x) => { const b = x.getBoundingClientRect(); return b.width > 0 && b.width <= 64 && b.height <= 64 })
+          if (items.length < 2) continue
+          const active = items.findIndex((x) => /active|current|selected/i.test(classOf(x)) || x.getAttribute('aria-current') === 'true' || x.getAttribute('aria-selected') === 'true')
+          f.dots = { key: keyOf(c), count: items.length, ...(active >= 0 ? { active } : {}) }
+          break
+        }
+      }
+      // controls that pause / play an autoplaying slider
+      const pause = el.parentElement && [...(el.closest('section, [class*=slider], [class*=carousel]') || el.parentElement).querySelectorAll('button, [role=button]')].find((b) => /pause|play|stop|anhalten|abspielen/i.test(`${b.getAttribute('aria-label') || ''} ${classOf(b)} ${b.textContent || ''}`))
+      if (pause) f.pause = keyOf(pause)
+      node.scroller.slider = f
+    }
+  }
+
   function walk(el, clip, shift) {
     if (++count > MAX) return null
     const tag = el.localName
     if (SKIP.has(tag)) return null
     const cs = getComputedStyle(el)
     if (cs.display === 'none') return null
-    if (Number(cs.opacity) === 0) return null
+    // a box drawn fully transparent or hidden (revealed on hover, or by an entrance animation that has not run): left
+    // out of the tree, but walked on its own for the recreation (`Snapshot.invisible`, grafted under its parent there);
+    // `reveal` when it carries the marks of an entrance animation (the recreation shows it as the visitor sees it)
+    const transparentBox = Number(cs.opacity) === 0 || (cs.visibility === 'hidden' && el.parentElement && getComputedStyle(el.parentElement).visibility === 'visible' && !!(el.textContent || '').trim() + !!el.querySelector('img,svg,video,picture') && ![...el.querySelectorAll('*')].slice(0, 300).some((d) => getComputedStyle(d).visibility === 'visible'))
+    if (transparentBox && !forceVisible) {
+      if (!opts.state && invisible.length < 200) {
+        forceVisible++
+        try {
+          const sub = walk(el, clip, shift)
+          if (sub) {
+            sub.invisible = true
+            if (revealHint(el)) sub.reveal = true
+            pendingInvisible = sub
+          }
+        } finally { forceVisible-- }
+      }
+      return null
+    }
     // the consent tool's own layer (OneTrust's reopen badge floating over every page): consent UI, not the site's design
     if (el.id === 'onetrust-consent-sdk' || el.id === 'ot-sdk-btn-floating') return null
     // a nudge of a fixed bar (bmw.de's AI-assistant teaser next to its chat button) pops up for a few seconds after the
     // visitor scrolls and fades again: not the page at rest (a coachmark that stays is no "nudge" and is kept)
     if (/(^|[-_\s])nudge($|[-_\s])/i.test(typeof el.className === 'string' ? el.className : '') && (() => { for (let a = el; a && a !== document.body; a = a.parentElement) if (getComputedStyle(a).position === 'fixed') return true; return false })()) return null
-    const hidden = cs.visibility !== 'visible'
+    const hidden = cs.visibility !== 'visible' && !forceVisible
     const r = el.getBoundingClientRect()
     const myShift = shift || fixedShift(el, cs, r)
     const rect = rectOf(r)
     rect.y = round(rect.y + myShift)
     // screen-reader-only and collapsed boxes
-    if (cs.display !== 'contents' && (cs.overflow !== 'visible' || cs.clip !== 'auto') && rect.w <= 2 && rect.h <= 2) return null
+    if (cs.display !== 'contents' && (cs.overflow !== 'visible' || cs.clip !== 'auto') && rect.w <= 2 && rect.h <= 2) {
+      // visually hidden text (skip links, labels for icon buttons, "opens in a new tab"): not drawn, but read aloud; the
+      // recreation keeps it for assistive technology (`Snapshot.srOnly`)
+      const t = (el.textContent || '').replace(/\s+/g, ' ').trim()
+      if (t && srOnly.length < 400) srOnly.push({ key: keyOf(el), parent: keyOf(el.parentElement), tag, text: t.slice(0, 300), ...(el.getAttribute('href') ? { href: absUrl(el.getAttribute('href')) } : {}) })
+      return null
+    }
     if (cs.display !== 'contents' && cs.position !== 'static' && rect.w > 0 && !intersects(rect, clip) && !el.querySelector('*')) return null
-    const node = { id: nextId++, tag, rect, layout: layoutInfo(cs, el), attrs: attrsOf(el), style: {}, children: [] }
+    const node = { id: nextId++, key: keyOf(el), tag, rect, layout: layoutInfo(cs, el), attrs: attrsOf(el), style: {}, children: [] }
+    const tr = TRANSITIONS.get(el)
+    if (tr) node.transition = tr
+    const aria = ariaOf(el)
+    for (const k in aria) { node.aria = aria; break }
     if (el.hasAttribute('data-figcap-menu')) tagged.push([el.getAttribute('data-figcap-menu'), node.id])
     if (el.hasAttribute('data-figcap-ctl')) for (const k of el.getAttribute('data-figcap-ctl').split(' ')) ctlIds.set(Number(k), node.id)
     // the page's own walk: every box remembers its id (a widget state names its region by it)
@@ -1805,6 +2238,13 @@
     if (hidden) node.hidden = true
     if (cs.transform && cs.transform !== 'none') node.size = { w: el.offsetWidth || rect.w, h: el.offsetHeight || rect.h }
     if (cs.cursor === 'pointer') node.pointer = true
+    // a cursor of the page's own (an icon over a slider's pictures, grab, zoom-in): where it starts (not inherited),
+    // and the one it shows while pressed (:active rules)
+    else if (cs.cursor && !/^(auto|default|text)$/.test(cs.cursor) && (!el.parentElement || getComputedStyle(el.parentElement).cursor !== cs.cursor)) {
+      node.cursor = cs.cursor
+      const pressed = activeCursorOf(el)
+      if (pressed && pressed !== cs.cursor) node.cursorActive = pressed
+    }
     // children clip rect
     let childClip = clip
     // a visibility: hidden box records no style but still clips its (visible) descendants: a collapsed menu wrapper
@@ -1847,7 +2287,11 @@
         const p = el.getAttribute('poster'); if (p) node.poster = absUrl(p); node.objectFit = cs.objectFit; node.objectPosition = cs.objectPosition
         // player state at capture time: the driver can screenshot / restore without flipping the page's play UI
         node.video = { paused: !!el.paused, time: round(el.currentTime || 0), ended: !!el.ended || undefined }
-      }
+        node.media = mediaOf(el)
+      } else if (tag === 'iframe') {
+        const src = el.getAttribute('src')
+        if (src) node.media = { kind: 'iframe', src: absUrl(src), title: el.getAttribute('title') || '' }
+      } else if (tag === 'canvas') node.media = { kind: 'canvas', animated: !!(el.width && el.height) }
       return node
     }
     if (tag === 'img' || (tag === 'input' && el.type === 'image')) {
@@ -1898,22 +2342,31 @@
     // a box that clips to nothing (a collapsed filter panel: height 0, overflow hidden) shows none of its content: its
     // pills would otherwise be kept as empty outlines (their labels fall outside the clip) over whatever lies below
     const clippedAway = !sc && !!childClip && (childClip.w < 1 || childClip.h < 1)
+    let ord = -1
     for (const child of clippedAway ? [] : flatChildren(el)) {
+      ord++
       if (child.nodeType === 3) {
         if (hidden || !child.data.trim()) continue
         const lines = textLines(child, childClip)
-        if (!lines.length) continue
+        if (!lines.length) {
+          // a text clipped out of view (a slide past its slider's edge): kept aside with its font, for the recreation
+          // (`SnapElement.clippedTexts`; the text exists, it only is not drawn here)
+          if (!opts.state && child.data.trim() && (node.clippedTexts || []).length < 20) (node.clippedTexts = node.clippedTexts || []).push({ id: nextId++, key: textKeyOf(child), ord, kind: 'text', text: child.data, lines: [], font: fontOf(cs, el), parent: node.id })
+          continue
+        }
         if (myShift) for (const l of lines) l.y = round(l.y + myShift)
         const font = fontOf(cs, el)
         const fb = coveringFamily(cs, font.family, child.data)
         if (fb) { font.family = fb; font.ascent = ascentOf(cs, fb) }
-        const tn = { id: nextId++, kind: 'text', text: child.data, lines, font, parent: node.id }
+        const tn = { id: nextId++, key: textKeyOf(child), ord, kind: 'text', text: child.data, lines, font, parent: node.id }
         // the main walk's id of this text (alt walks: `base`, see the element boxes)
         if (opts.alt) { if (child.__figcapBase !== undefined) tn.base = child.__figcapBase } else if (!opts.state) child.__figcapBase = tn.id
         node.children.push(tn)
       } else if (child.nodeType === 1) {
+        pendingInvisible = null
         const c = walk(child, childClip, myShift)
-        if (c) node.children.push(c)
+        if (c) { c.ord = ord; node.children.push(c) }
+        else if (pendingInvisible) { pendingInvisible.ord = ord; invisible.push({ parent: node.key, node: pendingInvisible }); pendingInvisible = null }
       }
     }
     // outside list markers (::marker is not measurable): bullet / number right-aligned before the first line
@@ -1952,6 +2405,7 @@
   if (opts.scope === 'region' && !scoped) return null
   const root = walk(scoped || body, null, 0)
   linkCarouselControls()
+  try { sliderFacts() } catch { /* facts are extras */ }
   if (root && opts.restack !== false) restack(root)
   /** ids of the tagged menu boxes that made it into the tree: { trigger, panel, close } (+ the trigger's label) */
   let marks
@@ -2600,5 +3054,27 @@
     controls: window.__figcapCtl && window.__figcapCtl.length ? window.__figcapCtl.map((c, k) => ({ kind: c.kind, ...(ctlIds.has(k) ? { id: ctlIds.get(k) } : {}), ...(c.option !== undefined ? { option: c.option, label: c.text } : {}) })) : undefined,
     // `opts.brand`: what the brand guide reads on top of the tree (BrandCapture; { error } when it failed)
     ...(brand ? { brand } : {}),
+    ...(srOnly.length ? { srOnly } : {}),
+    ...(invisible.length ? { invisible } : {}),
+    ...(!opts.alt && !opts.state ? { doc: docFacts() } : {}),
+  }
+
+  /** what the head says about the page: description, social card, canonical URL, theme colour, icons, landmarks */
+  function docFacts() {
+    const meta = (sel) => { const m = document.querySelector(sel); return m ? (m.getAttribute('content') || m.getAttribute('href') || '').slice(0, 400) : undefined }
+    const out = {
+      description: meta('meta[name="description"]'),
+      ogTitle: meta('meta[property="og:title"]'),
+      ogDescription: meta('meta[property="og:description"]'),
+      ogImage: meta('meta[property="og:image"]'),
+      canonical: meta('link[rel="canonical"]'),
+      themeColor: meta('meta[name="theme-color"]'),
+      icon: meta('link[rel~="icon"]'),
+      robots: meta('meta[name="robots"]'),
+      dir: html.getAttribute('dir') || undefined,
+      skipLink: (() => { const a = document.querySelector('a[href^="#"]'); const t = a && (a.textContent || '').trim(); return a && /skip|zum inhalt|springen|direkt zu|main content/i.test(t) ? { text: t.slice(0, 80), target: a.getAttribute('href') } : undefined })(),
+    }
+    for (const k of Object.keys(out)) if (out[k] === undefined || out[k] === '') delete out[k]
+    return out
   }
 })

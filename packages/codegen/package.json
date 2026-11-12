@@ -2,7 +2,7 @@
   "name": "@harness/codegen",
   "version": "0.3.1",
   "private": true,
-  "description": "Scene + component sets → files: static HTML, React + Vite, design-system packages, tokens.",
+  "description": "Scene + component sets \u2192 files: static HTML, React + Vite, design-system packages, tokens.",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -27,6 +27,7 @@
   "dependencies": {
     "@harness/protocol": "workspace:*",
     "@harness/scene": "workspace:*",
-    "@harness/extract": "workspace:*"
+    "@harness/extract": "workspace:*",
+    "@harness/capture": "workspace:*"
   }
 }

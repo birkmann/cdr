@@ -498,6 +498,14 @@
             "altMs": {
               "type": "number"
             },
+            "hoverMs": {
+              "description": "reading what a pointer over each control changes (hover states)",
+              "type": "number"
+            },
+            "mediaBytes": {
+              "description": "bytes of video downloaded at most (default 40 MB)",
+              "type": "number"
+            },
             "menuMs": {
               "type": "number"
             },
@@ -505,6 +513,10 @@
               "type": "number"
             },
             "regionMs": {
+              "type": "number"
+            },
+            "streamMs": {
+              "description": "recording streamed videos that have no file (default 16 s)",
               "type": "number"
             },
             "submenuMs": {
@@ -568,6 +580,37 @@
             },
             "heightPct": {
               "type": "number"
+            },
+            "lighthouse": {
+              "anyOf": [
+                {
+                  "const": false,
+                  "type": "boolean"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "accessibility": {
+                      "type": "number"
+                    },
+                    "bestPractices": {
+                      "type": "number"
+                    },
+                    "performance": {
+                      "type": "number"
+                    },
+                    "seo": {
+                      "type": "number"
+                    }
+                  },
+                  "type": "object"
+                }
+              ],
+              "description": "Lighthouse on modern / Lit outputs: false skips it; an object sets the minimum scores (default 90/95/95/90)"
+            },
+            "liveQuality": {
+              "description": "inspect the live page once for its own accessibility and DOM size (comparison only; default true)",
+              "type": "boolean"
             },
             "pixel": {
               "type": "number"

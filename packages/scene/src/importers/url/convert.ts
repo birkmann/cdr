@@ -4024,7 +4024,11 @@ type RegionState = SnapState & { region: number; index: number };
 const regionStatesOf = (snap: Snapshot): RegionState[] =>
   (snap.states ?? []).filter(
     (s): s is RegionState =>
-      s.kind === "region" && s.region !== undefined && s.index !== undefined && !!s.snapshot?.root,
+      s.kind === "region" &&
+      !s.hover &&
+      s.region !== undefined &&
+      s.index !== undefined &&
+      !!s.snapshot?.root,
   );
 
 /** Snapshot ids a page conversion keeps as elements of their own for its widget states: the regions and the controls. */

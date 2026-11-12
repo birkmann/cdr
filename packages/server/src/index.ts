@@ -207,7 +207,19 @@ function safeEqual(a: string, b: string): boolean {
   return A.length === B.length && timingSafeEqual(A, B);
 }
 
-const RECREATE_TARGETS = ["static", "react-vite", "ds-react", "ds-lit", "ds-angular", "tokens", "design-md"];
+const RECREATE_TARGETS = [
+  "static",
+  "modern",
+  "lit",
+  "react-page",
+  "angular-page",
+  "react-vite",
+  "ds-react",
+  "ds-lit",
+  "ds-angular",
+  "tokens",
+  "design-md",
+];
 const RECREATE_STAGES = [
   "consent",
   "probe",

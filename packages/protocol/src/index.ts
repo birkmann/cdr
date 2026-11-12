@@ -420,7 +420,18 @@ export type EventBody =
 
 /** Output of a recreation run: the static page, a converted project, design-system packages, tokens, brand guide. */
 export type RecreateTarget =
-  "static" | "react-vite" | "ds-react" | "ds-lit" | "ds-angular" | "tokens" | "design-md" | (string & {});
+  | "static"
+  | "modern"
+  | "lit"
+  | "react-page"
+  | "angular-page"
+  | "react-vite"
+  | "ds-react"
+  | "ds-lit"
+  | "ds-angular"
+  | "tokens"
+  | "design-md"
+  | (string & {});
 
 export type RecreateStage =
   | "consent"
@@ -498,6 +509,12 @@ export interface RecreateConfig {
     regionMs?: number;
     altMs?: number;
     rasters?: number;
+    /** reading what a pointer over each control changes (hover states) */
+    hoverMs?: number;
+    /** bytes of video downloaded at most (default 40 MB) */
+    mediaBytes?: number;
+    /** recording streamed videos that have no file (default 16 s) */
+    streamMs?: number;
   };
   gates?: {
     pixel?: number;
@@ -509,6 +526,11 @@ export interface RecreateConfig {
     /** sections the emitter may keep at their fitted geometry instead of reflowing (default 0) */
     fittedSections?: number;
     singleUse?: number;
+    /** Lighthouse on modern / Lit outputs: false skips it; an object sets the minimum scores (default 90/95/95/90) */
+    lighthouse?:
+      false | { performance?: number; accessibility?: number; bestPractices?: number; seo?: number };
+    /** inspect the live page once for its own accessibility and DOM size (comparison only; default true) */
+    liveQuality?: boolean;
   };
   /** model roles (or model refs) per stage */
   models?: { naming?: ModelRole | string; vision?: ModelRole | string; repair?: ModelRole | string };

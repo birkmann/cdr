@@ -5163,3 +5163,38 @@ button.danger:hover:not(:disabled) {
   margin: 2px 0 0;
   overflow-wrap: anywhere;
 }
+
+/* a finished recreation: its pages first, one click away */
+.recreate-result {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent, #9ccc3d) 45%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent, #9ccc3d) 8%, transparent);
+}
+.recreate-result-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  align-items: baseline;
+}
+.recreate-open {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.recreate-open .button-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  background: var(--accent, #9ccc3d);
+  color: var(--accent-text, #fff);
+  font-weight: 600;
+  text-decoration: none;
+}
+.recreate-open .button-link:hover {
+  filter: brightness(1.08);
+}

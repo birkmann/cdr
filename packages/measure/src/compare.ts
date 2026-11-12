@@ -56,6 +56,48 @@ export function comparePage(
 </section>`;
     })
     .join("\n");
+  // quality: accessibility, markup, motion, behaviour, hover per inspected width, and Lighthouse
+  const quality = reports
+    .filter((r) => r.quality?.length || r.lighthouse?.length)
+    .map((r) => {
+      const widths = (r.quality ?? [])
+        .map((q) => {
+          const axe = q.probe?.axe ?? [];
+          const rows = axe
+            .map(
+              (v) =>
+                `<li class="${/critical|serious/.test(v.impact ?? "") ? "bad" : ""}"><b>${esc(v.id)}</b> (${esc(v.impact ?? "")}, ${v.nodes}) ${esc(v.help)}<br><small>${v.targets.map(esc).join(" · ")}</small></li>`,
+            )
+            .join("");
+          const liveSerious = (q.live?.axe ?? []).filter((v) =>
+            /critical|serious/.test(v.impact ?? ""),
+          ).length;
+          return `<div class="q"><h3>${q.width}px</h3>
+  <p class="nums">${q.gates.map((g) => `<span class="${g.pass ? "ok" : "bad"}">${g.pass ? "✓" : "✗"} ${g.name}</span>`).join(" ")}</p>
+  <p class="nums">${q.probe ? `${q.probe.nodes} nodes · ${q.probe.h1} h1 · ${q.probe.main} main · ${Math.round(q.probe.cssBytes / 1024)} kB CSS · ${q.probe.videos.filter((v) => v.playing).length}/${q.probe.videos.length} videos playing` : ""}${q.live ? ` · live page: ${liveSerious} serious axe violations, ${q.live.nodes ?? "?"} nodes` : ""}</p>
+  ${q.hover ? `<p class="nums">hover looks ${q.hover.matched}/${q.hover.total}${q.hover.missing.length ? `; missing ${q.hover.missing.map(esc).join(", ")}` : ""}</p>` : ""}
+  ${rows ? `<ul class="axe">${rows}</ul>` : `<p class="nums">axe: no violations</p>`}
+</div>`;
+        })
+        .join("");
+      const lh = (r.lighthouse ?? [])
+        .map(
+          (l) =>
+            `<tr><th>${l.formFactor}</th>${[
+              ["performance", l.performance],
+              ["accessibility", l.accessibility],
+              ["best practices", l.bestPractices],
+              ["SEO", l.seo],
+            ]
+              .map(([k, v]) => `<td class="${Number(v) >= 90 ? "ok" : "bad"}">${k} ${v}</td>`)
+              .join(
+                "",
+              )}<td>LCP ${l.metrics.lcp ? Math.round(l.metrics.lcp) + " ms" : "?"} · CLS ${l.metrics.cls ?? "?"}</td></tr>${l.failing.length ? `<tr><td></td><td colspan="5"><small>${l.failing.map((f) => esc(`${f.category}: ${f.title}`)).join(" · ")}</small></td></tr>` : ""}`,
+        )
+        .join("");
+      return `<section class="quality"><h2>${esc(r.target)}: quality</h2>${lh ? `<table>${lh}</table>` : ""}${widths}</section>`;
+    })
+    .join("\n");
   const panels = tabs
     .map(({ id, r, w }) => {
       const img = (k: "live" | "out" | "diff") => `${dir(r.target)}/${w.width}/${k}.png`;
@@ -122,6 +164,13 @@ figcaption { color: var(--muted); font-size: 12px; margin-bottom: 4px; }
 .frame .fit { overflow: hidden; }
 .frame iframe { border: 1px solid var(--line); background: #fff; transform-origin: 0 0; display: block; }
 .frame .scale { color: var(--muted); }
+.quality { padding: 8px 16px 16px; border-bottom: 1px solid var(--line); }
+.quality h2 { font-size: 15px; margin: 0 0 8px; }
+.quality h3 { font-size: 13px; margin: 12px 0 4px; }
+.quality .ok { color: var(--ok); } .quality .bad { color: var(--bad); }
+.quality td { padding: 2px 8px; }
+.axe { margin: 4px 0; padding-left: 18px; font-size: 12px; }
+.axe li.bad b { color: var(--bad); }
 </style>
 </head>
 <body>
@@ -130,6 +179,7 @@ figcaption { color: var(--muted); font-size: 12px; margin-bottom: 4px; }
   ${o.sourceUrl ? `<div>Live page: <a href="${esc(o.sourceUrl)}" rel="noreferrer">${esc(o.sourceUrl)}</a></div>` : ""}
   <table>${gateRows}</table>
 </header>
+${quality}
 ${strips}
 <nav>${tabs.map((t, i) => `<button data-tab="${t.id}"${i === 0 ? ' class="on"' : ""}>${esc(t.label)}</button>`).join("")}</nav>
 ${panels}

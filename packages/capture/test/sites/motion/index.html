@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Northwind Studio – Designing what comes next</title>
+    <meta name="description" content="Northwind Studio designs digital products, brands and experiences." />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <header class="site-header">
+      <a class="logo" href="/">Northwind <b>Studio</b></a>
+      <nav class="desktop-nav" aria-label="Main">
+        <a href="#work">Work</a>
+        <a href="#services">Services</a>
+        <a href="#about">About</a>
+        <a href="#contact">Contact</a>
+      </nav>
+      <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="menu">
+        <span class="bars"><i></i><i></i><i></i></span>
+        <span class="sr-only">Open menu</span>
+      </button>
+    </header>
+
+    <div id="menu" class="menu-panel" hidden>
+      <div class="menu-head"><strong>Menu</strong><button class="menu-close" type="button" aria-label="Close menu">×</button></div>
+      <ul>
+        <li><a href="#work">Work</a></li>
+        <li><a href="#services">Services</a></li>
+        <li><a href="#about">About</a></li>
+        <li><a href="#contact">Contact</a></li>
+      </ul>
+    </div>
+
+    <main id="main">
+      <section class="hero">
+        <video class="hero-video" autoplay muted loop playsinline poster="media/poster.jpg">
+          <source src="media/hero.mp4" type="video/mp4" />
+        </video>
+        <div class="hero-copy">
+          <h1>Designing what comes next</h1>
+          <p>Strategy, design and technology for brands that move.</p>
+        </div>
+        <button class="hero-pause" type="button" aria-label="Pause background video"></button>
+      </section>
+
+      <section class="intro" id="about">
+        <img class="intro-img" src="media/slide.png" alt="Our team at work" width="600" height="400" />
+        <div class="intro-copy">
+          <h2>We build intelligent experiences</h2>
+          <p>Northwind Studio is a consultancy, agency and technology partner in one. Two hundred people across four cities combine creativity with engineering.</p>
+          <a class="more" href="#about">More about us <span class="arrow" aria-hidden="true">→</span></a>
+        </div>
+      </section>
+
+      <section class="services" id="services">
+        <h2>What we do</h2>
+        <ul class="cards">
+          <li class="card">
+            <a href="#strategy">
+              <img src="media/slide.png" alt="" width="600" height="400" />
+              <h3>Strategy</h3>
+              <p>Finding the opportunities that matter.</p>
+              <span class="card-arrow" aria-hidden="true">→</span>
+            </a>
+          </li>
+          <li class="card">
+            <a href="#design">
+              <img src="media/slide.png" alt="" width="600" height="400" />
+              <h3>Design</h3>
+              <p>Products people love to use.</p>
+              <span class="card-arrow" aria-hidden="true">→</span>
+            </a>
+          </li>
+          <li class="card">
+            <a href="#technology">
+              <img src="media/slide.png" alt="" width="600" height="400" />
+              <h3>Technology</h3>
+              <p>Platforms that scale with you.</p>
+              <span class="card-arrow" aria-hidden="true">→</span>
+            </a>
+          </li>
+        </ul>
+      </section>
+
+      <section class="work" id="work">
+        <div class="work-head">
+          <h2>Selected work</h2>
+          <div class="slider-arrows">
+            <button class="slider-prev" type="button" aria-label="Previous slide">‹</button>
+            <button class="slider-next" type="button" aria-label="Next slide">›</button>
+          </div>
+        </div>
+        <div class="slider" aria-roledescription="carousel">
+          <div class="slider-track">
+            <article class="slide"><img src="media/slide.png" alt="" width="600" height="400" /><h3>Atlas banking app</h3><p>A mobile bank for a new generation.</p></article>
+            <article class="slide"><img src="media/slide.png" alt="" width="600" height="400" /><h3>Harbor retail platform</h3><p>Commerce across forty markets.</p></article>
+            <article class="slide"><img src="media/slide.png" alt="" width="600" height="400" /><h3>Meridian health portal</h3><p>Care that starts online.</p></article>
+            <article class="slide"><img src="media/slide.png" alt="" width="600" height="400" /><h3>Summit energy dashboard</h3><p>Grid data at a glance.</p></article>
+            <article class="slide"><img src="media/slide.png" alt="" width="600" height="400" /><h3>Pioneer travel booking</h3><p>Trips planned in minutes.</p></article>
+          </div>
+        </div>
+        <div class="slider-dots" role="tablist" aria-label="Slides">
+          <button class="dot is-active" type="button" role="tab" aria-selected="true" aria-label="Slide 1"></button>
+          <button class="dot" type="button" role="tab" aria-selected="false" aria-label="Slide 2"></button>
+          <button class="dot" type="button" role="tab" aria-selected="false" aria-label="Slide 3"></button>
+          <button class="dot" type="button" role="tab" aria-selected="false" aria-label="Slide 4"></button>
+          <button class="dot" type="button" role="tab" aria-selected="false" aria-label="Slide 5"></button>
+        </div>
+      </section>
+
+      <section class="process" id="process">
+        <h2>How we work</h2>
+        <div class="tabs" role="tablist" aria-label="Phases">
+          <button class="tab" type="button" role="tab" id="tab-1" aria-selected="true" aria-controls="panel-1">Discover</button>
+          <button class="tab" type="button" role="tab" id="tab-2" aria-selected="false" aria-controls="panel-2">Design</button>
+          <button class="tab" type="button" role="tab" id="tab-3" aria-selected="false" aria-controls="panel-3">Deliver</button>
+        </div>
+        <div class="panels">
+          <div class="panel" role="tabpanel" id="panel-1" aria-labelledby="tab-1"><p>We listen, research and map what matters to your customers.</p></div>
+          <div class="panel" role="tabpanel" id="panel-2" aria-labelledby="tab-2" hidden><p>We prototype, test and refine until the experience feels right.</p></div>
+          <div class="panel" role="tabpanel" id="panel-3" aria-labelledby="tab-3" hidden><p>We build, launch and keep improving with your team.</p></div>
+        </div>
+        <div class="faq">
+          <h3>Questions</h3>
+          <div class="faq-item">
+            <button class="faq-q" type="button" aria-expanded="false" aria-controls="faq-1">How long does a project take?</button>
+            <div class="faq-a" id="faq-1" hidden><p>Most projects take between three and six months.</p></div>
+          </div>
+          <div class="faq-item">
+            <button class="faq-q" type="button" aria-expanded="false" aria-controls="faq-2">Do you work remotely?</button>
+            <div class="faq-a" id="faq-2" hidden><p>Yes, with on-site workshops where they help.</p></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="cta" id="contact">
+        <h2>Let's talk about your next project</h2>
+        <a class="button" href="mailto:hello@example.com">Get in touch</a>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <p>© 2026 Northwind Studio</p>
+      <nav aria-label="Legal"><a href="#imprint">Imprint</a><a href="#privacy">Privacy</a></nav>
+    </footer>
+    <script src="app.js"></script>
+  </body>
+</html>

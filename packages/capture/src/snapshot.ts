@@ -145,6 +145,10 @@ export interface SnapLayout {
   /** grid placement (`start / end`) when not auto */
   gridColumn?: string;
   gridRow?: string;
+  /** flex / grid `order` when not 0 (the page shows its boxes in another order than its DOM) */
+  order?: number;
+  /** grid-template-areas of a grid container (its items are placed by area names) */
+  areas?: string;
   /** aspect-ratio when set */
   aspect?: string;
   float?: string;
@@ -158,6 +162,14 @@ export interface SnapLayout {
 
 interface SnapBase {
   id: number;
+  /**
+   * the box's place in the live DOM (`tag[#id]:n` steps from body, `>s` into a shadow root, `::before` / `::after`,
+   * `~k` for the k-th text of a box): the same in every walk and every load of the page, so the walks at different
+   * widths name the same box alike (one DOM for every width in the recreation)
+   */
+  key?: string;
+  /** index among its DOM parent's (flattened) child nodes: DOM order, also where the capture moved the box for paint order */
+  ord?: number;
   rect?: SnapRect;
   /** walks at another width of the same page (`Snapshot.alt`): the id this box has in the main walk */
   base?: number;
@@ -205,6 +217,9 @@ export interface SnapElement extends SnapBase {
   /** untransformed size (offsetWidth / offsetHeight) when the box has a transform */
   size?: { w: number; h: number };
   pointer?: boolean;
+  /** the page's own cursor where it starts (not pointer: an icon url, grab, zoom-in), and the one while pressed */
+  cursor?: string;
+  cursorActive?: string;
   /** img */
   src?: string | null;
   natural?: { w: number; h: number };
@@ -241,9 +256,83 @@ export interface SnapElement extends SnapBase {
    * scroller ('scroll': overflow auto / scroll) or a slide track ('track': overflow hidden around a row of slides moved by
    * transform). `snap` = computed scroll-snap-type.
    */
-  scroller?: { axis: "x" | "y"; kind: "scroll" | "track"; snap?: string };
+  scroller?: { axis: "x" | "y"; kind: "scroll" | "track"; snap?: string; slider?: SnapSlider };
   /** a slider's previous (-1) / next (1) arrow and the scroller (SnapElement.id) it moves; `disabled` as captured */
   carousel?: { dir: 1 | -1; scroller: number; disabled?: boolean };
+  /** the box's CSS transition as the page had it before the capture switched transitions off */
+  transition?: SnapTransition;
+  /** accessibility attributes and relations (aria-*, lang, target, rel, tabindex, datetime, for) */
+  aria?: Record<string, string>;
+  /** video / iframe / canvas: what it plays (the recreation plays it as the live page does) */
+  media?: SnapMedia;
+  /** texts of this box clipped out of view (no line drawn): their content and font, not part of `children` */
+  clippedTexts?: SnapText[];
+  /** the root of a transparent subtree (`Snapshot.invisible`) */
+  invisible?: boolean;
+  /** that subtree carries the marks of an entrance animation (shown once the animation runs) */
+  reveal?: boolean;
+}
+
+export interface SnapTransition {
+  property: string;
+  duration: string;
+  timing: string;
+  delay: string;
+}
+
+/** How a slider behaves (from its library when it has one, else the DOM). */
+export interface SnapSlider {
+  library?: "swiper" | "splide" | "slick" | "flickity";
+  /** slides (clones of a looping slider left out) */
+  slides?: number;
+  /** slides shown at once */
+  perView?: number;
+  loop?: boolean;
+  /** ms between slides when it advances by itself */
+  autoplay?: number;
+  /** ms a slide change takes */
+  speed?: number;
+  /** it glides freely when dragged (no snapping to slides: Swiper's free mode) */
+  free?: boolean;
+  /** px between slides (library option) */
+  gap?: number;
+  /** the row holding the slides, and the slides (keys) */
+  row?: string;
+  slideKeys?: string[];
+  /** its pagination: the box holding the dots (key), how many, the current one */
+  dots?: { key: string; count: number; active?: number };
+  /** a control that pauses / plays it (key) */
+  pause?: string;
+}
+
+export type SnapMedia =
+  | {
+      kind: "video";
+      sources: { src: string; type?: string; media?: string }[];
+      current?: string;
+      /** a stream (MSE / HLS / DASH): no file to download, the recreation shows its poster or a recorded loop */
+      stream?: boolean;
+      /** its source is a few seconds of the stream, recorded in the page (WebM data URL) */
+      recorded?: boolean;
+      autoplay?: boolean;
+      loop?: boolean;
+      muted?: boolean;
+      playsinline?: boolean;
+      controls?: boolean;
+      duration?: number | null;
+      natural?: { w: number; h: number };
+      label?: string;
+    }
+  | { kind: "iframe"; src: string; title: string }
+  | { kind: "canvas"; animated: boolean };
+
+/** What a pointer over a control changes: the control (key) and the boxes in it whose look changed. */
+export interface SnapHover {
+  key: string;
+  /** the control's tag and its label (aria-label or text): how the output's control is matched to it */
+  tag?: string;
+  label?: string;
+  changes: { key: string; props: Record<string, string> }[];
 }
 
 export type SnapNode = SnapElement | SnapText;
@@ -302,7 +391,7 @@ export interface Snapshot {
    * capture found them: 'select' picks one of a group, 'toggle' switches on / off; `id` = the control in this snapshot.
    * A native drop-down is one control per option (`option` = its index, `label` = its text), all with the select's id.
    */
-  controls?: { kind: "select" | "toggle"; id?: number; option?: number; label?: string }[];
+  controls?: { kind: "select" | "toggle" | "hover"; id?: number; option?: number; label?: string }[];
   /**
    * the page's walk with `opts.brand` (fig-server, `pnpm import:url`): what the brand guide reads on top of the tree —
    * controls with their CSSOM states, custom properties, @media widths, marks, images, icons, bands, grids, font files,
@@ -314,6 +403,30 @@ export interface Snapshot {
    * fonts): every box names its box of this walk (`base`); the import measures its layers' geometry there (fluid.ts)
    */
   alt?: Array<Snapshot & { width: number; menuState?: SnapState }>;
+  /** visually hidden texts (skip links, labels of icon buttons): not drawn, read aloud */
+  srOnly?: { key: string; parent: string; tag: string; text: string; href?: string }[];
+  /**
+   * boxes drawn fully transparent (opacity 0: revealed on hover, or by an entrance animation that has not run), walked
+   * on their own: each subtree with the key of its parent and its place there (`ord`); not part of `root`
+   */
+  invisible?: { parent: string; node: SnapElement }[];
+  /** what the page's head says (description, social card, canonical URL, theme colour, icon, skip link) */
+  doc?: SnapDoc;
+  /** what a pointer over the page's controls changes (two controls per kind) */
+  hover?: SnapHover[];
+}
+
+export interface SnapDoc {
+  description?: string;
+  ogTitle?: string;
+  ogDescription?: string;
+  ogImage?: string;
+  canonical?: string;
+  themeColor?: string;
+  icon?: string;
+  robots?: string;
+  dir?: string;
+  skipLink?: { text: string; target: string };
 }
 
 /** How an opened panel came in, read from its computed transition / animation (transform / opacity / clip). */
@@ -338,6 +451,13 @@ export interface SnapState {
   region?: number;
   /** region: the control toggles (clicked again = back); else it selects (its group's selected control = back) */
   toggle?: boolean;
+  /** region: a desktop flyout, shown while the pointer is over its entry (or focus is in it), never clicked */
+  hover?: boolean;
+  /**
+   * region, hover: layers over the page (a backdrop dimming it) the open flyout shows — their id in the page snapshot
+   * and their look then
+   */
+  overlays?: { id: number; opacity: number; bg?: string }[];
   /** id (SnapElement.id in the parent snapshot's `root`) of the control that opens the state (hamburger button) */
   trigger?: number;
   /** submenu: index (in `states`) of the menu state it opens from */

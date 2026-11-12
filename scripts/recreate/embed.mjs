@@ -33,4 +33,16 @@ fs.writeFileSync(
     `export const INTERACTIONS_RUNTIME_HASH = ${JSON.stringify(hash(runtime))};\n` +
     `export const INTERACTIONS_RUNTIME_SOURCE: string = ${JSON.stringify(runtime)};\n`,
 );
-console.log("embedded capture script and interactions runtime");
+// axe-core (MPL-2.0, unmodified; THIRD_PARTY_NOTICES.md): the a11y gate runs it inside the measured page
+const axePath = path.join(root, "packages/measure/node_modules/axe-core/axe.min.js");
+if (fs.existsSync(axePath)) {
+  const axe = fs.readFileSync(axePath, "utf8");
+  const version = JSON.parse(fs.readFileSync(path.join(path.dirname(axePath), "package.json"), "utf8")).version;
+  fs.writeFileSync(
+    path.join(root, "packages/measure/src/axe.generated.ts"),
+    HEAD(`axe-core ${version} (node_modules/axe-core/axe.min.js, MPL-2.0)`) +
+      `export const AXE_VERSION = ${JSON.stringify(version)};\n` +
+      `export const AXE_SOURCE: string = ${JSON.stringify(axe)};\n`,
+  );
+}
+console.log("embedded capture script, interactions runtime and axe-core");

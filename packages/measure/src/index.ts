@@ -7,3 +7,5 @@ export * from "./report.js";
 export * from "./compare.js";
 export * from "./layout.js";
 export * from "./flow.js";
+export * from "./quality.js";
+export * from "./lighthouse.js";

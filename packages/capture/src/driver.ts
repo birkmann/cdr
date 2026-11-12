@@ -17,6 +17,7 @@ import {
   primaryLang,
 } from "./assets.js";
 import { cssFontWeight, retryWww, stripOnLoadOverlays, unifyAltImages, visit, wwwVariant } from "./assets.js";
+import type { SnapHover } from "./snapshot.js";
 import { findChrome, leaseChrome, type Cdp } from "./cdp.js";
 import { DOM_CAPTURE_SOURCE, PERSONALIZATION_BLOCKLIST } from "./generated.js";
 import {
@@ -100,6 +101,12 @@ export interface CaptureBudgets {
   altMs: number;
   /** raster boxes screenshotted at most */
   rasters: number;
+  /** reading what a pointer over each control changes (hover states) */
+  hoverMs: number;
+  /** bytes of video downloaded at most (all videos of a capture together) */
+  mediaBytes: number;
+  /** recording streamed videos (no file to download) in the page */
+  streamMs: number;
   /** layout facts of the live page at the probe widths (no screenshots) */
   probeMs: number;
 }
@@ -107,12 +114,15 @@ export interface CaptureBudgets {
 export const DEFAULT_BUDGETS: CaptureBudgets = {
   totalMs: 200_000,
   menuMs: 25_000,
-  submenuMs: 45_000,
-  submenus: 3,
+  submenuMs: 60_000,
+  submenus: 6,
   regionMs: 70_000,
   altMs: 120_000,
   rasters: 80,
   probeMs: 90_000,
+  hoverMs: 30_000,
+  mediaBytes: 40_000_000,
+  streamMs: 16_000,
 };
 
 /** One capture session: the page loaded at `width`, walked again at `alt` widths; `menus` ⊆ alt get their own menu. */
@@ -240,11 +250,31 @@ export interface ShotOptions {
   factsOnly?: boolean;
 }
 
+export interface InspectOptions {
+  height?: number;
+  /** request guard; false loads the page unguarded (the recreated output, served from disk) */
+  guard?: GuardOptions | false;
+  chrome?: string;
+  signal?: AbortSignal;
+  /** in-page expression (may be async) evaluated once the page settled; its JSON result is `Inspection.probe` */
+  probe?: string;
+  /** read what a pointer over each control changes, as the capture does (`Snapshot.hover`) */
+  hover?: boolean;
+  hoverMs?: number;
+}
+
+export interface Inspection {
+  probe?: unknown;
+  hover?: SnapHover[];
+}
+
 export interface CaptureDriver {
   readonly id: string;
   probe(url: string, o?: ProbeOptions): Promise<LayoutProbe>;
   capture(url: string, plan: CaptureSessionPlan, o?: CaptureOptions): Promise<CaptureResult>;
   shoot(url: string, widths: number[], o?: ShotOptions): Promise<Shot[]>;
+  /** one page at one width: an in-page probe and the hover looks of its controls (the quality and hover gates) */
+  inspect?(url: string, width: number, o?: InspectOptions): Promise<Inspection>;
 }
 
 export class CaptureError extends Error {
@@ -980,6 +1010,81 @@ class Session {
     if (reached) snap.brand.forcedStates = reached;
   }
 
+  /**
+   * What a pointer over each control changes (`Snapshot.hover`): controls are listed in the page (two per kind), each
+   * scrolled into view, read, hovered with a real pointer (CSS :hover and the page's mouseenter handlers both apply)
+   * and read again. Transitions are off (the freeze), so the hovered look is its end state.
+   */
+  async hoverStates(snap: Json, until: number) {
+    const s = this.page;
+    const targets: Json[] = await this.cdp
+      .eval(s, captureExpression({ mode: "hover-targets", max: 160 }), 15_000)
+      .catch(() => []);
+    if (!Array.isArray(targets) || !targets.length) return;
+    const out: Json[] = [];
+    let left = 0;
+    for (const t of targets) {
+      if (Date.now() > until) {
+        left = targets.length - targets.indexOf(t);
+        break;
+      }
+      const top: number = await this.cdp
+        .eval(
+          s,
+          `(() => { window.scrollTo({ top: Math.max(0, ${Number(t.y) || 0} - innerHeight / 2), left: 0, behavior: 'instant' }); return scrollY })()`,
+          5000,
+        )
+        .catch(() => 0);
+      const x = Math.round(Number(t.x) || 0),
+        y = Math.round((Number(t.y) || 0) - (Number(top) || 0));
+      await this.cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 0, y: 0 }, s).catch(() => {});
+      await sleep(40);
+      const ok = await this.cdp
+        .eval(s, captureExpression({ mode: "hover-read", index: t.i, phase: "before" }), 5000)
+        .catch(() => null);
+      if (!ok) continue;
+      await this.cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y }, s).catch(() => {});
+      await sleep(160);
+      const after: Json = await this.cdp
+        .eval(s, captureExpression({ mode: "hover-read", index: t.i, phase: "after" }), 5000)
+        .catch(() => null);
+      if (after && Array.isArray(after.changes) && after.changes.length)
+        out.push({ key: t.key, tag: t.tag, label: t.label, changes: after.changes.slice(0, 40) });
+    }
+    await this.cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 0, y: 0 }, s).catch(() => {});
+    await this.cdp.eval(s, "window.scrollTo({ top: 0, left: 0, behavior: 'instant' })", 5000).catch(() => {});
+    if (left) this.skipped.push(`hover states of ${left} control(s) (budget)`);
+    if (out.length) snap.hover = out;
+  }
+
+  /**
+   * Videos that play a stream (MSE / HLS, a srcObject) have no file to download: a few seconds of each are recorded in
+   * the page (WebM) and become their source (`media.sources[0]`, a data URL; `media.recorded`), so the recreation
+   * plays a loop of them. Cross-origin media the browser will not record keep their poster.
+   */
+  async recordStreams(snap: Json, until: number) {
+    const todo: Json[] = [];
+    visit(snap.root, (n) => {
+      if (n.media?.kind === "video" && n.media.stream && n.key && todo.length < 2) todo.push(n);
+    });
+    for (const n of todo) {
+      const left = until - Date.now();
+      if (left < 3000) {
+        this.skipped.push(`recording of a streamed video (budget)`);
+        break;
+      }
+      const ms = Math.min(6000, left - 1500);
+      const r: Json = await this.cdp
+        .eval(this.page, captureExpression({ mode: "record-video", key: n.key, ms }), ms + 15_000)
+        .catch(() => null);
+      if (r?.data && typeof r.data === "string" && r.data.length < 12_000_000) {
+        n.media.sources = [{ src: r.data, type: "video/webm" }];
+        n.media.recorded = true;
+        n.media.stream = false;
+      } else this.skipped.push(`recording of a streamed video${r?.error ? ` (${r.error})` : ""}`);
+    }
+  }
+
   /** Raster boxes: each element screenshotted alone (those above `maxY` only, none that already have pixels). */
   async rasters(snap: Json, maxY?: number) {
     const ids: number[] = [];
@@ -1290,6 +1395,14 @@ class Session {
         break;
       }
       if (opened?.clicked !== true) continue;
+      // a desktop flyout: the real pointer over its entry (CSS :hover and the page's mouseenter both see it)
+      const hover = opened.hover as { x: number; y: number } | undefined;
+      if (hover) {
+        await this.cdp
+          .send("Input.dispatchMouseEvent", { type: "mouseMoved", x: hover.x, y: hover.y }, this.page)
+          .catch(() => {});
+        await sleep(120);
+      }
       const settled = await this.step({ mode: "state-settle" }, 12_000, until);
       if (settled === undefined) break;
       if (settled?.ok === true && typeof settled.region === "number") {
@@ -1303,9 +1416,20 @@ class Session {
             snapshot: walked.st,
           };
           if (typeof settled.label === "string") state.label = settled.label;
+          if (hover) state.hover = true;
+          if (Array.isArray(settled.overlays) && settled.overlays.length) state.overlays = settled.overlays;
           out.push(state);
         }
       }
+      // the pointer off the flyout: to the bottom-left corner, away from navigation bars
+      if (hover)
+        await this.cdp
+          .send(
+            "Input.dispatchMouseEvent",
+            { type: "mouseMoved", x: 1, y: Math.max(1, height - 2) },
+            this.page,
+          )
+          .catch(() => {});
       const r = await this.step({ mode: "state-restore", index: i }, 8000, until);
       // nothing changed in place and nothing to undo
       if (r?.ok !== true && settled?.ok === true) break;
@@ -1538,7 +1662,13 @@ export class CdpCaptureDriver implements CaptureDriver {
 
   async capture(url: string, plan: CaptureSessionPlan, o: CaptureOptions = {}): Promise<CaptureResult> {
     const t0 = Date.now();
-    const log = (m: string) => o.log?.(`${m} (${Date.now() - t0} ms)`);
+    // each step with its own time and the session's so far
+    let last = t0;
+    const log = (m: string) => {
+      const now = Date.now();
+      o.log?.(`${m} +${((now - last) / 1000).toFixed(1)}s (${((now - t0) / 1000).toFixed(1)}s in)`);
+      last = now;
+    };
     const budgets = { ...DEFAULT_BUDGETS, ...o.budgets };
     const guard = o.guard ?? {};
     const width = Math.round(Math.max(320, Math.min(2560, plan.width)));
@@ -1615,6 +1745,10 @@ export class CdpCaptureDriver implements CaptureDriver {
       log("rasters");
       await sx.forcedStates(snap).catch(() => {});
       log("forced states");
+      await sx.hoverStates(snap, Math.min(until, Date.now() + budgets.hoverMs)).catch(() => {});
+      log("hover states");
+      await sx.recordStreams(snap, Math.min(until, Date.now() + budgets.streamMs)).catch(() => {});
+      log("streams");
       // the same page at the other widths of its layout range (before any state opens): geometry only
       const alts = alt.length
         ? await sx.altWalks(alt, metrics, height, Math.min(until, t0 + budgets.altMs))
@@ -1810,6 +1944,10 @@ export class CdpCaptureDriver implements CaptureDriver {
     }
   }
 
+  inspect(url: string, width: number, o: InspectOptions = {}): Promise<Inspection> {
+    return inspectPage(url, width, o);
+  }
+
   async shoot(url: string, widths: number[], o: ShotOptions = {}): Promise<Shot[]> {
     const guard = o.guard === undefined ? {} : o.guard;
     const mobileBelow = o.mobileBelow ?? TABLET_MAX;
@@ -1857,6 +1995,48 @@ export class CdpCaptureDriver implements CaptureDriver {
     } finally {
       await opened.close();
     }
+  }
+}
+
+/**
+ * One page at one width for the quality gates: loaded (like a shot), the probe evaluated (axe, markup, motion, slider
+ * behaviour), then transitions switched off and every control hovered with a real pointer (`Session.hoverStates`).
+ */
+export async function inspectPage(url: string, width: number, o: InspectOptions = {}): Promise<Inspection> {
+  const guard = o.guard === undefined ? {} : o.guard;
+  const opened = await openPage(url, {
+    width,
+    height: o.height ?? deviceHeight(deviceOf(width)),
+    dpr: 1,
+    lang: "en-US,en;q=0.9",
+    guard,
+    chrome: o.chrome,
+    signal: o.signal,
+    mobileBelow: TABLET_MAX,
+    log: () => {},
+  });
+  try {
+    const { cdp, page } = opened;
+    await opened.proxy.networkIdle(IDLE_QUIET, 5_000).catch(() => {});
+    const out: Inspection = {};
+    if (o.probe)
+      out.probe = await cdp.eval(page, o.probe, 180_000).catch((e: Error) => ({ error: e.message }));
+    if (o.hover) {
+      await cdp
+        .eval(
+          page,
+          `(() => { window.scrollTo(0, 0); const s = document.createElement('style'); s.textContent = '*,*::before,*::after{transition:none!important;animation:none!important;scroll-behavior:auto!important}'; document.head.appendChild(s); return 1 })()`,
+          5000,
+        )
+        .catch(() => {});
+      const snap: Json = {};
+      const sx = new Session(cdp, opened.proxy, page, opened.helper, url, 1, guard || {}, DEFAULT_BUDGETS);
+      await sx.hoverStates(snap, Date.now() + (o.hoverMs ?? 25_000)).catch(() => {});
+      out.hover = snap.hover ?? [];
+    }
+    return out;
+  } finally {
+    await opened.close();
   }
 }
 

@@ -15,6 +15,9 @@ const TYPES: Record<string, string> = {
   ".woff2": "font/woff2",
   ".json": "application/json",
   ".txt": "text/plain",
+  ".mp4": "video/mp4",
+  ".jpg": "image/jpeg",
+  ".webp": "image/webp",
 };
 
 export const SITES_DIR = fileURLToPath(new URL(".", import.meta.url));

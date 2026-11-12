@@ -167,7 +167,10 @@ export function stagesFor(targets: RecreateTarget[]): RecreateStage[] {
     need.add("components");
     need.add("system");
   }
-  if (targets.some((t) => t !== "static" && !componentTargets.includes(t))) need.add("convert");
+  // modern and lit are built from the live DOM in the build stage
+  const fromDom = ["modern", "lit", "react-page", "angular-page"];
+  if (targets.some((t) => t !== "static" && !fromDom.includes(t) && !componentTargets.includes(t)))
+    need.add("convert");
   if (componentTargets.length) need.add("ds-export");
   return STAGE_ORDER.filter((s) => need.has(s));
 }

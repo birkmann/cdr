@@ -34,7 +34,20 @@ export const DEFAULT_GATES: Gates = {
 
 export interface GateResult {
   name:
-    "pixel" | "text" | "layout" | "interactions" | "responsive" | "flow" | "components" | "build" | "a11y";
+    | "pixel"
+    | "text"
+    | "layout"
+    | "interactions"
+    | "responsive"
+    | "flow"
+    | "components"
+    | "build"
+    | "a11y"
+    | "markup"
+    | "motion"
+    | "hover"
+    | "behaviour"
+    | "lighthouse";
   pass: boolean;
   detail: string;
 }
@@ -82,6 +95,10 @@ export interface MeasureReport {
   /** the widths the sweep used: the grid, the variant boundaries and the rotating widths of this measurement */
   sweepPlan?: { grid: number[]; boundaries: number[]; rotating: number[] };
   flow?: FlowReport;
+  /** accessibility, markup, motion, behaviour and hover per inspected width (modern and Lit outputs) */
+  quality?: import("./quality.js").QualityReport[];
+  /** Lighthouse scores of the served output (phone, desktop) */
+  lighthouse?: import("./lighthouse.js").LighthouseScores[];
   vision?: {
     width: number;
     verdict: string;

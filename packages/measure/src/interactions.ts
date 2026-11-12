@@ -28,6 +28,37 @@ export const OUTPUT_PROBE_JS = String.raw`(async () => {
     for (const x of document.querySelectorAll('[data-overlay][data-open]')) { x.removeAttribute('data-open'); x.hidden = true }
     document.documentElement.removeAttribute('data-scroll-lock')
   }
+  // the modern runtime's menu: [data-menu-open] opens :root[data-menu] and shows its [data-menu-panel]
+  if (!out.menu) {
+    const mo = [...document.querySelectorAll('[data-menu-open="menu"]')].find(visible)
+    if (mo) {
+      mo.click()
+      await sleep(500)
+      const panel = document.querySelector('[data-menu-panel="menu"]') || document.querySelector('[data-menu-panel]')
+      out.menu = { opened: document.documentElement.hasAttribute('data-menu') && visible(panel) }
+      const sub = panel && [...panel.querySelectorAll('[data-menu-open]')].find((x) => visible(x) && x.getAttribute('data-menu-open') !== 'menu')
+      if (sub) {
+        const name = sub.getAttribute('data-menu-open')
+        sub.click()
+        await sleep(500)
+        out.submenu = { opened: document.documentElement.getAttribute('data-menu') === name }
+      }
+      document.documentElement.removeAttribute('data-menu')
+      await sleep(100)
+    }
+  }
+  // the modern runtime's sliders: each visible "next" step moves the track it controls
+  for (const a of [...document.querySelectorAll('[data-slider-step="1"]')].filter(visible).slice(0, 6)) {
+    const track = document.getElementById(a.getAttribute('aria-controls') || '')
+    if (!track) { out.carousels.push({ moved: false, reason: 'no track' }); continue }
+    track.scrollTo({ left: 0, behavior: 'instant' })
+    await sleep(100)
+    const before = track.scrollLeft
+    a.click()
+    await sleep(900)
+    out.carousels.push({ moved: track.scrollLeft > before + 1 })
+    track.scrollTo({ left: 0, behavior: 'instant' })
+  }
   // sliders: each visible "next" arrow moves its track
   for (const a of [...bp.querySelectorAll('[data-scroll-by="next"]')].filter(visible).slice(0, 6)) {
     const scope = a.closest('[data-scroller]') ? null : a.parentElement
