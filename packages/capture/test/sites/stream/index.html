@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Stream fixture</title>
+    <style>
+      body { margin: 0; font-family: Arial, sans-serif; }
+      .hero { position: relative; height: 360px; background: #111; overflow: hidden; }
+      .hero video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+      h1 { position: absolute; left: 24px; bottom: 24px; margin: 0; color: #fff; font-size: 40px; }
+      p { padding: 24px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="hero">
+        <video class="live" autoplay muted playsinline></video>
+        <h1>A streamed hero</h1>
+      </section>
+      <p>The hero plays a stream (no file to download): the capture records a few seconds of it.</p>
+    </main>
+    <canvas width="320" height="180" hidden></canvas>
+    <script>
+      // a stream with no file: a canvas animation played through srcObject (as MSE / HLS players have no file either)
+      const c = document.querySelector('canvas'), g = c.getContext('2d'), v = document.querySelector('video')
+      // its clock runs in a worker, as a media pipeline does: page timers being stopped does not stop the stream
+      let t = 0
+      const tick = new Worker(URL.createObjectURL(new Blob(['setInterval(() => postMessage(0), 40)'], { type: 'text/javascript' })))
+      tick.onmessage = () => { t++; g.fillStyle = `hsl(${(t * 6) % 360} 70% 45%)`; g.fillRect(0, 0, 320, 180); g.fillStyle = '#fff'; g.fillRect((t * 8) % 320, 70, 40, 40) }
+      v.srcObject = c.captureStream(25)
+    </script>
+  </body>
+</html>

@@ -52,7 +52,7 @@ Usage:
   cdr init                    write cdr.config.json + AGENTS.md for this project
   cdr eval                    run the eval task set (evals/; --suite apps for app building)
   cdr recreate <url>          recreate a live page 1:1 (asks for consent; see docs/recreate.md)
-      [--widths 390,768,1440] [--to static,react-vite,ds-react] [--style tailwind|css-modules|vanilla]
+      [--widths 390,768,1440] [--to modern,lit,react-page,angular-page,static,react-vite,ds-react] [--style tailwind|css-modules|vanilla]
       [--out ./site] [--repair] [--no-checks] [--build] [--from <stage> --run <id>] [--json] [--yes]
   cdr mcp recreate            the recreate stages as an MCP server on stdio (capture needs consent: true; --yes)
 

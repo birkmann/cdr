@@ -58,7 +58,8 @@ export function rightsNotice(sourceUrl?: string): string {
   ].join(" ");
 }
 
-function provenance(input: EmitInput, o: EmitOptions, what: string): FileMap {
+/** credits.json + RECREATION.md: where the recreation comes from, the asset and font policy, the rights notice */
+export function provenance(input: EmitInput, o: EmitOptions, what: string): FileMap {
   const credits = {
     source: o.sourceUrl ?? null,
     capturedAt: o.capturedAt ?? null,

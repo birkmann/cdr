@@ -17,9 +17,11 @@ import type {
   SceneScreen,
 } from "@harness/protocol";
 import { DEFAULT_TOKENS } from "@harness/protocol";
+import { createHash } from "node:crypto";
 import {
   CdpCaptureDriver,
   CaptureError,
+  fetchPublic,
   RemoteCaptureDriver,
   findChrome,
   cropRows,
@@ -31,6 +33,7 @@ import {
   type Peek,
   type RgbImage,
   type Shot,
+  type SnapHover,
   type Snapshot,
 } from "@harness/capture";
 import {
@@ -69,7 +72,17 @@ import {
   type NamingEntry,
   type NamingPlan,
 } from "@harness/extract";
-import { getEmitter, loadEmitters, type FileMap } from "@harness/codegen";
+import {
+  emitAngularPage,
+  emitLit,
+  emitReactPage,
+  emitModern,
+  getEmitter,
+  loadEmitters,
+  provenance,
+  type FileMap,
+  type ModernDoc,
+} from "@harness/codegen";
 import type { SceneLayout } from "@harness/protocol";
 import {
   comparePage,
@@ -91,8 +104,19 @@ import {
   VISION_SYSTEM,
   visionPrompt,
   type FlowRule,
+  type GateResult,
   type LayoutFacts,
+  type LighthouseScores,
   type MeasureReport,
+  type QualityGate,
+  type QualityProbe,
+  type QualityReport,
+  liveQuality,
+  lighthouseGate,
+  qualityGates,
+  QUALITY_PROBE_JS,
+  runLighthouse,
+  serveDir,
 } from "@harness/measure";
 import {
   isRunId,
@@ -193,6 +217,12 @@ const NAMING_BATCH = 30;
 const REPAIR_ATTEMPTS = 2;
 /** capture sessions at once (each its own browser) */
 const CAPTURE_PARALLEL = 3;
+/** outputs built from the live DOM: the modern page and its projects (Lit, React, Angular) */
+type DomTarget = "modern" | "lit" | "react-page" | "angular-page";
+const DOM_TARGETS: DomTarget[] = ["modern", "lit", "react-page", "angular-page"];
+const PROJECT_TARGETS: DomTarget[] = ["lit", "react-page", "angular-page"];
+/** bytes of video a run downloads at most (config `recreate.budgets.mediaBytes`) */
+const DEFAULT_MEDIA_BYTES = 40_000_000;
 /** section repairs (model calls) at once */
 const REPAIR_PARALLEL = 3;
 
@@ -571,7 +601,97 @@ class Runner {
     this.m.variants = variants.filter((v) => this.dir.exists(`capture/${v.width}.snapshot.json`));
     if (!this.m.variants.length) throw new Error("no width could be captured");
     this.m.variants[0].minWidth = 0;
-    return { detail: `${this.m.variants.length} variant(s)`, skipped };
+    const media = await this.media(skipped).catch((e) => {
+      skipped.push(`videos: ${(e as Error).message}`);
+      return 0;
+    });
+    return { detail: `${this.m.variants.length} variant(s)${media ? `, ${media} video(s)` : ""}`, skipped };
+  }
+
+  /**
+   * The page's videos as files (`capture/media/`, indexed in `capture/media.json`): one source per video (MP4 first,
+   * then WebM), each URL once for all variants, through the same guard as the capture, within `budgets.mediaBytes`.
+   * Streams (MSE / HLS) have no file: the recreation keeps their poster. Nothing is fetched with `assets: "none"`.
+   */
+  async media(skipped: string[]): Promise<number> {
+    if ((this.cfg.assets ?? "run-dir") === "none") return 0;
+    const wanted = new Map<string, string | undefined>();
+    const visit = (n: any) => {
+      if (!n || typeof n !== "object") return;
+      if (n.media?.kind === "video" && !n.media.stream) {
+        const srcs: { src: string; type?: string }[] = n.media.sources ?? [];
+        const rank = (x: { src: string; type?: string }) =>
+          /mp4/i.test(x.type ?? "") || /\.mp4(\?|$)/i.test(x.src)
+            ? 0
+            : /webm/i.test(x.type ?? "") || /\.webm(\?|$)/i.test(x.src)
+              ? 1
+              : 2;
+        const best = [...srcs].sort((a, b) => rank(a) - rank(b))[0];
+        if (best?.src && !wanted.has(best.src)) wanted.set(best.src, best.type);
+      }
+      for (const c of n.children ?? []) visit(c);
+    };
+    for (const v of this.m.variants ?? []) {
+      const snap = this.snapshotOf(v.width);
+      visit(snap.root);
+      for (const i of (snap as any).invisible ?? []) visit(i.node);
+    }
+    if (!wanted.size) return 0;
+    let left = Math.max(0, this.cfg.budgets?.mediaBytes ?? DEFAULT_MEDIA_BYTES);
+    const index: Record<string, { file: string; type: string; bytes: number }> = {};
+    for (const [url, type] of wanted) {
+      this.cancelled();
+      if (left <= 0) {
+        skipped.push(`video ${url.slice(0, 120)} (media budget)`);
+        continue;
+      }
+      // a stream recorded in the page: its loop is already here
+      if (url.startsWith("data:video/")) {
+        const m = /^data:([^;,]+)(;base64)?,(.*)$/s.exec(url);
+        if (m) {
+          const body = m[2] ? Buffer.from(m[3]!, "base64") : Buffer.from(decodeURIComponent(m[3]!));
+          const file = `media/${createHash("sha256").update(body).digest("hex").slice(0, 16)}.webm`;
+          this.dir.write(`capture/${file}`, body);
+          index[url] = { file, type: m[1]!, bytes: body.length };
+          left -= body.length;
+        }
+        continue;
+      }
+      const got = await fetchPublic(
+        url,
+        {
+          "user-agent": "Mozilla/5.0 (compatible; CDR recreate)",
+          referer: this.m.finalUrl ?? this.url,
+          accept: "video/*,*/*",
+        },
+        left,
+        60_000,
+        this.guard,
+      ).catch(() => null);
+      if (!got?.body.length) {
+        skipped.push(`video ${url.slice(0, 120)} (not downloaded)`);
+        continue;
+      }
+      const mime = got.type.split(";")[0]!.trim() || type || "video/mp4";
+      const ext = /webm/.test(mime) ? "webm" : /ogg/.test(mime) ? "ogv" : "mp4";
+      const file = `media/${createHash("sha256").update(got.body).digest("hex").slice(0, 16)}.${ext}`;
+      this.dir.write(`capture/${file}`, got.body);
+      index[url] = { file, type: mime, bytes: got.body.length };
+      left -= got.body.length;
+    }
+    this.dir.writeJson("capture/media.json", index);
+    return Object.keys(index).length;
+  }
+
+  /** the downloaded videos (capture/media.json): source URL → bytes and type */
+  mediaFiles(): Record<string, { body: Uint8Array; type: string }> {
+    if (!this.dir.exists("capture/media.json")) return {};
+    const idx = this.dir.readJson<Record<string, { file: string; type: string }>>("capture/media.json");
+    const out: Record<string, { body: Uint8Array; type: string }> = {};
+    for (const [u, f] of Object.entries(idx))
+      if (this.dir.exists(`capture/${f.file}`))
+        out[u] = { body: this.dir.read(`capture/${f.file}`), type: f.type };
+    return out;
   }
 
   snapshotOf(width: number): Snapshot {
@@ -662,7 +782,95 @@ class Runner {
    * section's band against the live page. Sections below their threshold are repaired only when asked (`repair`),
    * a few at once, and re-scored with one more shot per width per pass.
    */
+  /** targets built from the live DOM (one DOM for every width) rather than from the scene */
+  get domTargets(): DomTarget[] {
+    return (this.m.request.to ?? ["static"]).filter((t): t is DomTarget =>
+      DOM_TARGETS.includes(t as DomTarget),
+    );
+  }
+
+  /** does the run need the scene-based static page (static itself, its projects and design systems) */
+  get wantsStatic(): boolean {
+    const to = this.m.request.to ?? ["static"];
+    return to.some((t) => !DOM_TARGETS.includes(t as DomTarget));
+  }
+
+  /**
+   * The modern recreation (out/modern): the variants' walks matched into one DOM, CSS fitted across widths, real media,
+   * hover looks, menus, sliders. The Lit project (out/lit) is built from the same document; with `--build` its
+   * `npm run build` is a gate and its dist is measured.
+   */
+  async buildModern(): Promise<string> {
+    const variants = (this.m.variants ?? []).map((v) => ({
+      width: v.width,
+      minWidth: v.minWidth,
+      snap: this.snapshotOf(v.width),
+    }));
+    const o = this.emitOptions();
+    const { files, report, doc } = emitModern({
+      variants,
+      media: (o.assets ?? "run-dir") === "none" ? {} : this.mediaFiles(),
+      page: this.pageName(),
+      sourceUrl: o.sourceUrl,
+      fonts: o.fonts === "system" ? "system" : "embed",
+      images: o.assets !== "none",
+    });
+    const notes = provenance(
+      { screens: [], page: this.pageName(), fonts: this.fonts() },
+      o,
+      "A modern recreation: one semantic DOM for every width. Open index.html, or serve the folder.",
+    );
+    this.writeFiles("out/modern", { ...files, ...notes });
+    this.dir.write("build/modern.styles.base.css", String(files["styles.css"] ?? ""));
+    this.dir.writeJson("build/modern.report.json", report);
+    this.addOutput("modern", "out/modern");
+    const parts = [
+      `modern: ${report.sections} sections, ${report.classes} classes, breakpoints ${report.mediaQueries.join("/") || "none"}`,
+      `${report.videos.filter((v) => v.file).length}/${report.videos.length} videos, ${report.sliders} sliders, ${report.hoverRules} hover looks`,
+    ];
+    for (const t of ["lit", "react-page", "angular-page"] as const)
+      if (this.domTargets.includes(t)) parts.push(await this.buildProject(t, doc, files));
+    return parts.join("; ");
+  }
+
+  /**
+   * A project of the modern page (out/<target>): Lit, React or Angular, each prerendered by its own build and hydrated.
+   * With `--build` its `npm run build` is a gate (`build:<target>`) and its dist is measured like the modern page.
+   */
+  async buildProject(
+    t: "lit" | "react-page" | "angular-page",
+    doc: ModernDoc,
+    modern: FileMap,
+  ): Promise<string> {
+    const o = this.emitOptions();
+    const opts = { projectName: this.pageName(), sourceUrl: o.sourceUrl };
+    const files =
+      t === "lit"
+        ? emitLit(doc, modern, opts)
+        : t === "react-page"
+          ? emitReactPage(doc, modern, opts)
+          : emitAngularPage(doc, modern, opts);
+    const what = { lit: "A Lit + Vite", "react-page": "A React + Vite", "angular-page": "An Angular" }[t];
+    const notes = provenance(
+      { screens: [], page: this.pageName(), fonts: this.fonts() },
+      o,
+      `${what} recreation: \`npm install && npm run build\` (prerendered, hydrated).`,
+    );
+    this.writeFiles(`out/${t}`, { ...files, ...notes });
+    this.addOutput(t, `out/${t}`);
+    if (!this.host.runBuilds) return `${t}: written`;
+    const b = await this.host.runBuilds(this.dir.path(`out/${t}`));
+    this.m.gates = [
+      ...this.m.gates.filter((g) => g.name !== `build:${t}`),
+      { name: `build:${t}`, pass: b.ok, detail: b.output.slice(-400) },
+    ];
+    return `${t}: build ${b.ok ? "ok" : "failed"}`;
+  }
+
   async build() {
+    let modern = "";
+    if (this.domTargets.length) modern = await this.buildModern();
+    if (!this.wantsStatic) return { detail: modern };
     const screens = this.screens();
     const sections = this.sections();
     const files = getEmitter("static")!.emit(
@@ -690,7 +898,7 @@ class Runner {
     });
     if (!checks) {
       for (const [k, s] of sections.entries()) this.emit({ ...base(s, k), status: "ok" });
-      return { detail: `${sections.length} sections` };
+      return { detail: [modern, `${sections.length} sections`].filter(Boolean).join("; ") };
     }
     for (const [k, s] of sections.entries()) this.emit({ ...base(s, k), status: "checking" });
     let results = await this.checkSections(sections, widths);
@@ -799,7 +1007,12 @@ class Runner {
       });
     }
     return {
-      detail: `${sections.length} sections, ${below} below the band threshold${reverted.size ? `, ${reverted.size} repair(s) undone` : ""}`,
+      detail: [
+        modern,
+        `${sections.length} sections, ${below} below the band threshold${reverted.size ? `, ${reverted.size} repair(s) undone` : ""}`,
+      ]
+        .filter(Boolean)
+        .join("; "),
     };
   }
 
@@ -1036,83 +1249,113 @@ class Runner {
         ...this.dir.readJson<{ texts: string[]; overflowPx: number }>(`capture/live/${w}.json`),
       }));
     if (!live.length) return { status: "skipped" as const, detail: "no live shots were taken" };
-    const targets = this.m.outputs.filter((o) => o.target === "static");
+    // the static page, the modern one, and the Lit project's build when it was built (served like a host serves it)
+    const targets = this.m.outputs
+      .filter(
+        (o) =>
+          o.target === "static" ||
+          o.target === "modern" ||
+          (PROJECT_TARGETS.includes(o.target as DomTarget) && this.dir.exists(o.path, "dist", "index.html")),
+      )
+      .map((o) => ({
+        ...o,
+        root: PROJECT_TARGETS.includes(o.target as DomTarget) ? `${o.path}/dist` : o.path,
+      }));
     // every measurement checks a few widths the ones before did not (the plan's rotating widths)
     const plan = this.plan(this.m.measures ?? 0);
     this.m.measures = (this.m.measures ?? 0) + 1;
     for (const t of targets) {
-      const page = pathToFileURL(this.dir.path(t.path, "index.html")).href;
-      const sweep = await this.sweepOutput(page, plan);
-      const captured: Record<number, string[]> = {};
-      const expectations: Record<number, ReturnType<typeof liveExpectations>> = {};
-      for (const w of widths) {
-        const snap = this.snapshotOf(w);
-        captured[w] = textsOfSnapshot(snap);
-        expectations[w] = liveExpectations(snap);
+      const served = t.target === "static" ? null : await serveDir(this.dir.path(t.root));
+      try {
+        const page = served ? served.url : pathToFileURL(this.dir.path(t.path, "index.html")).href;
+        const sweep = await this.sweepOutput(page, plan);
+        const captured: Record<number, string[]> = {};
+        const expectations: Record<number, ReturnType<typeof liveExpectations>> = {};
+        for (const w of widths) {
+          const snap = this.snapshotOf(w);
+          captured[w] = textsOfSnapshot(snap);
+          expectations[w] = liveExpectations(snap);
+        }
+        for (const o of sweep.out)
+          if (o.png?.length) this.dir.write(`measure/${t.target}/sweep/${o.width}.png`, o.png);
+        const { report, images } = measure({
+          target: t.target,
+          sweep: {
+            out: sweep.out,
+            live: this.liveFacts([...sweep.out.map((o) => o.width)]),
+            spans: this.spans(),
+            plan: { grid: plan.grid, boundaries: plan.boundaries, rotating: plan.rotating },
+          },
+          live,
+          out: sweep.captured,
+          captured,
+          expectations,
+          mask: Object.fromEntries(widths.map((w) => [w, this.mediaAt(w)])),
+          gates: this.cfg.gates,
+          flow: PROJECT_TARGETS.includes(t.target as DomTarget)
+            ? undefined
+            : this.flowInput(
+                t.path,
+                t.target === "modern" ? "build/modern.styles.base.css" : "build/styles.base.css",
+              ),
+        });
+        // the quality gates (accessibility, markup, motion, behaviour, hover, Lighthouse) for the outputs built to be kept
+        if (t.target !== "static") await this.quality(report, page, served ? this.dir.path(t.root) : null);
+        for (const img of images) {
+          this.dir.write(`measure/${t.target}/${img.width}/live.png`, img.live);
+          this.dir.write(`measure/${t.target}/${img.width}/out.png`, img.out);
+          this.dir.write(`measure/${t.target}/${img.width}/diff.png`, img.diff);
+        }
+        // the worst failing widths that had no screenshot: shot now, for the compare page and the agent's crops
+        const worst = (report.sweep ?? [])
+          .filter((c) => !c.pass && !this.dir.exists(`measure/${t.target}/sweep/${c.width}.png`))
+          .sort(
+            (a, b) => b.issues.length - a.issues.length || (b.pairs?.length ?? 0) - (a.pairs?.length ?? 0),
+          )
+          .slice(0, 2)
+          .map((c) => c.width);
+        if (worst.length) {
+          const shots = await this.driver
+            .shoot(page, worst, { guard: false, probe: LAYOUT_CHECK_JS, signal: this.host.signal })
+            .catch(() => []);
+          for (const o of shots) this.dir.write(`measure/${t.target}/sweep/${o.width}.png`, o.png);
+        }
+        // the vision verdict, when a vision-capable model is configured
+        if (this.host.chat) report.vision = await this.vision(report, images).catch(() => undefined);
+        this.dir.writeJson(`measure/${t.target}/report.json`, report);
+        this.reports.push(report);
+        this.m.measurements = [
+          ...this.m.measurements.filter((x) => x.target !== t.target),
+          { target: t.target, report: `measure/${t.target}/report.json`, pass: report.pass },
+        ];
+        this.m.gates = report.gates.map((g) => ({ name: g.name, pass: g.pass, detail: g.detail }));
+        this.emit({
+          type: "recreate.measured",
+          runId: this.m.id,
+          target: t.target,
+          widths: report.widths.map((w) => ({
+            width: w.width,
+            pixel: w.pixel,
+            textReal: w.textReal,
+            textDrift: w.textDrift,
+            height: { live: w.liveHeight, out: w.outHeight },
+            hscroll: w.hscroll,
+          })),
+          gates: report.gates.map((g) => ({ name: g.name, pass: g.pass, detail: g.detail })),
+          comparePath: this.dir.rel("compare/index.html"),
+        });
+      } finally {
+        await served?.close();
       }
-      for (const o of sweep.out)
-        if (o.png?.length) this.dir.write(`measure/${t.target}/sweep/${o.width}.png`, o.png);
-      const { report, images } = measure({
-        target: t.target,
-        sweep: {
-          out: sweep.out,
-          live: this.liveFacts([...sweep.out.map((o) => o.width)]),
-          spans: this.spans(),
-          plan: { grid: plan.grid, boundaries: plan.boundaries, rotating: plan.rotating },
-        },
-        live,
-        out: sweep.captured,
-        captured,
-        expectations,
-        mask: Object.fromEntries(widths.map((w) => [w, this.mediaAt(w)])),
-        gates: this.cfg.gates,
-        flow: this.flowInput(t.path),
-      });
-      for (const img of images) {
-        this.dir.write(`measure/${t.target}/${img.width}/live.png`, img.live);
-        this.dir.write(`measure/${t.target}/${img.width}/out.png`, img.out);
-        this.dir.write(`measure/${t.target}/${img.width}/diff.png`, img.diff);
-      }
-      // the worst failing widths that had no screenshot: shot now, for the compare page and the agent's crops
-      const worst = (report.sweep ?? [])
-        .filter((c) => !c.pass && !this.dir.exists(`measure/${t.target}/sweep/${c.width}.png`))
-        .sort((a, b) => b.issues.length - a.issues.length || (b.pairs?.length ?? 0) - (a.pairs?.length ?? 0))
-        .slice(0, 2)
-        .map((c) => c.width);
-      if (worst.length) {
-        const shots = await this.driver
-          .shoot(page, worst, { guard: false, probe: LAYOUT_CHECK_JS, signal: this.host.signal })
-          .catch(() => []);
-        for (const o of shots) this.dir.write(`measure/${t.target}/sweep/${o.width}.png`, o.png);
-      }
-      // the vision verdict, when a vision-capable model is configured
-      if (this.host.chat) report.vision = await this.vision(report, images).catch(() => undefined);
-      this.dir.writeJson(`measure/${t.target}/report.json`, report);
-      this.reports.push(report);
-      this.m.measurements = [
-        ...this.m.measurements.filter((x) => x.target !== t.target),
-        { target: t.target, report: `measure/${t.target}/report.json`, pass: report.pass },
-      ];
-      this.m.gates = report.gates.map((g) => ({ name: g.name, pass: g.pass, detail: g.detail }));
-      this.emit({
-        type: "recreate.measured",
-        runId: this.m.id,
-        target: t.target,
-        widths: report.widths.map((w) => ({
-          width: w.width,
-          pixel: w.pixel,
-          textReal: w.textReal,
-          textDrift: w.textDrift,
-          height: { live: w.liveHeight, out: w.outHeight },
-          hscroll: w.hscroll,
-        })),
-        gates: report.gates.map((g) => ({ name: g.name, pass: g.pass, detail: g.detail })),
-        comparePath: this.dir.rel("compare/index.html"),
-      });
     }
     this.dir.write(
       "compare/index.html",
-      comparePage(this.reports, { title: this.pageName(), sourceUrl: this.m.finalUrl ?? this.url }),
+      comparePage(this.reports, {
+        title: this.pageName(),
+        sourceUrl: this.m.finalUrl ?? this.url,
+        outputPage: (t) =>
+          PROJECT_TARGETS.includes(t as DomTarget) ? `../out/${t}/dist/index.html` : `../out/${t}/index.html`,
+      }),
     );
     return { detail: this.reports.map((r) => formatReport(r).split("\n")[0]).join("; ") };
   }
@@ -1161,8 +1404,109 @@ class Runner {
     return { captured, out: [...shots, ...facts.flat()].sort((a, b) => a.width - b.width) };
   }
 
+  /**
+   * Accessibility (axe), markup, motion, slider behaviour and hover looks of an output at its widest and narrowest
+   * width, against what the live page has; Lighthouse on the served folder (phone and desktop). Added to `report`.
+   */
+  async quality(report: MeasureReport, page: string, folder: string | null) {
+    const ws = (this.m.variants ?? []).map((v) => v.width);
+    if (!ws.length) return;
+    const snaps = ws.map((w) => this.snapshotOf(w));
+    const live = liveQuality(snaps);
+    const widths = [...new Set([ws[ws.length - 1]!, ws[0]!])];
+    const inspect = this.driver.inspect?.bind(this.driver);
+    const gates: GateResult[] = [];
+    const reports: QualityReport[] = [];
+    if (!inspect) {
+      for (const name of ["a11y", "markup", "motion", "behaviour"] as const)
+        gates.push({ name, pass: true, detail: "skipped (the driver cannot inspect pages)" });
+    } else {
+      // the live page's own accessibility at the widest width, once per run (for comparison)
+      let liveAxe: QualityProbe["axe"] | undefined, liveNodes: number | undefined;
+      if (this.dir.exists("measure/live-quality.json"))
+        ({ axe: liveAxe, nodes: liveNodes } = this.dir.readJson<{
+          axe?: QualityProbe["axe"];
+          nodes?: number;
+        }>("measure/live-quality.json"));
+      else if (this.cfg.gates?.liveQuality !== false) {
+        const lq = await inspect(this.m.finalUrl ?? this.url, widths[0]!, {
+          guard: this.guard,
+          probe: QUALITY_PROBE_JS,
+          signal: this.host.signal,
+        }).catch(() => null);
+        const p = lq?.probe as QualityProbe | undefined;
+        if (p && !p.error) {
+          liveAxe = p.axe;
+          liveNodes = p.nodes;
+          this.dir.writeJson("measure/live-quality.json", {
+            axe: p.axe,
+            nodes: p.nodes,
+            at: new Date().toISOString(),
+          });
+        }
+      }
+      const by = new Map<string, QualityGate>();
+      for (const [k, w] of widths.entries()) {
+        this.cancelled();
+        const r = await inspect(page, w, {
+          guard: false,
+          probe: QUALITY_PROBE_JS,
+          hover: k === 0,
+          signal: this.host.signal,
+        }).catch((e) => ({ probe: { error: (e as Error).message } }));
+        const probe = r.probe as QualityProbe | undefined;
+        const q = qualityGates(probe, live, {
+          liveNodes,
+          liveAxe,
+          ...(k === 0 ? { outHover: (r as { hover?: SnapHover[] }).hover ?? [] } : {}),
+        });
+        reports.push({
+          width: w,
+          ...(probe ? { probe } : {}),
+          ...(k === 0 && liveAxe ? { live: { axe: liveAxe, nodes: liveNodes } } : {}),
+          ...(q.hover ? { hover: q.hover } : {}),
+          gates: q.gates,
+        });
+        // a gate fails when it fails at any width; its line names the widths
+        for (const g of q.gates) {
+          const prev = by.get(g.name);
+          by.set(
+            g.name,
+            prev
+              ? {
+                  name: g.name,
+                  pass: prev.pass && g.pass,
+                  detail: prev.detail === g.detail ? prev.detail : `${prev.detail} | ${w}px: ${g.detail}`,
+                }
+              : { ...g, detail: widths.length > 1 ? `${w}px: ${g.detail}` : g.detail },
+          );
+        }
+      }
+      gates.push(...by.values());
+    }
+    // Lighthouse on the served folder
+    if (folder && this.cfg.gates?.lighthouse !== false) {
+      const scores = await runLighthouse(page, {
+        chromePath: findChrome() ?? undefined,
+        signal: this.host.signal,
+      }).catch((e) => {
+        this.host.log?.(`lighthouse failed: ${(e as Error).message}`);
+        return [] as LighthouseScores[];
+      });
+      const lg = lighthouseGate(
+        scores,
+        typeof this.cfg.gates?.lighthouse === "object" ? this.cfg.gates.lighthouse : {},
+      );
+      gates.push({ name: "lighthouse", ...lg });
+      if (scores) report.lighthouse = scores;
+    }
+    report.quality = reports;
+    report.gates.push(...gates);
+    report.pass = report.gates.every((g) => g.pass);
+  }
+
   /** The output's stylesheet for the flow gate: linted against the build's own (what was added after it). */
-  flowInput(rel: string) {
+  flowInput(rel: string, baseline = "build/styles.base.css") {
     const cssPath = `${rel}/styles.css`,
       htmlPath = `${rel}/index.html`;
     if (!this.dir.exists(cssPath) || !this.dir.exists(htmlPath)) return undefined;
@@ -1171,9 +1515,7 @@ class Runner {
     const fitted = this.fittedSections();
     const lint = flowLint({
       css: this.dir.read(cssPath).toString("utf8"),
-      ...(this.dir.exists("build/styles.base.css")
-        ? { baseline: this.dir.read("build/styles.base.css").toString("utf8") }
-        : {}),
+      ...(this.dir.exists(baseline) ? { baseline: this.dir.read(baseline).toString("utf8") } : {}),
       scope: { ids: [...sections.keys()], classes: [...sections.values()].flatMap((c) => [...c]) },
       mediaClasses: media,
       boundaries: (this.m.variants ?? []).map((v) => v.minWidth).filter((w) => w > 0),
@@ -1400,7 +1742,10 @@ class Runner {
   async convert(kind: "convert" | "ds-export") {
     const isDs = (t: string) => t.startsWith("ds-") || t === "tokens" || t === "design-md";
     const targets = (this.m.request.to ?? ["static"]).filter(
-      (t) => t !== "static" && (kind === "ds-export" ? isDs(t) : !isDs(t)),
+      (t) =>
+        t !== "static" &&
+        !DOM_TARGETS.includes(t as DomTarget) &&
+        (kind === "ds-export" ? isDs(t) : !isDs(t)),
     );
     const notes: string[] = [];
     if (this.cfg.emitters?.length) {

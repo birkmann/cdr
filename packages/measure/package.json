@@ -29,5 +29,12 @@
     "@harness/protocol": "workspace:*",
     "@harness/scene": "workspace:*",
     "postcss": "8.5.32"
+  },
+  "devDependencies": {
+    "axe-core": "4.11.0"
+  },
+  "optionalDependencies": {
+    "chrome-launcher": "1.2.3",
+    "lighthouse": "12.8.2"
   }
 }

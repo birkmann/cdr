@@ -60,6 +60,8 @@ The packages `@harness/capture`, `scene`, `extract`, `codegen` and `measure` con
 
 - **polygon-clipping** (MIT, © Mike Fogel) is a runtime dependency of `@harness/scene`, used for vector boolean operations.
 - **Inter** (SIL Open Font License 1.1, © The Inter Project Authors) is the webfont of the test fixture site, `packages/capture/test/sites/acme/fonts/acme-sans.woff2`. The licence is in `OFL.txt` next to it. It is used only in tests and not shipped.
+- **axe-core** (Mozilla Public License 2.0, © Deque Systems, Inc.) is embedded unmodified in `@harness/measure` (`src/axe.generated.ts`, generated from `axe-core/axe.min.js` by `scripts/recreate/embed.mjs`) and runs inside the measured page for the accessibility gate. Its source is available at https://github.com/dequelabs/axe-core; the MPL-2.0 text is at https://mozilla.org/MPL/2.0/.
+- **Lighthouse** (Apache License 2.0, © Google LLC) and **chrome-launcher** (Apache License 2.0) are optional dependencies of `@harness/measure`, loaded only when installed, for the Lighthouse gate. They are not compiled into the bundles.
 - **Lucide** icon paths: `packages/scene/src/dsl/icons.ts` keeps a few glyph path definitions (chevrons, arrows, menu, search …) for generated components.
 
 ```

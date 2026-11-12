@@ -3192,6 +3192,10 @@
         {
           "enum": [
             "static",
+            "modern",
+            "lit",
+            "react-page",
+            "angular-page",
             "react-vite",
             "ds-react",
             "ds-lit",

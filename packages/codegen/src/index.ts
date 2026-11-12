@@ -28,3 +28,4 @@ export * from "./export/tokens.js";
 export * from "./prototype/actions.js";
 export * from "./emitters.js";
 export * from "./brandmd/index.js";
+export * from "./modern/index.js";

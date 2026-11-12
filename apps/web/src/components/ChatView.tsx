@@ -777,7 +777,12 @@ function TurnActivity({
       )}
       {recreateCards.map((runId) =>
         s.recreate?.runs[runId] ? (
-          <RecreateCard key={runId} run={s.recreate.runs[runId]} onCompare={onCompare} />
+          <RecreateCard
+            key={runId}
+            run={s.recreate.runs[runId]}
+            sessionId={sessionId}
+            onCompare={onCompare}
+          />
         ) : null,
       )}
       {[...previews.values()].map((e) => (

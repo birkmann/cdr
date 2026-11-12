@@ -1,2 +1,3 @@
 packages/capture/src/generated.ts
 packages/codegen/src/export/generated.ts
+packages/measure/src/axe.generated.ts

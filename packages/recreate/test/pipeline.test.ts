@@ -754,3 +754,54 @@ describe.skipIf(!chrome)("runRecreate end to end (fixture site, headless Chrome)
     }
   }, 240_000);
 });
+
+describe.skipIf(!chrome)(
+  "runRecreate modern (fixture site with video, slider, hover, menu; headless Chrome)",
+  () => {
+    it("recreates one DOM for every width that plays the video, drives the slider, keeps the hover looks and passes every gate", async () => {
+      const site = await serveSite("motion");
+      try {
+        const root = project();
+        const r = await runRecreate(
+          { url: site.url, to: ["modern"] },
+          {
+            projectRoot: root,
+            config: { allowLocal: true, respectRobots: false, gates: { lighthouse: false } },
+            consent: yes,
+            sectionChecks: false,
+          },
+        );
+        const rep = r.reports.find((x) => x.target === "modern");
+        expect(rep, r.summary).toBeTruthy();
+        expect(r.outputs.map((o) => o.target)).toEqual(["modern"]);
+        // every gate passes; pixels within 2 % (glyph rendering differs a little between machines)
+        const failing = rep!.gates
+          .filter((g) => !g.pass && g.name !== "pixel")
+          .map((g) => `${g.name}: ${g.detail}`);
+        expect(failing).toEqual([]);
+        for (const w of rep!.widths) expect(w.pixel).toBeLessThan(0.02);
+        expect(rep!.gates.map((g) => g.name)).toEqual(
+          expect.arrayContaining([
+            "pixel",
+            "text",
+            "layout",
+            "interactions",
+            "responsive",
+            "flow",
+            "a11y",
+            "markup",
+            "motion",
+            "behaviour",
+            "hover",
+          ]),
+        );
+        const html = readFileSync(join(root, ".harness/recreate", r.runId, "out/modern/index.html"), "utf8");
+        expect(html).not.toMatch(/data-bp=/);
+        expect(html).toMatch(/<video [^>]*autoplay/);
+        expect(existsSync(join(root, ".harness/recreate", r.runId, "capture/media.json"))).toBe(true);
+      } finally {
+        await site.close();
+      }
+    }, 420_000);
+  },
+);

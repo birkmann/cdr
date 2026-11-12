@@ -247,6 +247,61 @@ describe.skipIf(!chrome)("CDP capture driver (fixture site, headless Chrome)", (
     }
   }, 120_000);
 
+  it("records what a recreation needs to be one DOM that moves: keys, DOM order, video facts, slider facts, hover looks, hidden texts", async () => {
+    const site = await serveSite("motion");
+    try {
+      const r = await new CdpCaptureDriver().capture(
+        site.url,
+        { width: 1280, alt: [1024] },
+        { guard: { allowLocal: true }, respectRobots: false },
+      );
+      const s = r.snapshot;
+      const all: any[] = [];
+      const visit = (n: any) => {
+        all.push(n);
+        for (const c of n.children ?? []) visit(c);
+      };
+      visit(s.root);
+      // every node has its live-DOM key; the alt walk names the same boxes alike
+      expect(all.every((n) => typeof n.key === "string" && n.key.length)).toBe(true);
+      const altKeys = new Set<string>();
+      const va = (n: any) => {
+        altKeys.add(n.key);
+        for (const c of n.children ?? []) va(c);
+      };
+      va(s.alt[0].root);
+      expect(altKeys.has("body/main#main:0/section#services:2/ul:0/li:2")).toBe(true);
+      // the video and how it plays
+      const video = all.find((n) => n.tag === "video");
+      expect(video.media).toMatchObject({
+        kind: "video",
+        autoplay: true,
+        loop: true,
+        muted: true,
+        sources: [{ type: "video/mp4" }],
+      });
+      expect(video.media.sources[0].src).toMatch(/media\/hero\.mp4$/);
+      // the slider: its slides, its dots, and an autoplay found by watching it (no library)
+      const slider = all.find((n) => n.scroller?.slider);
+      expect(slider.scroller.slider).toMatchObject({ slides: 5, autoplay: 4000, dots: { count: 5 } });
+      // what a pointer changes: CSS :hover and a mouseenter handler (the card arrow)
+      const card = (s.hover ?? []).find((h: any) => /strategy/i.test(h.label ?? ""));
+      expect(card.changes.map((c: any) => Object.keys(c.props)).flat()).toEqual(
+        expect.arrayContaining(["box-shadow", "transform", "opacity"]),
+      );
+      // the card arrow drawn transparent until hovered is walked on its own
+      expect((s.invisible ?? []).some((i: any) => /li:0\/a:0$/.test(i.parent))).toBe(true);
+      expect(s.doc).toMatchObject({
+        description: expect.stringMatching(/Northwind/),
+        skipLink: { text: "Skip to content", target: "#main" },
+      });
+      // DOM order is kept next to the paint order
+      expect(all.filter((n) => n.ord !== undefined).length).toBeGreaterThan(all.length / 2);
+    } finally {
+      await site.close();
+    }
+  }, 120_000);
+
   it("dismisses on-load overlays (a late region switcher, a newsletter modal) in the capture and the live shot", async () => {
     const site = await serveSite("overlays");
     try {
