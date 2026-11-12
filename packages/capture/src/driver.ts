@@ -114,8 +114,8 @@ export interface CaptureBudgets {
 export const DEFAULT_BUDGETS: CaptureBudgets = {
   totalMs: 200_000,
   menuMs: 25_000,
-  submenuMs: 45_000,
-  submenus: 3,
+  submenuMs: 60_000,
+  submenus: 6,
   regionMs: 70_000,
   altMs: 120_000,
   rasters: 80,
@@ -1395,6 +1395,14 @@ class Session {
         break;
       }
       if (opened?.clicked !== true) continue;
+      // a desktop flyout: the real pointer over its entry (CSS :hover and the page's mouseenter both see it)
+      const hover = opened.hover as { x: number; y: number } | undefined;
+      if (hover) {
+        await this.cdp
+          .send("Input.dispatchMouseEvent", { type: "mouseMoved", x: hover.x, y: hover.y }, this.page)
+          .catch(() => {});
+        await sleep(120);
+      }
       const settled = await this.step({ mode: "state-settle" }, 12_000, until);
       if (settled === undefined) break;
       if (settled?.ok === true && typeof settled.region === "number") {
@@ -1408,9 +1416,20 @@ class Session {
             snapshot: walked.st,
           };
           if (typeof settled.label === "string") state.label = settled.label;
+          if (hover) state.hover = true;
+          if (Array.isArray(settled.overlays) && settled.overlays.length) state.overlays = settled.overlays;
           out.push(state);
         }
       }
+      // the pointer off the flyout: to the bottom-left corner, away from navigation bars
+      if (hover)
+        await this.cdp
+          .send(
+            "Input.dispatchMouseEvent",
+            { type: "mouseMoved", x: 1, y: Math.max(1, height - 2) },
+            this.page,
+          )
+          .catch(() => {});
       const r = await this.step({ mode: "state-restore", index: i }, 8000, until);
       // nothing changed in place and nothing to undo
       if (r?.ok !== true && settled?.ok === true) break;
@@ -1643,7 +1662,13 @@ export class CdpCaptureDriver implements CaptureDriver {
 
   async capture(url: string, plan: CaptureSessionPlan, o: CaptureOptions = {}): Promise<CaptureResult> {
     const t0 = Date.now();
-    const log = (m: string) => o.log?.(`${m} (${Date.now() - t0} ms)`);
+    // each step with its own time and the session's so far
+    let last = t0;
+    const log = (m: string) => {
+      const now = Date.now();
+      o.log?.(`${m} +${((now - last) / 1000).toFixed(1)}s (${((now - t0) / 1000).toFixed(1)}s in)`);
+      last = now;
+    };
     const budgets = { ...DEFAULT_BUDGETS, ...o.budgets };
     const guard = o.guard ?? {};
     const width = Math.round(Math.max(320, Math.min(2560, plan.width)));

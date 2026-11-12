@@ -153,6 +153,10 @@ export function imageUses(snap: Json, uses: Map<string, [number, number]>) {
     if (n.style?.mask?.url === true) add(n.style.mask.image);
     for (const l of Array.isArray(n.style?.bgLayers) ? n.style.bgLayers : [])
       if (l?.url === true) add(l.image);
+    // cursor icons: kept at their own size (never shrunk to the box they are shown over)
+    for (const c of [n.cursor, n.cursorActive])
+      for (const m of typeof c === "string" ? c.matchAll(/url\("?([^")]+)"?\)/g) : [])
+        if (m[1]?.startsWith("http") && !uses.has(m[1])) uses.set(m[1], [0, 0]);
   });
 }
 

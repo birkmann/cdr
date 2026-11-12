@@ -16,8 +16,10 @@ import type {
   SceneElement,
   SceneScreen,
 } from "@harness/protocol";
-import { DEFAULT_TOKENS } from "@harness/protocol";
+import { DEFAULT_TOKENS, HARNESS_VERSION } from "@harness/protocol";
 import { createHash } from "node:crypto";
+import { cpus, platform, release } from "node:os";
+import { RunLog, scrub, secs } from "./runlog.js";
 import {
   CdpCaptureDriver,
   CaptureError,
@@ -309,6 +311,8 @@ class Runner {
   readonly driver: CaptureDriver;
   readonly cfg: RecreateConfig;
   readonly reports: MeasureReport[] = [];
+  /** logs/run.log and logs/events.jsonl of the run folder */
+  readonly runLog: RunLog;
 
   constructor(
     private readonly host: RecreateHost,
@@ -317,6 +321,7 @@ class Runner {
   ) {
     this.dir = new RunDir(host.projectRoot, runId);
     this.m = manifest;
+    this.runLog = new RunLog(this.dir);
     this.cfg = host.config ?? {};
     // remote: the capture runs on a service (no Chrome here); local outputs are shot by Chrome when there is one
     this.driver =
@@ -326,7 +331,32 @@ class Runner {
         : new CdpCaptureDriver());
   }
 
+  /** a line of the run's log (and the host's) */
+  log(message: string) {
+    this.runLog.line(message);
+    try {
+      this.host.log?.(message);
+    } catch {
+      /* a listener's failure never breaks the run */
+    }
+  }
+
+  /** a step timed in the run's log: its start, its time, its failure */
+  async timed<T>(what: string, fn: () => Promise<T>): Promise<T> {
+    const t0 = Date.now();
+    this.runLog.line(`  … ${what}`);
+    try {
+      const r = await fn();
+      this.runLog.line(`  ✓ ${what} ${secs(Date.now() - t0)}`);
+      return r;
+    } catch (e) {
+      this.runLog.line(`  ✗ ${what} ${secs(Date.now() - t0)}: ${(e as Error).message}`);
+      throw e;
+    }
+  }
+
   emit(e: RecreateProgress) {
+    this.runLog.event(e);
     try {
       this.host.progress?.(e);
     } catch {
@@ -498,9 +528,7 @@ class Runner {
         ["browser_unavailable", "blocked_address", "robots", "cancelled", "invalid_url"].includes(e.code)
       )
         throw e;
-      this.host.log?.(
-        `layout probe failed (${(e as Error).message}); capturing at ${DEFAULT_WIDTHS.join(", ")}`,
-      );
+      this.log(`layout probe failed (${(e as Error).message}); capturing at ${DEFAULT_WIDTHS.join(", ")}`);
     }
     // one variant per layout range of the page (every range measured: no width between captures shows a layout the
     // page does not have there), or one per device class (`recreate.capturePlan: "devices"`: quicker on pages with
@@ -558,21 +586,25 @@ class Runner {
       const mine = variants.filter((v) => v.session === i);
       const extra = sweep.filter((w) => sessionFor(w) === i);
       const facts = probe.filter((w) => sessionFor(w) === i);
-      return this.driver.capture(
-        this.url,
-        { width: s.width, alt: s.alt, menus: s.menus },
-        {
-          guard: this.guard,
-          respectRobots: this.cfg.respectRobots,
-          budgets: this.cfg.budgets,
-          shotWidths: [...mine.map((v) => v.width), ...extra],
-          shotProbe: LAYOUT_CHECK_JS,
-          ...(facts.length ? { probeWidths: facts, onProbe: this.onProbe } : {}),
-          signal: this.host.signal,
-          log: (msg) => this.host.log?.(`capture ${s.width}px: ${msg}`),
-          onPeek: this.onPeek,
-          onShot: this.onShot,
-        },
+      return this.timed(
+        `capture session ${s.width}px (walks ${[s.width, ...s.alt].join("/")}${mine.length ? `; variants ${mine.map((v) => v.width).join("/")}` : ""}${extra.length ? `; shots ${extra.join("/")}` : ""})`,
+        () =>
+          this.driver.capture(
+            this.url,
+            { width: s.width, alt: s.alt, menus: s.menus },
+            {
+              guard: this.guard,
+              respectRobots: this.cfg.respectRobots,
+              budgets: this.cfg.budgets,
+              shotWidths: [...mine.map((v) => v.width), ...extra],
+              shotProbe: LAYOUT_CHECK_JS,
+              ...(facts.length ? { probeWidths: facts, onProbe: this.onProbe } : {}),
+              signal: this.host.signal,
+              log: (msg) => this.log(`capture ${s.width}px: ${msg}`),
+              onPeek: this.onPeek,
+              onShot: this.onShot,
+            },
+          ),
       );
     };
     const results = await mapLimit(
@@ -807,6 +839,7 @@ class Runner {
       snap: this.snapshotOf(v.width),
     }));
     const o = this.emitOptions();
+    const t0 = Date.now();
     const { files, report, doc } = emitModern({
       variants,
       media: (o.assets ?? "run-dir") === "none" ? {} : this.mediaFiles(),
@@ -819,6 +852,9 @@ class Runner {
       { screens: [], page: this.pageName(), fonts: this.fonts() },
       o,
       "A modern recreation: one semantic DOM for every width. Open index.html, or serve the folder.",
+    );
+    this.log(
+      `  emitted modern ${secs(Date.now() - t0)}: ${report.nodes} nodes, ${report.sections} sections, ${report.classes} classes, ${Object.keys(files).length} files`,
     );
     this.writeFiles("out/modern", { ...files, ...notes });
     this.dir.write("build/modern.styles.base.css", String(files["styles.css"] ?? ""));
@@ -859,7 +895,10 @@ class Runner {
     this.writeFiles(`out/${t}`, { ...files, ...notes });
     this.addOutput(t, `out/${t}`);
     if (!this.host.runBuilds) return `${t}: written`;
-    const b = await this.host.runBuilds(this.dir.path(`out/${t}`));
+    const b = await this.timed(`npm install && build ${t}`, () =>
+      this.host.runBuilds!(this.dir.path(`out/${t}`)),
+    );
+    if (!b.ok) this.log(`  build ${t} failed:\n${b.output.slice(-2000)}`);
     this.m.gates = [
       ...this.m.gates.filter((g) => g.name !== `build:${t}`),
       { name: `build:${t}`, pass: b.ok, detail: b.output.slice(-400) },
@@ -940,22 +979,24 @@ class Runner {
       };
       // patches to one file: the host serialises its writes; the model calls run side by side
       const outcomes = await mapLimit(failing, REPAIR_PARALLEL, ({ s, k }) =>
-        this.host.repair!({
-          runId: this.m.id,
-          file: this.dir.rel(indexRel),
-          section: { id: s.id, label: s.label, kind: s.kind, index: k },
-          attempt,
-          maxAttempts: REPAIR_ATTEMPTS,
-          widths: results.get(s.id)!.widths,
-          threshold,
-          reason: reasons.get(s.id),
-          sweep: this.sweepTask(s.id, sweep),
-          ...(rejected.get(s.id)?.length ? { rejected: rejected.get(s.id) } : {}),
-          boundaries,
-        })
+        this.timed(`repair ${s.id} (attempt ${attempt}, ${reasons.get(s.id) ?? "pixel"})`, () =>
+          this.host.repair!({
+            runId: this.m.id,
+            file: this.dir.rel(indexRel),
+            section: { id: s.id, label: s.label, kind: s.kind, index: k },
+            attempt,
+            maxAttempts: REPAIR_ATTEMPTS,
+            widths: results.get(s.id)!.widths,
+            threshold,
+            reason: reasons.get(s.id),
+            sweep: this.sweepTask(s.id, sweep),
+            ...(rejected.get(s.id)?.length ? { rejected: rejected.get(s.id) } : {}),
+            boundaries,
+          }),
+        )
           .then((o): RepairOutcome => (typeof o === "boolean" ? { changed: o } : o))
           .catch((e): RepairOutcome => {
-            this.host.log?.(`repair of ${s.id} failed: ${(e as Error).message}`);
+            this.log(`repair of ${s.id} failed: ${(e as Error).message}`);
             return { changed: false };
           }),
       );
@@ -1045,7 +1086,7 @@ class Runner {
       if (after.get(s.id)!.worst < results.get(s.id)!.worst - 1e-4) {
         screens = next;
         kept.push(s.id);
-        this.host.log?.(
+        this.log(
           `section ${s.id} keeps its fitted geometry (pixel ${(after.get(s.id)!.worst * 100).toFixed(1)} %)`,
         );
       }
@@ -1265,10 +1306,15 @@ class Runner {
     const plan = this.plan(this.m.measures ?? 0);
     this.m.measures = (this.m.measures ?? 0) + 1;
     for (const t of targets) {
+      const tt = Date.now();
+      this.log(`  … measure ${t.target}`);
       const served = t.target === "static" ? null : await serveDir(this.dir.path(t.root));
       try {
         const page = served ? served.url : pathToFileURL(this.dir.path(t.path, "index.html")).href;
-        const sweep = await this.sweepOutput(page, plan);
+        const sweep = await this.timed(
+          `${t.target}: screenshots and layout facts at ${[...new Set([...plan.grid, ...plan.rotating])].length} widths`,
+          () => this.sweepOutput(page, plan),
+        );
         const captured: Record<number, string[]> = {};
         const expectations: Record<number, ReturnType<typeof liveExpectations>> = {};
         for (const w of widths) {
@@ -1278,6 +1324,7 @@ class Runner {
         }
         for (const o of sweep.out)
           if (o.png?.length) this.dir.write(`measure/${t.target}/sweep/${o.width}.png`, o.png);
+        const tm = Date.now();
         const { report, images } = measure({
           target: t.target,
           sweep: {
@@ -1299,13 +1346,19 @@ class Runner {
                 t.target === "modern" ? "build/modern.styles.base.css" : "build/styles.base.css",
               ),
         });
+        this.log(`    ${t.target}: pixel and text comparison ${secs(Date.now() - tm)}`);
         // the quality gates (accessibility, markup, motion, behaviour, hover, Lighthouse) for the outputs built to be kept
-        if (t.target !== "static") await this.quality(report, page, served ? this.dir.path(t.root) : null);
+        if (t.target !== "static")
+          await this.timed(`${t.target}: quality gates`, () =>
+            this.quality(report, page, served ? this.dir.path(t.root) : null),
+          );
+        const tw = Date.now();
         for (const img of images) {
           this.dir.write(`measure/${t.target}/${img.width}/live.png`, img.live);
           this.dir.write(`measure/${t.target}/${img.width}/out.png`, img.out);
           this.dir.write(`measure/${t.target}/${img.width}/diff.png`, img.diff);
         }
+        this.log(`    ${t.target}: ${images.length * 3} comparison images written ${secs(Date.now() - tw)}`);
         // the worst failing widths that had no screenshot: shot now, for the compare page and the agent's crops
         const worst = (report.sweep ?? [])
           .filter((c) => !c.pass && !this.dir.exists(`measure/${t.target}/sweep/${c.width}.png`))
@@ -1315,13 +1368,20 @@ class Runner {
           .slice(0, 2)
           .map((c) => c.width);
         if (worst.length) {
-          const shots = await this.driver
-            .shoot(page, worst, { guard: false, probe: LAYOUT_CHECK_JS, signal: this.host.signal })
-            .catch(() => []);
+          const shots = await this.timed(`${t.target}: shots of the worst widths ${worst.join("/")}`, () =>
+            this.driver.shoot(page, worst, {
+              guard: false,
+              probe: LAYOUT_CHECK_JS,
+              signal: this.host.signal,
+            }),
+          ).catch(() => []);
           for (const o of shots) this.dir.write(`measure/${t.target}/sweep/${o.width}.png`, o.png);
         }
         // the vision verdict, when a vision-capable model is configured
-        if (this.host.chat) report.vision = await this.vision(report, images).catch(() => undefined);
+        if (this.host.chat)
+          report.vision = await this.timed(`${t.target}: vision verdict`, () =>
+            this.vision(report, images),
+          ).catch(() => undefined);
         this.dir.writeJson(`measure/${t.target}/report.json`, report);
         this.reports.push(report);
         this.m.measurements = [
@@ -1346,8 +1406,10 @@ class Runner {
         });
       } finally {
         await served?.close();
+        this.log(`  ✓ measure ${t.target} ${secs(Date.now() - tt)}`);
       }
     }
+    const tc = Date.now();
     this.dir.write(
       "compare/index.html",
       comparePage(this.reports, {
@@ -1357,6 +1419,7 @@ class Runner {
           PROJECT_TARGETS.includes(t as DomTarget) ? `../out/${t}/dist/index.html` : `../out/${t}/index.html`,
       }),
     );
+    this.log(`  compare page ${secs(Date.now() - tc)}`);
     return { detail: this.reports.map((r) => formatReport(r).split("\n")[0]).join("; ") };
   }
 
@@ -1486,11 +1549,13 @@ class Runner {
     }
     // Lighthouse on the served folder
     if (folder && this.cfg.gates?.lighthouse !== false) {
-      const scores = await runLighthouse(page, {
-        chromePath: findChrome() ?? undefined,
-        signal: this.host.signal,
-      }).catch((e) => {
-        this.host.log?.(`lighthouse failed: ${(e as Error).message}`);
+      const scores = await this.timed("lighthouse", () =>
+        runLighthouse(page, {
+          chromePath: findChrome() ?? undefined,
+          signal: this.host.signal,
+        }),
+      ).catch((e) => {
+        this.log(`lighthouse failed: ${(e as Error).message}`);
         return [] as LighthouseScores[];
       });
       const lg = lighthouseGate(
@@ -1963,6 +2028,17 @@ export async function runRecreate(
   const r = new Runner(host, runId, manifest);
   // a new run writes nothing before consent: a denied run leaves no folder
   if (!isNew) r.dir.saveManifest(r.m);
+  // the run's log: written once the folder may exist (a resumed run at once, a new one after consent)
+  if (!isNew) r.runLog.start();
+  r.runLog.line(
+    [
+      `=== ${isNew ? "new run" : `resumed${request.from ? ` from ${request.from}` : ""}`} ${runId} at ${new Date().toString()}`,
+      `url ${url}  targets ${targets.join(", ")}${manifest.request.widths?.length ? `  widths ${manifest.request.widths.join("/")}` : ""}`,
+      `harness ${HARNESS_VERSION}  node ${process.version}  ${platform()} ${release()}  ${cpus().length} cpus`,
+      `request ${JSON.stringify(scrub({ ...manifest.request, url: undefined }))}`,
+      `config ${JSON.stringify(scrub(host.config ?? {}))}`,
+    ].join("\n"),
+  );
   const order = stagesFor(targets);
   // a stage these targets skip resumes at the next one they run (never back at probe: that would re-capture)
   // (repair is part of build)
@@ -1984,6 +2060,7 @@ export async function runRecreate(
   try {
     // consent is never skipped by --from: a resumed run that never had it asks now
     if (!r.m.consent) await r.stage("consent", () => r.consent(), { persist: !isNew });
+    r.runLog.start();
     excludeRunsFromGit(host.projectRoot);
     const last =
       opts.stopAfter && order.includes(opts.stopAfter) ? order.indexOf(opts.stopAfter) : order.length - 1;
@@ -2030,6 +2107,10 @@ export async function runRecreate(
   r.m.summary = summary;
   // a new run without consent leaves nothing behind
   const denied = isNew && !r.m.consent;
+  if (!denied) {
+    r.runLog.line(r.runLog.summary(r.m, order));
+    r.log(`log: ${r.dir.rel("logs/run.log")}`);
+  }
   if (denied) rmSync(r.dir.path(), { recursive: true, force: true });
   else r.dir.saveManifest(r.m);
   const comparePath = r.dir.exists("compare/index.html") ? r.dir.rel("compare/index.html") : undefined;

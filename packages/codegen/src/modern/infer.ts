@@ -288,10 +288,15 @@ export function elementDecls(u: UNode, vi: number, model: Unified, ctx: InferCon
   const rowParent = flexParent && !/column/.test(parent?.layout?.dir ?? "row");
   const blockLevel = !/^inline/.test(display ?? "") && display !== "contents";
   // auto margins: a block narrower than its container, as far from both sides
+  // (in a row of its own too: the only box of a flex row, its auto margins centre it there as well)
+  const alone = (s: S) =>
+    (s.p?.children ?? []).filter(
+      (c) => c.kind !== "text" && inFlow(c as SnapElement) && geom(c as SnapElement).w > 0,
+    ).length === 1;
   const centred =
     inFlow(n) &&
     blockLevel &&
-    !flexParent &&
+    (!flexParent || (rowParent && ss.every(alone))) &&
     !gridParent &&
     ss.every((s) => {
       if (!s.p) return false;
@@ -442,6 +447,11 @@ function inferFlowSize(u: UNode, ss: S[], d: Decls, c: FlowCtx) {
       const f = fitSamples(cbPts);
       if (f) d.set(f.kind === "const" && hasText(n) ? "max-width" : "width", fitCss(f, "%"));
     }
+  } else if (c.flexParent && c.rowParent && c.centred && constW) {
+    // centred alone in its row: as wide as the row up to its measured width
+    d.set("width", "100%");
+    d.set("max-width", px(W(ss[0]!)));
+    d.set("flex-shrink", "1");
   } else if (c.flexParent && c.rowParent) {
     // a width that follows the row's (a share of it, measured at several widths) is a share, whatever its content
     const fr = fitSamples(cbPts);
@@ -460,7 +470,9 @@ function inferFlowSize(u: UNode, ss: S[], d: Decls, c: FlowCtx) {
     const stretch = c.flexParent
       ? /^(normal|stretch)$/.test(ss[0]!.p?.layout?.align ?? "normal") && !L.alignSelf
       : true;
-    if (!(fills && stretch) && !contentSized) {
+    // a form field or button is as wide as its own default, not as its line: one that fills it says so
+    if (fills && stretch && /^(input|select|textarea|button)$/.test(c.tag ?? "")) d.set("width", "100%");
+    else if (!(fills && stretch) && !contentSized) {
       const f = fitSamples(cbPts);
       if (constW)
         d.set(
@@ -742,10 +754,15 @@ function inferPlaced(ss: S[], d: Decls, media: boolean) {
   const nearBottom = rows[0]!.b < rows[0]!.t;
   // a layer as tall as its container (a background video, an overlay): both edges, whatever the container's height
   const fillsY = rows.every((r) => Math.abs(r.t) <= 1 && Math.abs(r.b) <= 1);
+  // hanging under its container (a dropdown, a flyout panel): it grows downwards from the container's bottom edge
+  const hangs = rows.every((r) => r.b <= 0.5 && Math.abs(r.t - r.cb.h) <= 1.5);
   if (fillsY) {
     d.set("top", "0");
     d.set("bottom", "0");
     if (media) d.set("height", "100%");
+  } else if (hangs) {
+    d.set("top", "100%");
+    if (!text) d.set("height", hFit());
   } else if (tC && bC && hC && (rows.length > 1 || rows[0]!.h < rows[0]!.cb.h * 0.5)) {
     d.set(nearBottom ? "bottom" : "top", px(nearBottom ? rows[0]!.b : rows[0]!.t));
     if (!text) d.set("height", hFit());
@@ -893,6 +910,12 @@ function paint(
     if (n.objectPosition && n.objectPosition !== "50% 50%") d.set("object-position", n.objectPosition);
   }
   if (n.pointer && !/^(a|button|summary|label|select)$/.test(n.tag)) d.set("cursor", "pointer");
+  // the page's own cursor (an icon over a slider's pictures): its image a file of the recreation
+  if (n.cursor)
+    d.set(
+      "cursor",
+      cursorCss(n.cursor, (u) => ctx.asset(u, n)),
+    );
   // a control smaller than a fingertip target (WCAG 2.5.8): at least 24 × 24 px
   // (the hit area grows by padding the margin takes back; a background stays on the original box: the look is unchanged)
   if (ctx.tagOf(u) === "button" && (n.rect.w < 24 || n.rect.h < 24) && n.rect.w > 0 && !n.style?.border) {
@@ -967,6 +990,11 @@ function paint(
     d.set("color", ctx.color(f.color));
   }
   if (n.transition && ctx.hovered(u)) d.set("transition", transitionCss(n.transition));
+}
+
+/** a computed cursor with its url images as the recreation's files */
+export function cursorCss(c: string, file: (url: string) => string): string {
+  return c.replace(/url\("?([^")]+)"?\)/g, (_m, u: string) => `url("${file(u)}")`);
 }
 
 /** A computed transform as the simplest CSS: a translation by a share of the box (`-50%`), a scale, or the matrix. */

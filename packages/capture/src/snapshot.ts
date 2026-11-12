@@ -217,6 +217,9 @@ export interface SnapElement extends SnapBase {
   /** untransformed size (offsetWidth / offsetHeight) when the box has a transform */
   size?: { w: number; h: number };
   pointer?: boolean;
+  /** the page's own cursor where it starts (not pointer: an icon url, grab, zoom-in), and the one while pressed */
+  cursor?: string;
+  cursorActive?: string;
   /** img */
   src?: string | null;
   natural?: { w: number; h: number };
@@ -289,6 +292,8 @@ export interface SnapSlider {
   autoplay?: number;
   /** ms a slide change takes */
   speed?: number;
+  /** it glides freely when dragged (no snapping to slides: Swiper's free mode) */
+  free?: boolean;
   /** px between slides (library option) */
   gap?: number;
   /** the row holding the slides, and the slides (keys) */
@@ -386,7 +391,7 @@ export interface Snapshot {
    * capture found them: 'select' picks one of a group, 'toggle' switches on / off; `id` = the control in this snapshot.
    * A native drop-down is one control per option (`option` = its index, `label` = its text), all with the select's id.
    */
-  controls?: { kind: "select" | "toggle"; id?: number; option?: number; label?: string }[];
+  controls?: { kind: "select" | "toggle" | "hover"; id?: number; option?: number; label?: string }[];
   /**
    * the page's walk with `opts.brand` (fig-server, `pnpm import:url`): what the brand guide reads on top of the tree —
    * controls with their CSSOM states, custom properties, @media widths, marks, images, icons, bands, grids, font files,
@@ -446,6 +451,13 @@ export interface SnapState {
   region?: number;
   /** region: the control toggles (clicked again = back); else it selects (its group's selected control = back) */
   toggle?: boolean;
+  /** region: a desktop flyout, shown while the pointer is over its entry (or focus is in it), never clicked */
+  hover?: boolean;
+  /**
+   * region, hover: layers over the page (a backdrop dimming it) the open flyout shows — their id in the page snapshot
+   * and their look then
+   */
+  overlays?: { id: number; opacity: number; bg?: string }[];
   /** id (SnapElement.id in the parent snapshot's `root`) of the control that opens the state (hamburger button) */
   trigger?: number;
   /** submenu: index (in `states`) of the menu state it opens from */

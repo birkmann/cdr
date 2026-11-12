@@ -17,6 +17,7 @@ import type {
 import { decodeDataUrl } from "./dataurl.js";
 import { imageSize } from "./imagesize.js";
 import {
+  cursorCss,
   defaultDisplay,
   elementDecls,
   INHERITED,
@@ -405,7 +406,10 @@ class ModernEmitter {
         if (!past || past === kids.length) continue;
         const id = `slider-${++sliders}`;
         const shown = kids.length - past;
-        const f: SnapSlider = { slides: kids.length, perView: shown, row: n.key! };
+        let free = false;
+        for (let p: SnapElement | undefined = n, i = 0; p && i < 4; p = w.parentOf.get(p), i++)
+          if (/free-?mode/i.test(p.attrs?.class ?? "")) free = true;
+        const f: SnapSlider = { slides: kids.length, perView: shown, row: n.key!, ...(free ? { free } : {}) };
         if (clip.key) this.bleedTo.set(u, clip.key);
         this.role(u).slider = { id, facts: f, role: "track" };
         const slides = u.children.filter((c) => !c.text && !this.roles.get(c)?.pseudo);
@@ -515,7 +519,7 @@ class ModernEmitter {
   /** widget regions (tabs, accordions, toggles that swap a box): region key → its id and its states by control key */
   readonly regions = new Map<
     string,
-    { id: string; states: Map<string, { state: string; toggle: boolean }> }
+    { id: string; states: Map<string, { state: string; toggle: boolean; hover?: boolean }> }
   >();
   unifyStates() {
     // one region per control: the smallest box any width saw it change (a wide walk can blame a whole page)
@@ -595,9 +599,15 @@ class ModernEmitter {
           let r = this.regions.get(reg.key);
           if (!r) this.regions.set(reg.key, (r = { id: `r${this.regions.size + 1}`, states: new Map() }));
           let one = r.states.get(ctl.key);
-          if (!one) r.states.set(ctl.key, (one = { state: String(r.states.size + 1), toggle: !!st.toggle }));
+          if (!one)
+            r.states.set(
+              ctl.key,
+              (one = { state: String(r.states.size + 1), toggle: !!st.toggle, hover: !!st.hover }),
+            );
+          // a desktop flyout: open while the pointer is over its entry or focus is in it (keyboard), in CSS alone
+          const at = `[data-region="${r.id}"]`;
           this.stateWalks.push({
-            scope: `[data-region="${r.id}"][data-state="${one.state}"]`,
+            scope: one.hover ? `:is(${at}:hover, ${at}:focus-within)` : `${at}[data-state="${one.state}"]`,
             vi,
             walk,
             state: st,
@@ -626,7 +636,13 @@ class ModernEmitter {
             (u as UNode & { stateOnly?: boolean }).stateOnly = true;
           }
           if (!this.stateNodes.has(u) && !u.at.some(Boolean)) this.stateNodes.set(u, n);
-          if (n.kind !== "text") for (const c of (n as SnapElement).children ?? []) add(c, n.key);
+          if (n.kind !== "text")
+            for (const c of (n as SnapElement).children ?? []) {
+              // a box the capture moved for paint order goes back under its own parent (its containing block)
+              const from = (c as SnapElement).from;
+              const real = typeof from === "number" ? walk.byId.get(from)?.key : undefined;
+              add(c, real && this.model.byKey.has(real) ? real : n.key);
+            }
         };
         if (st.snapshot.root) add(st.snapshot.root, undefined);
         if (st.kind === "region") return;
@@ -1251,11 +1267,18 @@ class ModernEmitter {
           const r = (c.at[vi] as SnapElement).rect;
           return col ? [r.y, r.x] : [r.y, r.x];
         };
-        // reading order: rows top to bottom, each left to right (a wrapped row too)
+        // reading order: rows top to bottom, each left to right (a wrapped row too); boxes of one line share it even
+        // when centred at different heights (a 24px link beside a 48px bar)
+        const sameLine = (a: UNode, b: UNode) => {
+          const ra = (a.at[vi] as SnapElement).rect,
+            rb = (b.at[vi] as SnapElement).rect;
+          const overlap = Math.min(ra.y + ra.h, rb.y + rb.h) - Math.max(ra.y, rb.y);
+          return Math.abs(ra.y - rb.y) <= 4 || overlap >= 0.5 * Math.min(ra.h, rb.h);
+        };
         const seen = [...kids].sort((a, b) => {
           const [ay, ax] = pos(a),
             [by, bx] = pos(b);
-          return Math.abs(ay! - by!) > 4 ? ay! - by! : ax! - bx!;
+          return !col && sameLine(a, b) ? ax! - bx! : Math.abs(ay! - by!) > 4 ? ay! - by! : ax! - bx!;
         });
         if (seen.every((c, i) => c === kids[i])) return;
         // only a real swap (overlapping boxes, placed ones, say nothing)
@@ -1361,6 +1384,29 @@ class ModernEmitter {
         });
       }
     }
+    // a flyout's panel opens with its region state (its own look at each width), not with a pointer delta
+    const flyouts: { reg: UNode; ctls: UNode[] }[] = [];
+    for (const [key, rg] of this.regions) {
+      const reg = this.model.byKey.get(key);
+      const ctls = [...rg.states]
+        .filter(([, one]) => one.hover)
+        .map(([k]) => this.model.byKey.get(k))
+        .filter((x): x is UNode => !!x);
+      if (reg && ctls.length) flyouts.push({ reg, ctls });
+    }
+    // their parts animate as on the page (the panel's own transition, its fading content)
+    for (const f of flyouts) eachNode(f.reg, (x) => void (!x.text && this.hovered.add(x)));
+    // and the layers they show over the page (a backdrop fading in)
+    this.vs.forEach((v, vi) => {
+      for (const st of v.snap.states ?? [])
+        for (const o of st.hover ? (st.overlays ?? []) : []) {
+          const on = this.model.walks[vi]![0]!.byId.get(o.id);
+          const ou = on?.key ? this.model.byKey.get(on.key) : undefined;
+          if (ou) this.hovered.add(ou);
+        }
+    });
+    const inPanel = (t: UNode) =>
+      flyouts.some((f) => t !== f.reg && this.inside(t, f.reg) && !f.ctls.some((c) => this.inside(t, c)));
     for (const h of all) {
       const ctl = this.model.byKey.get(h.key);
       if (!ctl) continue;
@@ -1369,7 +1415,7 @@ class ModernEmitter {
         const target =
           this.model.byKey.get(c.key) ??
           (pseudo ? this.model.byKey.get(c.key.slice(0, -pseudo[0].length)) : undefined);
-        if (!target) continue;
+        if (!target || (inPanel(target) && !inPanel(ctl))) continue;
         const n = this.el(target);
         const d: Decls = new Map();
         const p = c.props;
@@ -1427,6 +1473,8 @@ class ModernEmitter {
   stateCss(ctx: InferContext) {
     const REGION_KEEP =
       /^(display|visibility|opacity|background-color|background-image|color|fill|stroke|border|border-color|box-shadow|text-decoration|height|max-height)$/;
+    const HOVER_KEEP =
+      /^(display|visibility|opacity|background-color|background-image|color|fill|stroke|border|border-color|box-shadow|text-decoration|height|max-height|transform|translate|scale|rotate)$/;
     const KEEP =
       /^(display|visibility|opacity|transform|translate|scale|position|top|left|right|bottom|inset|background-color|color|z-index|overflow|height|max-height|min-height|width|max-width|pointer-events|box-shadow|border|padding|margin|flex|gap)$/;
     for (const s of this.stateWalks) {
@@ -1472,15 +1520,35 @@ class ModernEmitter {
           if (!diff.has("display")) diff.set("display", defaultDisplay(this.tags.get(u) ?? u.tag));
         } else {
           // a widget's state changes what shows and how it looks, not where its boxes sit
-          const keep = s.region ? REGION_KEEP : KEEP;
+          // a flyout's look also turns its parts (the chevron flips)
+          const keep = s.region ? (s.state.hover ? HOVER_KEEP : REGION_KEEP) : KEEP;
           for (const [k, v] of d) if (keep.test(k) && base.get(k) !== v) diff.set(k, v);
           // a box the state moves into view: no transform left
-          for (const k of ["transform", "translate", "visibility", "opacity"])
-            if (base.has(k) && !d.has(k))
-              diff.set(k, k === "visibility" ? "visible" : k === "opacity" ? "1" : "none");
+          // a box collapsed at rest (a closed panel 0-1px tall) takes its content's height
+          const collapsed = /^[01](\.\d+)?px$/.test(base.get("height") ?? base.get("max-height") ?? "");
+          for (const k of ["transform", "translate", "visibility", "opacity", "height", "max-height"])
+            if (base.has(k) && !d.has(k) && (collapsed || !/height/.test(k)))
+              diff.set(
+                k,
+                k === "visibility" ? "visible" : k === "opacity" ? "1" : k === "height" ? "auto" : "none",
+              );
+          // hidden at rest by the recreation (a closed panel, a box the page had made transparent), shown here
+          if (this.decls.get(u)?.[s.vi]?.get("visibility") === "hidden" && d.get("visibility") !== "hidden")
+            diff.set("visibility", "visible");
         }
         if (diff.size)
           this.stateRules.push({ scope: s.scope, node: u, vi: s.vi, decls: diff, self: u.key === s.region });
+      }
+      // a layer over the page the open flyout shows (a backdrop dimming the page)
+      for (const o of st.hover ? (st.overlays ?? []) : []) {
+        const on = this.model.walks[s.vi]![0]!.byId.get(o.id);
+        const ou = on?.key ? this.model.byKey.get(on.key) : undefined;
+        if (!ou) continue;
+        const look: Decls = new Map([
+          ["opacity", String(Math.round(o.opacity * 100) / 100)],
+          ["visibility", "visible"],
+        ]);
+        this.stateRules.push({ scope: `:root:has(${s.scope})`, node: ou, vi: s.vi, decls: look });
       }
       // what the widget hides in this state (the other tab's panel): shown at rest, not in the walk of the state
       if (s.region && s.walk.byKey.size) {
@@ -1667,6 +1735,7 @@ class ModernEmitter {
         u.children.some((c) => this.roles.get(c)?.pseudo) ||
         !!r?.slider ||
         !!r?.marquee ||
+        !!this.el(u)?.cursorActive ||
         !!r?.dots
       );
     };
@@ -1778,6 +1847,14 @@ class ModernEmitter {
         stateBlock.push(q ? `@media ${q} { ${g.body} }` : g.body);
       }
     }
+    // the cursor a box shows while pressed (and while its slider is dragged)
+    eachNode(this.model.root, (u) => {
+      const n = this.el(u);
+      const c = this.classOf.get(u);
+      if (!n?.cursorActive || !c) return;
+      const cur = cursorCss(n.cursorActive, (url) => this.assetFor(url) ?? url);
+      stateBlock.push(`.${c}:active, [data-dragging] .${c} { cursor: ${cur}; }`);
+    });
     for (const [u, d] of this.activeDots) {
       const c = this.classOf.get(u);
       if (c)
@@ -2055,6 +2132,8 @@ class ModernEmitter {
       a["data-slider"] = "";
       if (r.slider.facts.autoplay) a["data-autoplay"] = String(r.slider.facts.autoplay);
       if (r.slider.facts.loop) a["data-loop"] = "";
+      // a slider the page lets glide freely (no snapping to slides)
+      if (r.slider.facts.free) a["data-free"] = "";
       a.tabindex = "0";
       a["aria-label"] = a["aria-label"] ?? this.sliderLabel(u, r.slider.id);
       // a list of slides stays a list; a box becomes the carousel region
@@ -2095,7 +2174,7 @@ class ModernEmitter {
     if (region) a["data-region"] = region.id;
     for (const [, rg] of this.regions) {
       const one = rg.states.get(u.key);
-      if (!one) continue;
+      if (!one || one.hover) continue;
       a[one.toggle ? "data-region-toggle" : "data-region-set"] = `${rg.id}:${one.state}`;
       this.regionStateAria(a, one.toggle, false, r);
     }
@@ -2171,7 +2250,7 @@ class ModernEmitter {
     const m = new Map<UNode, string>();
     for (const [, rg] of this.regions)
       for (const [key, one] of rg.states) {
-        if (one.toggle) continue;
+        if (one.toggle || one.hover) continue;
         const ctl = this.model.byKey.get(key);
         for (const sib of ctl?.parent?.children ?? [])
           if (sib !== ctl && !sib.text && sib.tag === ctl!.tag && !rg.states.has(sib.key)) m.set(sib, rg.id);
@@ -2275,12 +2354,15 @@ class ModernEmitter {
       const e = u.at[vi];
       return isEl(e) ? (e.src ?? null) : null;
     });
+    // an image only an open state shows (a flyout's teaser, a submenu's picture): the state's source
+    const sn = this.stateNodes.get(u) as SnapElement | undefined;
+    if (!per.some(Boolean) && sn?.src) per[per.length - 1] = sn.src;
     const files: { vi: number; file: string; w: number; h: number }[] = [];
     per.forEach((src, vi) => {
       const f = this.assetFor(src);
       if (!f) return;
       const size = imageSize(this.files[f] as Uint8Array);
-      const e = u.at[vi] as SnapElement;
+      const e = (u.at[vi] ?? sn) as SnapElement;
       const w = size?.w || e.natural?.w || Math.round(e.rect.w),
         h = size?.h || e.natural?.h || Math.round(e.rect.h);
       files.push({ vi, file: f, w, h });
@@ -2538,6 +2620,8 @@ body { background: ${bodyBg}; ${body} -webkit-font-smoothing: antialiased; text-
 :where(input, button, textarea, select) { font: inherit; color: inherit; letter-spacing: inherit; }
 :where(button) { background: none; border: 0; padding: 0; cursor: pointer; text-align: inherit; }
 :where(input, textarea, select) { border: 0; background: none; }
+:where(fieldset) { border: 0; padding: 0; min-width: 0; }
+:where(legend) { padding: 0; }
 ::placeholder { color: var(--placeholder, currentColor); opacity: 1; }
 :where(input[type="checkbox"], input[type="radio"]):checked { background-image: radial-gradient(currentColor 40%, transparent 45%); }
 :where(ul, ol) { list-style: none; padding: 0; }
@@ -2547,11 +2631,16 @@ body { background: ${bodyBg}; ${body} -webkit-font-smoothing: antialiased; text-
 :where(iframe) { border: 0; }
 :where(table) { border-collapse: collapse; }
 :focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
+@media (prefers-reduced-motion: no-preference) { :root { interpolate-size: allow-keywords; } }
 .visually-hidden { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .skip-link { position: absolute; left: 8px; top: -100px; z-index: 1000; padding: 8px 16px; background: #fff; color: #000; }
 .skip-link:focus { top: 8px; }
 [data-slider] { overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x mandatory; scroll-behavior: smooth; scrollbar-width: none; }
 [data-slider]::-webkit-scrollbar { display: none; }
+@media (pointer: fine) { [data-slider] { cursor: grab; } }
+[data-slider][data-dragging] { cursor: grabbing; scroll-snap-type: none; scroll-behavior: auto; user-select: none; }
+[data-slider][data-free] { scroll-snap-type: none; }
+[data-slider] :where(img, a) { -webkit-user-drag: none; }
 [data-slider] > * { scroll-snap-align: start; }
 [data-slider-step][aria-disabled="true"] { cursor: default; }
 [data-slider-dot][aria-current="true"] { opacity: 1; }

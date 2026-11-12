@@ -410,6 +410,42 @@ export class SliderController implements ReactiveController {
         go(index() + (e.key === "ArrowRight" ? 1 : -1));
       }
     }) as EventListener);
+    // dragging with a mouse, as the live slider lets one (touch and trackpads scroll natively): the track follows the
+    // pointer, keeps some momentum when let go, and a click that ends a drag opens nothing
+    let drag: { x: number; left: number; moved: boolean; lastX: number; lastT: number; v: number } | null = null;
+    on(track, "dragstart", (e) => e.preventDefault());
+    on(track, "pointerdown", ((e: PointerEvent) => {
+      if (e.pointerType !== "mouse" || e.button !== 0) return;
+      drag = { x: e.clientX, left: track.scrollLeft, moved: false, lastX: e.clientX, lastT: performance.now(), v: 0 };
+    }) as EventListener);
+    on(window, "pointermove", ((e: PointerEvent) => {
+      if (!drag) return;
+      const dx = e.clientX - drag.x;
+      if (!drag.moved && Math.abs(dx) < 6) return;
+      if (!drag.moved) {
+        drag.moved = true;
+        track.setAttribute("data-dragging", "");
+      }
+      track.scrollLeft = drag.left - dx;
+      const now = performance.now();
+      drag.v = (e.clientX - drag.lastX) / Math.max(1, now - drag.lastT);
+      drag.lastX = e.clientX;
+      drag.lastT = now;
+    }) as EventListener);
+    on(window, "pointerup", () => {
+      if (!drag) return;
+      const d = drag;
+      drag = null;
+      if (!d.moved) return;
+      const stop = (ev: Event) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+      };
+      track.addEventListener("click", stop, { capture: true, once: true });
+      setTimeout(() => track.removeEventListener("click", stop, { capture: true }), 0);
+      track.removeAttribute("data-dragging");
+      if (!reduced()) track.scrollBy({ left: -d.v * 320, behavior: "smooth" });
+    });
     let t = 0;
     on(track, "scroll", () => {
       clearTimeout(t);

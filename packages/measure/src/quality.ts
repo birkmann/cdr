@@ -130,7 +130,7 @@ export const QUALITY_PROBE_JS = String.raw`(async () => {
   const tracks = [...document.querySelectorAll('[data-slider], [data-scroller]')].filter((t) => t.offsetWidth > 0 && t.scrollWidth > t.clientWidth + 4).slice(0, 6)
   out.sliders = []
   for (const t of tracks) {
-    const s = { dots: false, dotMoves: false, keyMoves: false, autoplay: false, loops: null }
+    const s = { dots: false, dotMoves: false, keyMoves: false, dragMoves: false, autoplay: false, loops: null }
     const id = t.id
     const reset = async () => { t.scrollTo({ left: 0, behavior: 'instant' }); await sleep(120) }
     const dots = id ? [...document.querySelectorAll('[data-slider-dot][aria-controls="' + id + '"]')] : []
@@ -141,6 +141,15 @@ export const QUALITY_PROBE_JS = String.raw`(async () => {
     t.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
     await sleep(900)
     s.keyMoves = t.scrollLeft > 2
+    // a mouse drag moves it
+    await reset()
+    const r = t.getBoundingClientRect(), y = r.top + r.height / 2, x0 = r.left + r.width * 0.7
+    const pe = (type, x, target) => target.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerType: 'mouse', button: 0, buttons: type === 'pointerup' ? 0 : 1, clientX: x, clientY: y }))
+    pe('pointerdown', x0, t)
+    for (let k = 1; k <= 6; k++) { pe('pointermove', x0 - k * 30, window); await sleep(16) }
+    pe('pointerup', x0 - 180, window)
+    await sleep(500)
+    s.dragMoves = t.scrollLeft > 2
     // the last slide's "next" goes back to the first on a looping slider
     const next = id ? document.querySelector('[data-slider-step="1"][aria-controls="' + id + '"]') : null
     if (next) {
@@ -203,6 +212,7 @@ export interface QualityProbe {
     dots: boolean;
     dotMoves: boolean;
     keyMoves: boolean;
+    dragMoves?: boolean;
     autoplay: boolean;
     loops: boolean | null;
   }[];
@@ -301,6 +311,8 @@ export function qualityGates(
     if (!probe.sliders.length) fails.push("no slider");
     if (probe.sliders.length && !probe.sliders.some((s) => s.keyMoves))
       fails.push("no slider moves with the arrow keys");
+    if (probe.sliders.length && probe.sliders.some((s) => s.dragMoves === false))
+      fails.push("a slider does not move when dragged");
     if (want.dots && !probe.sliders.some((s) => s.dots && s.dotMoves))
       fails.push("dots missing or do not move the slider");
     if (want.autoplay && !probe.sliders.some((s) => s.autoplay)) fails.push("no autoplay");

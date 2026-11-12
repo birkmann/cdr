@@ -91,6 +91,35 @@ for (const track of document.querySelectorAll('[data-slider]')) {
     if (e.key === 'ArrowRight') { e.preventDefault(); go(index() + 1) }
     if (e.key === 'ArrowLeft') { e.preventDefault(); go(index() - 1) }
   })
+  // dragging with a mouse, as the live slider lets one (touch and trackpads scroll the track natively): the track
+  // follows the pointer, keeps some momentum when let go, and a click that ends a drag opens nothing
+  let drag = null
+  track.addEventListener('dragstart', (e) => e.preventDefault())
+  track.addEventListener('pointerdown', (e) => {
+    if (e.pointerType !== 'mouse' || e.button !== 0) return
+    drag = { x: e.clientX, left: track.scrollLeft, moved: false, lastX: e.clientX, lastT: performance.now(), v: 0 }
+  })
+  window.addEventListener('pointermove', (e) => {
+    if (!drag) return
+    const dx = e.clientX - drag.x
+    if (!drag.moved && Math.abs(dx) < 6) return
+    if (!drag.moved) { drag.moved = true; track.setAttribute('data-dragging', '') }
+    track.scrollLeft = drag.left - dx
+    const now = performance.now()
+    drag.v = (e.clientX - drag.lastX) / Math.max(1, now - drag.lastT)
+    drag.lastX = e.clientX; drag.lastT = now
+  })
+  window.addEventListener('pointerup', () => {
+    if (!drag) return
+    const d = drag
+    drag = null
+    if (!d.moved) return
+    const stop = (ev) => { ev.preventDefault(); ev.stopPropagation() }
+    track.addEventListener('click', stop, { capture: true, once: true })
+    setTimeout(() => track.removeEventListener('click', stop, { capture: true }), 0)
+    track.removeAttribute('data-dragging')
+    if (!reduced.matches) track.scrollBy({ left: -d.v * 320, behavior: 'smooth' })
+  })
   let t = 0
   track.addEventListener('scroll', () => { clearTimeout(t); t = setTimeout(sync, 80) }, { passive: true })
   sync()

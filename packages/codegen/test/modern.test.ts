@@ -273,3 +273,141 @@ describe("modern recreation (one DOM for every width)", () => {
     expect(toNgTemplate(parseHtml("<p>Mail us @ {home}</p>"))).toBe("<p>Mail us &#64; &#123;home&#125;</p>");
   });
 });
+
+describe("desktop navigation flyouts", () => {
+  // the fixture's 1440 walk with one more navigation entry: a link whose panel shows while the pointer is over it
+  const font = {
+    family: "Arial",
+    stack: "Arial, Helvetica, sans-serif",
+    size: 16,
+    weight: 400,
+    ascent: 13,
+    lineHeight: 24,
+    letterSpacing: 0,
+    color: "rgb(22, 22, 22)",
+  };
+  const K = "body/header:0/nav:0/div:9";
+  const text = (key: string, s: string, x: number, y: number) => ({
+    key,
+    ord: 0,
+    kind: "text",
+    text: s,
+    lines: [{ text: s, x, y, w: 80, h: 18 }],
+    font,
+  });
+  const entry = (open: boolean) => ({
+    id: 9001,
+    key: K,
+    tag: "div",
+    rect: { x: 900, y: 16, w: 80, h: 32 },
+    layout: { display: "block", position: "static" },
+    attrs: { class: "nav-item" },
+    style: { color: "rgb(22, 22, 22)" },
+    ord: 9,
+    children: [
+      {
+        id: 9002,
+        key: `${K}/a:0`,
+        tag: "a",
+        rect: { x: 900, y: 16, w: 80, h: 32 },
+        layout: { display: "block", position: "static" },
+        attrs: { href: "http://motion.example/services/", class: "nav-link" },
+        aria: { "aria-haspopup": "true", "aria-controls": "panel-1" },
+        style: { color: "rgb(22, 22, 22)" },
+        pointer: true,
+        ord: 0,
+        children: [text(`${K}/a:0~0`, "Services", 900, 20)],
+      },
+      {
+        id: 9003,
+        key: `${K}/ul#panel-1:0`,
+        tag: "ul",
+        rect: { x: 0, y: 64, w: 1440, h: open ? 200 : 1 },
+        layout: { display: "block", position: "absolute", padding: [0, 32, 0, 32] },
+        attrs: { id: "panel-1", class: "sub-menu" },
+        aria: { "aria-hidden": "true" },
+        style: { bg: "rgb(255, 255, 255)", opacity: open ? undefined : 0, overflow: ["hidden", "hidden"] },
+        ...(open ? {} : { invisible: true }),
+        ord: 1,
+        children: open
+          ? [
+              {
+                id: 9004,
+                key: `${K}/ul#panel-1:0/li:0`,
+                tag: "li",
+                rect: { x: 32, y: 96, w: 300, h: 24 },
+                layout: { display: "list-item", position: "static" },
+                attrs: {},
+                style: { color: "rgb(22, 22, 22)" },
+                ord: 0,
+                children: [
+                  {
+                    id: 9005,
+                    key: `${K}/ul#panel-1:0/li:0/a:0`,
+                    tag: "a",
+                    rect: { x: 32, y: 96, w: 120, h: 24 },
+                    layout: { display: "inline", position: "static" },
+                    attrs: { href: "http://motion.example/services/strategy/" },
+                    style: { color: "rgb(22, 22, 22)" },
+                    pointer: true,
+                    ord: 0,
+                    children: [text(`${K}/ul#panel-1:0/li:0/a:0~0`, "Strategy", 32, 99)],
+                  },
+                ],
+              },
+            ]
+          : [],
+      },
+    ],
+  });
+  const vs = variants();
+  const wide = vs[vs.length - 1]!.snap as unknown as Record<string, any>;
+  const nav = wide.root.children
+    .find((c: any) => c.key === "body/header:0")
+    .children.find((c: any) => c.key === "body/header:0/nav:0");
+  nav.children.push(entry(false));
+  wide.controls = [...(wide.controls ?? []), { kind: "hover", id: 9002 }];
+  const { snapshot: _s, ...shell } = wide.states[0];
+  wide.states.push({
+    ...shell,
+    kind: "region",
+    index: wide.controls.length - 1,
+    region: 9001,
+    toggle: false,
+    hover: true,
+    label: "Services",
+    snapshot: { ...wide.states[0].snapshot, root: entry(true), controls: [] },
+  });
+  const { files } = emitModern({ variants: vs, media: video, page: "Northwind" });
+  const html = String(files["index.html"]);
+  const css = String(files["styles.css"]);
+
+  it("keeps the panel's content, opens it on hover and keyboard focus, and leaves the link a link", () => {
+    expect(html).toMatch(/<ul class="[^"]+" id="panel-1"><li[^>]*><a[^>]*>Strategy<\/a>/);
+    expect(html).not.toMatch(/id="panel-1"[^>]*aria-hidden/);
+    expect(html).toMatch(/<a [^>]*href="http:\/\/motion\.example\/services\/"[^>]*>Services/);
+    expect(html).not.toMatch(/data-region-(toggle|set)="r\d+:\d+"[^>]*>Services/);
+    const r = /data-region="(r\d+)"/.exec(html.slice(html.indexOf("Services") - 600))?.[1];
+    expect(r).toBeTruthy();
+    expect(css).toContain(`:is([data-region="${r}"]:hover, [data-region="${r}"]:focus-within) .`);
+    expect(css).toMatch(
+      new RegExp(`data-region="${r}"\\]:focus-within\\) \\.[\\w-]+ \\{[^}]*visibility: visible`),
+    );
+  });
+
+  it("hangs the closed panel under its bar: it opens downwards, never over the navigation", () => {
+    const cls = /<ul class="([^"]+)" id="panel-1"/.exec(html)![1]!;
+    expect(css).toMatch(new RegExp(`\\.${cls} \\{[^}]*top: 100%`));
+    expect(css).not.toMatch(new RegExp(`\\.${cls} \\{[^}]*bottom:`));
+  });
+
+  it("lets a panel grow to its content's height in a transition (not in a jump)", () => {
+    expect(css).toMatch(
+      /prefers-reduced-motion: no-preference\) \{ :root \{ interpolate-size: allow-keywords; \} \}/,
+    );
+  });
+
+  it("resets fieldsets: no browser frame around a form's groups", () => {
+    expect(css).toMatch(/:where\(fieldset\) \{ border: 0; padding: 0; min-width: 0; \}/);
+  });
+});

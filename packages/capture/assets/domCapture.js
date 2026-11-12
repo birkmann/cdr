@@ -699,6 +699,27 @@
       else if ((tag === 'button' || tag === 'summary' || role === 'button') && el.getAttribute('aria-expanded') === 'false' && !el.hasAttribute('aria-haspopup')) add(el, 'toggle')
       else if (tag === 'button' && scrollsX(el)) add(el, 'toggle')
     }
+    // desktop navigation flyouts: an entry (a link to its section page, often) that shows its hidden panel while the
+    // pointer is over it — opened by the driver's pointer, never clicked; a fixed header is where they live
+    if (window.innerWidth >= 1024) {
+      const hiddenNow = (p) => { const cs = getComputedStyle(p), r = p.getBoundingClientRect(); return cs.display === 'none' || cs.visibility === 'hidden' || Number(cs.opacity) < 0.05 || r.height < 4 || r.width < 4 }
+      for (const el of deepElements(document.body)) {
+        if (out.length >= 40) break
+        if (!/^(a|button)$/.test(el.localName) || seen.has(el) || el === window.__figcapMenuTrigger || !visible(el)) continue
+        const pop = /^(true|menu)$/.test(el.getAttribute('aria-haspopup') || '')
+        const nav = el.closest('nav, [role="navigation"], header')
+        if (!nav || (!pop && !el.hasAttribute('aria-controls'))) continue
+        const id = el.getAttribute('aria-controls')
+        const item = el.closest('li') || el.parentElement
+        let panel = id ? document.getElementById(id) : null
+        if (!panel && item) panel = [...item.children].find((c) => c !== el && !c.contains(el) && /^(ul|div|section|nav)$/.test(c.localName)) || null
+        if (!panel || !item || !item.contains(panel) || !hiddenNow(panel) || !panel.querySelector('a')) continue
+        const r = el.getBoundingClientRect()
+        if (r.width < 8 || r.height < 8) continue
+        seen.add(el)
+        out.push({ el, kind: 'hover', panel, tag: el.localName, label: labelOf(el), cls: classOf(el), at: { x: r.left + window.scrollX, y: r.top + window.scrollY } })
+      }
+    }
     return out
   }
   /**
@@ -744,13 +765,29 @@
     thaw()
     const c = (window.__figcapCtl || [])[opts.index]
     if (!c || !controlEl(c, opts.index) || !visible(c.el)) return null
-    c.el.scrollIntoView({ block: 'center', behavior: 'instant' })
+    if (c.kind === 'hover') window.scrollTo({ top: 0, left: 0, behavior: 'instant' })
+    else c.el.scrollIntoView({ block: 'center', behavior: 'instant' })
     await nextFrame(); await nextFrame()
     const S = (window.__figcapState = { ctl: c, back: c.kind === 'select' && c.option === undefined ? selectedOf(c.el) : null, changed: [], url: location.href, last: window.performance.now(), texts: new Map(ancestorsOf(c.el).slice(0, 12).map((a) => [a, norm(a.innerText)])) })
     S.mo = new window.MutationObserver((list) => { S.last = window.performance.now(); for (const m of list) S.changed.push(m.type === 'characterData' ? m.target.parentElement : m.target) })
     S.mo.observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true })
     S.noNav = (e) => { const a = e.target.closest && e.target.closest('a[href]'); if (a && !/^(#|javascript:)/i.test((a.getAttribute('href') || '').trim())) e.preventDefault() }
     window.addEventListener('click', S.noNav)
+    if (c.kind === 'hover') {
+      // layers over the page the open flyout may show (a backdrop dimming the page): fixed, viewport-sized, not drawn now
+      S.overlays = []
+      for (const el of deepElements(document.body)) {
+        if (S.overlays.length >= 4 || el.__figcapBase === undefined || el.contains(c.el)) continue
+        const cs = getComputedStyle(el)
+        if (cs.position !== 'fixed' || cs.display === 'none') continue
+        const r = el.getBoundingClientRect()
+        if (r.width < window.innerWidth * 0.8 || r.height < window.innerHeight * 0.5) continue
+        if (Number(cs.opacity) < 0.05 || cs.visibility === 'hidden') S.overlays.push(el)
+      }
+      // the driver moves the pointer here (a pure CSS :hover changes nothing the observer sees: the panel counts)
+      const r = c.el.getBoundingClientRect()
+      return { clicked: true, hover: { x: Math.round(r.left + Math.min(r.width / 2, 12)), y: Math.round(r.top + r.height / 2) } }
+    }
     if (c.option !== undefined) chooseOption(c.el, c.option)
     else c.el.click()
     return { clicked: true }
@@ -775,6 +812,7 @@
     S.mo.disconnect()
     window.removeEventListener('click', S.noNav)
     if (location.href !== S.url) return { ok: false }
+    if (S.ctl.kind === 'hover') return hoverSettle(S)
     // body / html attribute churn (scroll locks, state classes) says nothing about where the widget is
     const shown = [...new Set(S.changed)].filter((n) => n && n.nodeType === 1 && n.isConnected && !/^(script|style|link|meta|noscript|body|html)$/.test(n.localName) && n.getBoundingClientRect().width > 0)
     if (!shown.length) return { ok: false }
@@ -810,6 +848,32 @@
     ;(window.__figcapCtl || []).forEach((c, k) => controlEl(c, k))
     return { ok: true, region: region.__figcapBase, kind: S.ctl.kind, label: S.ctl.text || labelOf(S.ctl.el) }
   }
+  /** a flyout under the pointer: its region is the entry holding the trigger and the panel, once the panel shows */
+  async function hoverSettle(S) {
+    const { el, panel } = S.ctl
+    if (!panel || !panel.isConnected) return { ok: false }
+    const r = panel.getBoundingClientRect(), cs = getComputedStyle(panel)
+    if (cs.display === 'none' || cs.visibility === 'hidden' || Number(cs.opacity) < 0.05 || r.height < 4) return { ok: false }
+    let region = el.parentElement
+    while (region && !region.contains(panel)) region = region.parentElement
+    while (region && region.__figcapBase === undefined) region = region.parentElement
+    if (!region || region === document.body) return { ok: false }
+    S.region = region
+    for (const img of panel.querySelectorAll('img')) {
+      if (img.loading === 'lazy') img.loading = 'eager'
+      const lazy = !img.getAttribute('src') && (img.getAttribute('data-src') || img.getAttribute('data-lazy-src'))
+      if (lazy) img.setAttribute('src', lazy)
+    }
+    await Promise.race([Promise.all([...panel.querySelectorAll('img')].map((i) => (i.decode ? i.decode().catch(() => {}) : null))), sleep(3000)])
+    region.setAttribute('data-figcap-region', '')
+    // the page's layers the flyout showed: their look while it is open
+    const overlays = []
+    for (const o of S.overlays || []) {
+      const cs = getComputedStyle(o)
+      if (o.isConnected && Number(cs.opacity) >= 0.05 && cs.visibility !== 'hidden') overlays.push({ id: o.__figcapBase, opacity: Number(cs.opacity), bg: cs.backgroundColor })
+    }
+    return { ok: true, region: region.__figcapBase, kind: 'hover', label: labelOf(el), ...(overlays.length ? { overlays } : {}) }
+  }
   /**
    * mode 'state-restore' (`index`): the page as before — a toggle clicked again, a choice back on the group's selected
    * one. `{ ok }` = the region (else the control's surroundings) reads as before.
@@ -820,13 +884,15 @@
     if (!S || !c) return { ok: false }
     if (S.region) S.region.removeAttribute('data-figcap-region')
     // a choice goes back to the one selected before the state opened (selectedOf now finds the one just chosen)
-    const back = c.option !== undefined ? c.el : c.kind === 'toggle' ? c.el : (S.back && S.back.isConnected ? S.back : selectedOf(c.el))
+    // a flyout closes when the driver has moved the pointer away
+    const back = c.kind === 'hover' ? c.el : c.option !== undefined ? c.el : c.kind === 'toggle' ? c.el : (S.back && S.back.isConnected ? S.back : selectedOf(c.el))
     if (!back) return { ok: false }
     const R = { last: window.performance.now() }
     const mo = new window.MutationObserver(() => { R.last = window.performance.now() })
     mo.observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true })
     window.addEventListener('click', S.noNav)
-    if (c.option !== undefined) chooseOption(back, c.base)
+    if (c.kind === 'hover') { /* nothing to click */ }
+    else if (c.option !== undefined) chooseOption(back, c.base)
     else back.click()
     await quiet(R, 2500)
     mo.disconnect()
@@ -1959,6 +2025,27 @@
     return false
   }
   const srOnly = []
+  /** cursor declarations of :active / :focus rules (the cursor a control shows while pressed), read once */
+  let cursorRules = null
+  function activeCursorOf(el) {
+    if (!cursorRules) {
+      cursorRules = []
+      const visitRules = (list) => {
+        for (const r of list) {
+          if (r.cssRules && !r.selectorText) { try { visitRules(r.cssRules) } catch { /* unreadable */ } continue }
+          if (!r.selectorText || !r.style || !r.style.cursor || !/:active/.test(r.selectorText)) continue
+          // url()s in a rule are relative to its style sheet, not to the page
+          const base = (r.parentStyleSheet && r.parentStyleSheet.href) || location.href
+          const cur = r.style.cursor.replace(/url\(\s*["']?([^"')]+)["']?\s*\)/g, (_m, u) => { try { return `url("${new URL(u, base).href}")` } catch { return _m } })
+          for (const sel of r.selectorText.split(',')) if (/:active/.test(sel)) cursorRules.push([sel.replace(/:(active|focus(-visible|-within)?)/g, '').trim(), cur])
+        }
+      }
+      for (const sh of document.styleSheets) { try { visitRules(sh.cssRules) } catch { /* cross-origin */ } }
+    }
+    let found = null
+    for (const [sel, cur] of cursorRules) { try { if (sel && el.matches(sel)) found = cur } catch { /* bad selector */ } }
+    return found
+  }
   const invisible = []
   let forceVisible = 0, pendingInvisible = null
   /** the accessibility attributes the recreation keeps (labels, states, relations) */
@@ -2026,6 +2113,7 @@
         if (typeof p.slidesPerView === 'number') f.perView = p.slidesPerView
         if (typeof p.spaceBetween === 'number') f.gap = p.spaceBetween
         if (typeof p.speed === 'number') f.speed = p.speed
+        if (p.freeMode === true || (p.freeMode && p.freeMode.enabled)) f.free = true
         f.slides = sw.slides ? [...sw.slides].filter((x) => !/swiper-slide-duplicate/.test(classOf(x))).length : undefined
       }
       const splide = el.closest('.splide')
@@ -2150,6 +2238,13 @@
     if (hidden) node.hidden = true
     if (cs.transform && cs.transform !== 'none') node.size = { w: el.offsetWidth || rect.w, h: el.offsetHeight || rect.h }
     if (cs.cursor === 'pointer') node.pointer = true
+    // a cursor of the page's own (an icon over a slider's pictures, grab, zoom-in): where it starts (not inherited),
+    // and the one it shows while pressed (:active rules)
+    else if (cs.cursor && !/^(auto|default|text)$/.test(cs.cursor) && (!el.parentElement || getComputedStyle(el.parentElement).cursor !== cs.cursor)) {
+      node.cursor = cs.cursor
+      const pressed = activeCursorOf(el)
+      if (pressed && pressed !== cs.cursor) node.cursorActive = pressed
+    }
     // children clip rect
     let childClip = clip
     // a visibility: hidden box records no style but still clips its (visible) descendants: a collapsed menu wrapper
