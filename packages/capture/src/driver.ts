@@ -15,6 +15,7 @@ import {
   imageUses,
   latinRange,
   primaryLang,
+  chromeLanguages,
 } from "./assets.js";
 import { cssFontWeight, retryWww, stripOnLoadOverlays, unifyAltImages, visit, wwwVariant } from "./assets.js";
 import type { SnapHover } from "./snapshot.js";
@@ -483,7 +484,7 @@ async function guardSession(cdp: Cdp, proxy: Proxy, s: string, frame: boolean, l
   if (proxy.ua)
     await call("Network.setUserAgentOverride", {
       userAgent: proxy.ua.ua,
-      acceptLanguage: proxy.ua.lang,
+      acceptLanguage: chromeLanguages(proxy.ua.lang),
       platform: proxy.ua.meta.platform,
       userAgentMetadata: proxy.ua.meta,
     });

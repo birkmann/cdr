@@ -433,7 +433,12 @@ export function RecreateCard({
         : gatesMissed
           ? `Ready · ${passed} of ${primary?.gates.length ?? 0} gates`
           : "Failed";
-  const pages = running ? [] : recreatePages(run);
+  // outputs are announced up front: a run whose Build did not finish, or that failed before it (the page did not
+  // load), has no page to open. A run resumed past Build (no build event in this session) keeps its earlier page.
+  const unbuilt = run.stages.build
+    ? run.stages.build.status !== "done"
+    : Object.values(run.stages).some((x) => x.status === "failed");
+  const pages = running || unbuilt ? [] : recreatePages(run);
   const pageUrl = (path: string) => (client && previewBase ? client.previewUrl(previewBase, path) : "");
   return (
     <section className={`card recreate-card ${look}`} role="region" aria-label="Recreation progress">

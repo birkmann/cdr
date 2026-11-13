@@ -209,6 +209,20 @@ export function primaryLang(accept: string): string | null {
 }
 
 /**
+ * An Accept-Language header as the language list Chrome's `Network.setUserAgentOverride` expects: `"en-US,en;q=0.9"`
+ * → `"en-US,en"`. Chrome appends its own q-values to every entry, so a header passed as is goes out as
+ * `en;q=0.9;q=0.9`, which some geo redirects cannot parse (bmw.com bounced between www.bmw.com and redirect.bmw.com
+ * until Chrome gave up with ERR_TOO_MANY_REDIRECTS).
+ */
+export function chromeLanguages(accept: string): string {
+  return accept
+    .split(",")
+    .map((x) => x.split(";")[0]!.trim())
+    .filter((x) => x && x !== "*")
+    .join(",");
+}
+
+/**
  * Default hiding of on-load overlays in a snapshot (the page as walked at load, and its alt walks; never the menu /
  * widget states, whose open panels are often `role="dialog"` on purpose): a fixed dialog box (`role=dialog |
  * alertdialog`, `<dialog>`) covering more than a small corner is removed, so a recreation never starts with a modal

@@ -28,6 +28,7 @@ import {
   unifyAltImages,
   validateUrl,
   wwwVariant,
+  chromeLanguages,
 } from "@harness/capture";
 import { serveSite } from "./sites/serve.js";
 
@@ -110,6 +111,12 @@ describe("asset helpers", () => {
     expect(latinRange("U+0000-00FF")).toBe(true);
     expect(latinRange("U+0400-04FF")).toBe(false);
     expect(wwwVariant(new URL("https://bmw.de/x"))?.toString()).toBe("https://www.bmw.de/x");
+  });
+
+  it("hands Chrome a bare language list (it adds the q-values itself)", () => {
+    expect(chromeLanguages("en-US,en;q=0.9")).toBe("en-US,en");
+    expect(chromeLanguages(" de-DE , de;q=0.8, *;q=0.1")).toBe("de-DE,de");
+    expect(chromeLanguages("fr")).toBe("fr");
   });
 
   it("reuses the capture's image in alt walks when only the resolution differs", () => {
